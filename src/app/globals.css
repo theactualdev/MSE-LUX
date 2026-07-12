@@ -1,26 +1,55 @@
 @import "tailwindcss";
 
+/* Primitive tokens — raw MSE Lux palette (warm ivory + champagne gold) */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --ivory: #faf7f2;
+  --cream: #f3ede3;
+  --champagne: #c9a86a;
+  --champagne-deep: #b08d4f;
+  --charcoal: #2b2724;
+  --charcoal-soft: #4b453f;
+  --stone: #8c847a;
+  --line: #e5ddd1;
+  --white: #ffffff;
+  --radius: 0.75rem; /* rounded-xl */
 }
 
+/* Semantic tokens consumed by components (never raw hex in components) */
+:root {
+  --color-background: var(--ivory);
+  --color-surface: var(--white);
+  --color-foreground: var(--charcoal);
+  --color-muted: var(--cream);
+  --color-muted-foreground: var(--stone);
+  --color-accent: var(--champagne);
+  --color-accent-foreground: var(--charcoal);
+  --color-border: var(--line);
+  --color-ring: var(--champagne-deep);
+}
+
+/* Expose tokens to Tailwind v4 utilities */
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --color-background: var(--color-background);
+  --color-surface: var(--color-surface);
+  --color-foreground: var(--color-foreground);
+  --color-muted: var(--color-muted);
+  --color-muted-foreground: var(--color-muted-foreground);
+  --color-accent: var(--color-accent);
+  --color-accent-foreground: var(--color-accent-foreground);
+  --color-border: var(--color-border);
+  --color-ring: var(--color-ring);
+  --radius-xl: var(--radius);
+  --font-display: var(--font-display);
+  --font-sans: var(--font-sans);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+@layer base {
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
   }
-}
-
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  h1, h2, h3, h4 {
+    font-family: var(--font-display), Georgia, serif;
+  }
 }
