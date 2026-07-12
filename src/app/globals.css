@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
 /* Primitive tokens — raw MSE Lux palette (warm ivory + champagne gold) */
 :root {
@@ -27,6 +29,34 @@
   --color-ring: var(--champagne-deep);
 }
 
+/*
+ * shadcn/ui expected token names, mapped onto the MSE Lux palette above.
+ * shadcn's CLI defaults these to a neutral gray scale (oklch) — we reconcile
+ * every name it relies on to our warm ivory/champagne tokens instead so
+ * bg-background/bg-primary/etc. render on-brand, not gray.
+ */
+:root {
+  --background: var(--ivory);
+  --foreground: var(--charcoal);
+  --card: var(--white);
+  --card-foreground: var(--charcoal);
+  --popover: var(--ivory);
+  --popover-foreground: var(--charcoal);
+  --primary: var(--champagne);
+  --primary-foreground: var(--charcoal);
+  --secondary: var(--cream);
+  --secondary-foreground: var(--charcoal);
+  --muted: var(--cream);
+  --muted-foreground: var(--stone);
+  --accent: var(--champagne);
+  --accent-foreground: var(--charcoal);
+  /* No brand spec for error/danger states yet — keep shadcn's functional red. */
+  --destructive: oklch(0.577 0.245 27.325);
+  --border: var(--line);
+  --input: var(--line);
+  --ring: var(--champagne-deep);
+}
+
 /* Expose tokens to Tailwind v4 utilities */
 @theme inline {
   --color-background: var(--color-background);
@@ -41,6 +71,23 @@
   --radius-xl: var(--radius);
   --font-display: var(--font-display);
   --font-sans: var(--font-sans);
+  --font-heading: var(--font-display);
+  --color-input: var(--input);
+  --color-destructive: var(--destructive);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-secondary: var(--secondary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary: var(--primary);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-popover: var(--popover);
+  --color-card-foreground: var(--card-foreground);
+  --color-card: var(--card);
+  --radius-sm: calc(var(--radius) * 0.6);
+  --radius-md: calc(var(--radius) * 0.8);
+  --radius-lg: var(--radius);
+  --radius-2xl: calc(var(--radius) * 1.8);
+  --radius-3xl: calc(var(--radius) * 2.2);
+  --radius-4xl: calc(var(--radius) * 2.6);
 }
 
 @layer base {
@@ -48,8 +95,22 @@
     background-color: var(--color-background);
     color: var(--color-foreground);
     font-family: var(--font-sans), ui-sans-serif, system-ui, sans-serif;
+    @apply bg-background text-foreground;
   }
   h1, h2, h3, h4 {
     font-family: var(--font-display), Georgia, serif;
   }
+  * {
+    @apply border-border outline-ring/50;
+  }
+  html {
+    @apply font-sans;
+  }
 }
+
+/*
+ * Dark mode is deferred to Phase 2 (see Task 8 controller decisions — sonner's
+ * generated Toaster needs next-themes, which nothing in Phase 1 consumes).
+ * No `.dark` overrides or `next-themes` wiring are added here; when dark mode
+ * lands, add a `.dark { ... }` block re-mapping these same token names.
+ */
