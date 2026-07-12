@@ -1,0 +1,13 @@
+import { describe, it, expect } from 'vitest'
+import { parseEnv } from '@/lib/env'
+
+describe('parseEnv', () => {
+  it('applies defaults when vars are missing', () => {
+    const env = parseEnv({})
+    expect(env.NEXT_PUBLIC_SITE_URL).toBe('http://localhost:3000')
+    expect(env.NEXT_PUBLIC_BRAND_NAME).toBe('MSE Lux')
+  })
+  it('throws on an invalid URL', () => {
+    expect(() => parseEnv({ NEXT_PUBLIC_SITE_URL: 'not-a-url' })).toThrow()
+  })
+})
