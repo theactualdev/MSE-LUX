@@ -42,7 +42,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
       initial="rest"
       whileHover={prefersReducedMotion ? undefined : 'hover'}
       className={cn(
-        'group relative flex flex-col overflow-hidden rounded-xl bg-card ring-1 ring-border transition-shadow duration-300 hover:shadow-lg',
+        'relative flex flex-col overflow-hidden rounded-xl bg-card ring-1 ring-border transition-shadow duration-300 hover:shadow-lg',
         className,
       )}
     >
@@ -65,9 +65,9 @@ export function ProductCard({ product, className }: ProductCardProps) {
           </motion.div>
 
           {product.badges.length > 0 ? (
-            <div className="absolute left-3 top-3 z-10 flex flex-col items-start gap-1.5">
+            <div className="absolute left-3 top-3 z-10 flex flex-col items-start gap-2">
               {product.badges.includes('new') ? (
-                <Badge className="bg-background/90 uppercase tracking-wide text-foreground backdrop-blur">New</Badge>
+                <Badge className="bg-background uppercase tracking-wide text-foreground">New</Badge>
               ) : null}
               {product.badges.includes('best-seller') ? (
                 <Badge className="uppercase tracking-wide">Bestseller</Badge>
@@ -90,7 +90,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
         }}
         aria-pressed={isWishlisted}
         aria-label={wishlistLabel}
-        className="absolute right-3 top-3 z-20 inline-flex size-9 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm backdrop-blur transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        className="absolute right-3 top-3 z-20 inline-flex size-9 items-center justify-center rounded-full bg-background text-foreground shadow-sm transition-colors hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       >
         <Heart aria-hidden="true" className={cn('size-4.5 transition-colors', isWishlisted && 'fill-accent text-accent')} />
       </button>
