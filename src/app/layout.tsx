@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import { Playfair_Display, Inter } from 'next/font/google'
+import { AppShell } from '@/components/layout/app-shell'
 import { siteConfig } from '@/lib/config'
 import './globals.css'
 
@@ -14,7 +15,9 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${playfair.variable} ${inter.variable}`}>
-      <body>{children}</body>
+      <body>
+        <AppShell>{children}</AppShell>
+      </body>
     </html>
   )
 }
