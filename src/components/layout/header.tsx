@@ -8,6 +8,8 @@ import { MegaMenu } from '@/components/layout/mega-menu'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList } from '@/components/ui/navigation-menu'
+import { useCartStore } from '@/features/cart/store'
+import { useHydrated } from '@/features/cart/use-hydrated'
 import { siteConfig } from '@/lib/config'
 import { useUiStore } from '@/stores/ui'
 import { cn } from '@/lib/utils'
@@ -21,6 +23,9 @@ function hasChildren(item: NavItem): item is NavItem & { children: NavItem[] } {
 export function Header() {
   const openMobileNav = useUiStore((s) => s.openMobileNav)
   const toggleSearch = useUiStore((s) => s.toggleSearch)
+  const cartCount = useCartStore((s) => s.itemCount())
+  const hydrated = useHydrated()
+  const showCartBadge = hydrated && cartCount > 0
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border bg-background shadow-sm">
@@ -77,7 +82,9 @@ export function Header() {
             className={cn(buttonVariants({ variant: 'ghost', size: 'icon-xl' }), 'relative')}
           >
             <ShoppingBag aria-hidden="true" />
-            <Badge className="absolute -top-1 -right-1 hidden" aria-hidden="true" />
+            <Badge className={cn('absolute -top-1 -right-1', !showCartBadge && 'hidden')} aria-hidden="true">
+              {showCartBadge ? cartCount : null}
+            </Badge>
           </Link>
         </div>
       </Container>
