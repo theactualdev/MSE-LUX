@@ -10,6 +10,7 @@ import { Button, buttonVariants } from '@/components/ui/button'
 import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList } from '@/components/ui/navigation-menu'
 import { useCartStore } from '@/features/cart/store'
 import { useHydrated } from '@/features/cart/use-hydrated'
+import { useWishlistStore } from '@/features/wishlist/store'
 import { siteConfig } from '@/lib/config'
 import { useUiStore } from '@/stores/ui'
 import { cn } from '@/lib/utils'
@@ -24,8 +25,10 @@ export function Header() {
   const openMobileNav = useUiStore((s) => s.openMobileNav)
   const toggleSearch = useUiStore((s) => s.toggleSearch)
   const cartCount = useCartStore((s) => s.itemCount())
+  const wishlistCount = useWishlistStore((s) => s.count())
   const hydrated = useHydrated()
   const showCartBadge = hydrated && cartCount > 0
+  const showWishlistBadge = hydrated && wishlistCount > 0
 
   return (
     <header className="sticky top-0 z-40 w-full border-b border-border bg-background shadow-sm">
@@ -67,7 +70,9 @@ export function Header() {
             className={cn(buttonVariants({ variant: 'ghost', size: 'icon-xl' }), 'relative hidden sm:inline-flex')}
           >
             <Heart aria-hidden="true" />
-            <Badge className="absolute -top-1 -right-1 hidden" aria-hidden="true" />
+            <Badge className={cn('absolute -top-1 -right-1', !showWishlistBadge && 'hidden')} aria-hidden="true">
+              {showWishlistBadge ? wishlistCount : null}
+            </Badge>
           </Link>
           <Link
             href="/account"
