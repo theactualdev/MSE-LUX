@@ -1,4 +1,15 @@
+import { categories } from '@/features/catalog/data'
 import type { NavItem } from '@/types/nav'
+
+/** Category/subcategory taxonomy, mapped into the nav shape Header/MegaMenu/MobileDrawer consume. */
+const taxonomyNav: NavItem[] = categories.map((category) => ({
+  label: category.name,
+  href: `/${category.slug}`,
+  children: category.subcategories.map((sub) => ({
+    label: sub.name,
+    href: `/${category.slug}/${sub.slug}`,
+  })),
+}))
 
 export const siteConfig = {
   name: 'MSE Lux',
@@ -9,13 +20,7 @@ export const siteConfig = {
     instagram: 'https://www.instagram.com/mse_beadsandaccessories',
   },
   nav: [
-    { label: 'Jewelry', href: '/jewelry', children: [
-      { label: 'Necklaces', href: '/jewelry/necklaces' },
-      { label: 'Bracelets', href: '/jewelry/bracelets' },
-      { label: 'Earrings', href: '/jewelry/earrings' },
-    ] },
-    { label: 'Beads', href: '/beads' },
-    { label: 'Accessories', href: '/accessories' },
+    ...taxonomyNav,
     { label: 'Collections', href: '/collections' },
     { label: 'About', href: '/about' },
   ] satisfies NavItem[],
