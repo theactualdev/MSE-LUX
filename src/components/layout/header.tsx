@@ -28,7 +28,7 @@ export function Header() {
         <Button
           type="button"
           variant="ghost"
-          size="icon-lg"
+          size="icon-xl"
           aria-label="Open menu"
           className="md:hidden"
           onClick={() => openMobileNav()}
@@ -53,13 +53,13 @@ export function Header() {
         </NavigationMenu>
 
         <div className="flex items-center gap-1">
-          <Button type="button" variant="ghost" size="icon-lg" aria-label="Search" onClick={() => toggleSearch()}>
+          <Button type="button" variant="ghost" size="icon-xl" aria-label="Search" onClick={() => toggleSearch()}>
             <Search aria-hidden="true" />
           </Button>
           <Link
             href="/wishlist"
             aria-label="Wishlist"
-            className={cn(buttonVariants({ variant: 'ghost', size: 'icon-lg' }), 'relative hidden sm:inline-flex')}
+            className={cn(buttonVariants({ variant: 'ghost', size: 'icon-xl' }), 'relative hidden sm:inline-flex')}
           >
             <Heart aria-hidden="true" />
             <Badge className="absolute -top-1 -right-1 hidden" aria-hidden="true" />
@@ -67,14 +67,14 @@ export function Header() {
           <Link
             href="/account"
             aria-label="Account"
-            className={cn(buttonVariants({ variant: 'ghost', size: 'icon-lg' }), 'hidden sm:inline-flex')}
+            className={cn(buttonVariants({ variant: 'ghost', size: 'icon-xl' }), 'hidden sm:inline-flex')}
           >
             <User aria-hidden="true" />
           </Link>
           <Link
             href="/cart"
             aria-label="Cart"
-            className={cn(buttonVariants({ variant: 'ghost', size: 'icon-lg' }), 'relative')}
+            className={cn(buttonVariants({ variant: 'ghost', size: 'icon-xl' }), 'relative')}
           >
             <ShoppingBag aria-hidden="true" />
             <Badge className="absolute -top-1 -right-1 hidden" aria-hidden="true" />
