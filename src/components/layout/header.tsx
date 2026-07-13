@@ -23,7 +23,7 @@ export function Header() {
   const toggleSearch = useUiStore((s) => s.toggleSearch)
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-border bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/80">
+    <header className="sticky top-0 z-40 w-full border-b border-border bg-background shadow-sm">
       <Container className="flex h-16 items-center justify-between gap-2 sm:h-20">
         <Button
           type="button"

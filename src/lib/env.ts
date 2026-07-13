@@ -1,7 +1,7 @@
 import { z } from 'zod'
 
 const envSchema = z.object({
-  NEXT_PUBLIC_SITE_URL: z.string().url().default('http://localhost:3000'),
+  NEXT_PUBLIC_SITE_URL: z.url().default('http://localhost:3000'),
   NEXT_PUBLIC_BRAND_NAME: z.string().min(1).default('MSE Lux'),
 })
 

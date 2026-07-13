@@ -8,11 +8,11 @@ import type { Currency, FxRates, Money, PriceSet } from '@/types/money'
  * Assumes FX-target currencies use 2 minor digits (documented Phase 1 limitation).
  */
 export function resolveDisplayPrice(prices: PriceSet, target: Currency, fx: FxRates): Money {
-  if (target === 'NGN') return prices.ngn
-  if (target === 'USD') return prices.usd
+  if (target === 'NGN') return { ...prices.ngn }
+  if (target === 'USD') return { ...prices.usd }
 
   const rate = fx[target]
-  if (!rate || rate <= 0) {
+  if (!Number.isFinite(rate) || rate <= 0) {
     throw new Error(`resolveDisplayPrice: missing or invalid FX rate for "${target}"`)
   }
   return { amountMinor: Math.round(prices.usd.amountMinor * rate), currency: target }

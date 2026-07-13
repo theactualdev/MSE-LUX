@@ -26,6 +26,14 @@ describe('resolveDisplayPrice', () => {
     const result = resolveDisplayPrice(prices, 'EUR', { EUR: 0.923456 })
     expect(Number.isInteger(result.amountMinor)).toBe(true)
   })
+  it('throws on a non-finite FX rate', () => {
+    expect(() => resolveDisplayPrice(prices, 'EUR', { EUR: Infinity })).toThrow()
+  })
+  it('returns a copy so the source PriceSet cannot be mutated', () => {
+    const result = resolveDisplayPrice(prices, 'NGN', {})
+    result.amountMinor = 0
+    expect(prices.ngn.amountMinor).toBe(1_500_000)
+  })
 })
 
 describe('formatMoney', () => {
