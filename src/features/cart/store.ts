@@ -10,6 +10,8 @@ export interface CartItem {
 interface CartState {
   items: CartItem[]
   addItem: (productId: string, variantId?: string, qty?: number) => void
+  removeItem: (productId: string, variantId?: string) => void
+  updateQuantity: (productId: string, variantId: string | undefined, qty: number) => void
   itemCount: () => number
   clear: () => void
 }
@@ -30,6 +32,18 @@ export const useCartStore = create<CartState>()(
             }
           }
           return { items: [...s.items, { productId, variantId, quantity: qty }] }
+        }),
+      removeItem: (productId, variantId) =>
+        set((s) => {
+          const k = key({ productId, variantId })
+          return { items: s.items.filter((i) => key(i) !== k) }
+        }),
+      updateQuantity: (productId, variantId, qty) =>
+        set((s) => {
+          const k = key({ productId, variantId })
+          return {
+            items: s.items.map((i) => (key(i) === k ? { ...i, quantity: Math.max(1, qty) } : i)),
+          }
         }),
       itemCount: () => get().items.reduce((n, i) => n + i.quantity, 0),
       clear: () => set({ items: [] }),
