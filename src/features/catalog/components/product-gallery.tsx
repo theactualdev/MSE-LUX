@@ -1,6 +1,6 @@
 'use client'
 
-import { useRef, useState, type PointerEvent } from 'react'
+import { useEffect, useRef, useState, type PointerEvent } from 'react'
 import Image from 'next/image'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -30,8 +30,39 @@ export function ProductGallery({ images, className }: ProductGalleryProps) {
   const [activeIndex, setActiveIndex] = useState(0)
   const [zoomOrigin, setZoomOrigin] = useState<{ x: number; y: number } | null>(null)
   const trackRef = useRef<HTMLDivElement>(null)
+  const slideRefs = useRef<(HTMLDivElement | null)[]>([])
 
   const count = images.length
+
+  // Sync activeIndex from the track's real scroll position (touch swipe,
+  // trackpad, etc.) rather than only from the prev/next buttons and
+  // thumbnails. `goTo()` scrolling the track re-triggers this observer with
+  // the same index, which is an idempotent no-op.
+  useEffect(() => {
+    const track = trackRef.current
+    if (!track || count < 2) return
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const mostVisible = entries.reduce<IntersectionObserverEntry | null>(
+          (best, entry) => (!best || entry.intersectionRatio > best.intersectionRatio ? entry : best),
+          null,
+        )
+
+        if (mostVisible && mostVisible.intersectionRatio > 0) {
+          const index = slideRefs.current.indexOf(mostVisible.target as HTMLDivElement)
+          if (index !== -1) setActiveIndex(index)
+        }
+      },
+      { root: track, threshold: [0.5, 0.6, 0.75] },
+    )
+
+    slideRefs.current.forEach((slide) => {
+      if (slide) observer.observe(slide)
+    })
+
+    return () => observer.disconnect()
+  }, [count])
 
   if (count === 0) return null
 
@@ -57,6 +88,9 @@ export function ProductGallery({ images, className }: ProductGalleryProps) {
 
   return (
     <div className={cn('flex flex-col gap-4', className)}>
+      <span className="sr-only" aria-live="polite">
+        Image {activeIndex + 1} of {count}
+      </span>
       <div className="relative aspect-[4/5] w-full overflow-hidden rounded-xl bg-muted">
         <div
           ref={trackRef}
@@ -68,6 +102,9 @@ export function ProductGallery({ images, className }: ProductGalleryProps) {
           {images.map((image, index) => (
             <div
               key={`${image.src}-${index}`}
+              ref={(el) => {
+                slideRefs.current[index] = el
+              }}
               role="group"
               aria-roledescription="slide"
               aria-label={`${index + 1} of ${count}`}
