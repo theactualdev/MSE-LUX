@@ -71,6 +71,20 @@ describe('filterAndSortProducts', () => {
     expect(atMax.map((p) => p.id)).toEqual(['3'])
   })
 
+  it('handles fractional NGN price bounds without float-rounding error (inclusive)', () => {
+    // A product priced at exactly ₦19.99 = 1999 minor units.
+    const at1999: Product = {
+      ...makeProduct({ id: '9', ngn: 0 }),
+      priceSet: {
+        ngn: { amountMinor: 1999, currency: 'NGN' },
+        usd: { amountMinor: 125, currency: 'USD' },
+      },
+    }
+    // 19.99 * 100 === 1998.9999999999998 in float; Math.round keeps the bound inclusive.
+    expect(filterAndSortProducts([at1999], { priceMax: 19.99 }).map((p) => p.id)).toEqual(['9'])
+    expect(filterAndSortProducts([at1999], { priceMin: 19.99 }).map((p) => p.id)).toEqual(['9'])
+  })
+
   it('filters by subcategory', () => {
     const result = filterAndSortProducts(all, { subcategory: 'bracelets' })
     expect(result.map((p) => p.id)).toEqual(['4'])

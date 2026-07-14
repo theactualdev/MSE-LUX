@@ -38,12 +38,12 @@ export function filterAndSortProducts(products: Product[], opts: ListingOptions 
   }
 
   if (priceMin !== undefined) {
-    const minMinor = priceMin * NGN_MINOR_PER_MAJOR
+    const minMinor = Math.round(priceMin * NGN_MINOR_PER_MAJOR)
     result = result.filter((p) => authoredNgnMinor(p) >= minMinor)
   }
 
   if (priceMax !== undefined) {
-    const maxMinor = priceMax * NGN_MINOR_PER_MAJOR
+    const maxMinor = Math.round(priceMax * NGN_MINOR_PER_MAJOR)
     result = result.filter((p) => authoredNgnMinor(p) <= maxMinor)
   }
 
