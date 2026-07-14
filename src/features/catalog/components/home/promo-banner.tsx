@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Container } from '@/components/brand/container'
-import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 /**
  * A single, tasteful promotional block between the merchandising rows —
@@ -20,10 +21,12 @@ export function PromoBanner() {
         <p className="max-w-md text-sm text-background/80 sm:text-base">
           Every piece is packaged by hand and ready to gift, no matter the occasion.
         </p>
-        <Button
-          className="mt-2 bg-background text-foreground hover:bg-background/90"
-          render={<Link href="/collections">Explore the edit</Link>}
-        />
+        <Link
+          href="/collections"
+          className={cn(buttonVariants(), 'mt-2 bg-background text-foreground hover:bg-background/90')}
+        >
+          Explore the edit
+        </Link>
       </Container>
     </section>
   )

@@ -4,8 +4,9 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { motion } from 'framer-motion'
 import { Container } from '@/components/brand/container'
-import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
 import { usePrefersReducedMotion } from '@/hooks/use-reduced-motion'
+import { cn } from '@/lib/utils'
 
 /**
  * Full-bleed storefront hero: edge-to-edge photography, a Playfair headline,
@@ -44,7 +45,9 @@ export function Hero() {
               and the ones in between.
             </p>
             <div className="pt-2">
-              <Button render={<Link href="/collections">Shop the collections</Link>} />
+              <Link href="/collections" className={cn(buttonVariants())}>
+                Shop the collections
+              </Link>
             </div>
           </motion.div>
         </Container>

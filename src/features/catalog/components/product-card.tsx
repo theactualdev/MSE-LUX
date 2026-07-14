@@ -6,6 +6,7 @@ import { motion } from 'framer-motion'
 import { Heart } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { PriceDisplay } from '@/features/catalog/components/price-display'
+import { useHydrated } from '@/features/cart/use-hydrated'
 import { useWishlistStore } from '@/features/wishlist/store'
 import { usePrefersReducedMotion } from '@/hooks/use-reduced-motion'
 import { cn } from '@/lib/utils'
@@ -31,7 +32,9 @@ const imageVariants = {
  */
 export function ProductCard({ product, className }: ProductCardProps) {
   const prefersReducedMotion = usePrefersReducedMotion()
-  const isWishlisted = useWishlistStore((s) => s.has(product.id))
+  const wishlisted = useWishlistStore((s) => s.has(product.id))
+  const hydrated = useHydrated()
+  const isWishlisted = hydrated && wishlisted
   const toggleWishlist = useWishlistStore((s) => s.toggle)
 
   const hero = product.images[0]

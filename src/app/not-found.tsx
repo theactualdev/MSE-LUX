@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Container } from '@/components/brand/container'
-import { Button } from '@/components/ui/button'
+import { buttonVariants } from '@/components/ui/button'
+import { cn } from '@/lib/utils'
 
 export default function NotFound() {
   return (
@@ -12,7 +13,9 @@ export default function NotFound() {
         The page you&apos;re looking for doesn&apos;t exist or may have been moved. Let&apos;s
         get you back to something beautiful.
       </p>
-      <Button render={<Link href="/">Return home</Link>} />
+      <Link href="/" className={cn(buttonVariants())}>
+        Return home
+      </Link>
     </Container>
   )
 }
