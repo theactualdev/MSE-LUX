@@ -5,6 +5,7 @@ import { Heart, RotateCcw, Share2, Truck } from 'lucide-react'
 import { toast } from '@/components/providers/toaster'
 import { Button } from '@/components/ui/button'
 import { AddToCart } from '@/features/cart/components/add-to-cart'
+import { useHydrated } from '@/features/cart/use-hydrated'
 import { PriceDisplay } from '@/features/catalog/components/price-display'
 import { ProductGallery } from '@/features/catalog/components/product-gallery'
 import { QuantityStepper } from '@/features/catalog/components/quantity-stepper'
@@ -35,7 +36,9 @@ export function Pdp({ product, className }: PdpProps) {
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | undefined>(undefined)
   const [qty, setQty] = useState(1)
 
-  const isWishlisted = useWishlistStore((state) => state.has(product.id))
+  const wishlisted = useWishlistStore((state) => state.has(product.id))
+  const hydrated = useHydrated()
+  const isWishlisted = hydrated && wishlisted
   const toggleWishlist = useWishlistStore((state) => state.toggle)
 
   const requiresVariant = product.optionTypes.length > 0

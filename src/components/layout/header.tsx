@@ -66,7 +66,7 @@ export function Header() {
           </Button>
           <Link
             href="/wishlist"
-            aria-label="Wishlist"
+            aria-label={showWishlistBadge ? `Wishlist, ${wishlistCount} items` : 'Wishlist'}
             className={cn(buttonVariants({ variant: 'ghost', size: 'icon-xl' }), 'relative hidden sm:inline-flex')}
           >
             <Heart aria-hidden="true" />
@@ -83,7 +83,7 @@ export function Header() {
           </Link>
           <Link
             href="/cart"
-            aria-label="Cart"
+            aria-label={showCartBadge ? `Cart, ${cartCount} items` : 'Cart'}
             className={cn(buttonVariants({ variant: 'ghost', size: 'icon-xl' }), 'relative')}
           >
             <ShoppingBag aria-hidden="true" />
