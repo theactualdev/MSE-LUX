@@ -49,8 +49,7 @@ export function OrderConfirmation({ orderNumber }: OrderConfirmationProps) {
           We couldn&apos;t find that order
         </h1>
         <p className="max-w-sm text-sm text-muted-foreground">
-          Order {orderNumber} doesn&apos;t match anything from this session. Double-check the link, or head back
-          home.
+          {`Order ${orderNumber} doesn't match anything from this session. Double-check the link, or head back home.`}
         </p>
         <Link href="/" className={cn(buttonVariants(), 'mt-3')}>
           Back home
