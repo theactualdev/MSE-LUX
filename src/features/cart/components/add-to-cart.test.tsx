@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { Toaster } from '@/components/providers/toaster'
 import { AddToCart } from '@/features/cart/components/add-to-cart'
 import { useCartStore } from '@/features/cart/store'
+import { useUiStore } from '@/stores/ui'
 import type { Product } from '@/types/catalog'
 
 const priceSet = {
@@ -43,9 +44,12 @@ const variantProduct: Product = {
 }
 
 describe('AddToCart', () => {
-  beforeEach(() => useCartStore.getState().clear())
+  beforeEach(() => {
+    useCartStore.getState().clear()
+    useUiStore.getState().closeAll()
+  })
 
-  it('adds the product to the cart and shows a toast on click', async () => {
+  it('adds the product to the cart and opens the mini-cart drawer on click', async () => {
     const user = userEvent.setup()
     render(
       <Toaster>
@@ -57,7 +61,7 @@ describe('AddToCart', () => {
     await user.click(screen.getByRole('button', { name: /add to bag/i }))
 
     expect(useCartStore.getState().itemCount()).toBe(before + 2)
-    expect(await screen.findByText(/added to bag/i)).toBeInTheDocument()
+    expect(useUiStore.getState().cartDrawerOpen).toBe(true)
   })
 
   it('is disabled when the product requires a variant and none is selected', () => {

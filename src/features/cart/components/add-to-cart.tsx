@@ -1,9 +1,9 @@
 'use client'
 
-import { toast } from '@/components/providers/toaster'
 import { Button } from '@/components/ui/button'
 import { useCartStore } from '@/features/cart/store'
 import { cn } from '@/lib/utils'
+import { useUiStore } from '@/stores/ui'
 import type { Product, ProductVariant } from '@/types/catalog'
 
 interface AddToCartProps {
@@ -30,10 +30,7 @@ export function AddToCart({ product, selectedVariant, qty = 1, className }: AddT
   const handleClick = () => {
     if (disabled) return
     addItem(product.id, selectedVariant?.id, qty)
-    toast({
-      title: 'Added to bag',
-      description: `${qty} × ${product.name}`,
-    })
+    useUiStore.getState().openCartDrawer()
   }
 
   return (

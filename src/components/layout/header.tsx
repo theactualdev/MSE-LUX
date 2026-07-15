@@ -24,6 +24,7 @@ function hasChildren(item: NavItem): item is NavItem & { children: NavItem[] } {
 export function Header() {
   const openMobileNav = useUiStore((s) => s.openMobileNav)
   const toggleSearch = useUiStore((s) => s.toggleSearch)
+  const openCartDrawer = useUiStore((s) => s.openCartDrawer)
   const cartCount = useCartStore((s) => s.itemCount())
   const wishlistCount = useWishlistStore((s) => s.count())
   const hydrated = useHydrated()
@@ -81,16 +82,19 @@ export function Header() {
           >
             <User aria-hidden="true" />
           </Link>
-          <Link
-            href="/cart"
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon-xl"
             aria-label={showCartBadge ? `Cart, ${cartCount} items` : 'Cart'}
-            className={cn(buttonVariants({ variant: 'ghost', size: 'icon-xl' }), 'relative')}
+            className="relative"
+            onClick={() => openCartDrawer()}
           >
             <ShoppingBag aria-hidden="true" />
             <Badge className={cn('absolute -top-1 -right-1', !showCartBadge && 'hidden')} aria-hidden="true">
               {showCartBadge ? cartCount : null}
             </Badge>
-          </Link>
+          </Button>
         </div>
       </Container>
     </header>
