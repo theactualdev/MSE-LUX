@@ -19,9 +19,18 @@ describe('useUiStore', () => {
   it('closeAll resets everything', () => {
     useUiStore.getState().openMobileNav()
     useUiStore.getState().toggleSearch()
+    useUiStore.getState().openCartDrawer()
     useUiStore.getState().closeAll()
     const s = useUiStore.getState()
     expect(s.mobileNavOpen).toBe(false)
     expect(s.searchOpen).toBe(false)
+    expect(s.cartDrawerOpen).toBe(false)
+  })
+
+  it('opens and closes the cart drawer', () => {
+    useUiStore.getState().openCartDrawer()
+    expect(useUiStore.getState().cartDrawerOpen).toBe(true)
+    useUiStore.getState().closeCartDrawer()
+    expect(useUiStore.getState().cartDrawerOpen).toBe(false)
   })
 })
