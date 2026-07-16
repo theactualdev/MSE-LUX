@@ -35,6 +35,8 @@ export interface Product {
   /** Inventory for products without variants. */
   inventory: number
   material: string
+  /** Structured, facetable material tags (curated), e.g. ['Brass','Recycled glass']. Distinct from free-text `material`. */
+  materialTags: string[]
   categorySlug: string
   subcategorySlug?: string
   collectionSlugs: string[]
