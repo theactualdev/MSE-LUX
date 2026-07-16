@@ -20,6 +20,7 @@ import { toggleParamValue } from '@/features/catalog/lib/search-params'
 import type { FacetCounts } from '@/features/catalog/lib/search'
 import { PRODUCT_BADGES, type ProductBadge } from '@/features/catalog/lib/facets'
 import type { ListingSort } from '@/features/catalog/lib/listing'
+import { getSwatchColor } from '@/features/catalog/lib/color-swatches'
 
 /** Named vocabulary a facet panel/chips row renders options from. */
 export interface FacetVocab {
@@ -254,6 +255,7 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
           {vocab.colors.map((color) => {
             const count = counts.colors[color] ?? 0
             const selected = criteria.colors.includes(color)
+            const swatchHex = getSwatchColor(color)
             return (
               <Button
                 key={color}
@@ -264,11 +266,11 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
                 disabled={count === 0}
                 onClick={() => toggleMulti('color', color)}
               >
-                {/* Swatch is decorative only — the color name is always shown as text, never color alone. Unknown color words fall back to the bg-muted token rather than a raw hex guess. */}
+                {/* Swatch is decorative only — the color name is always shown as text, never color alone. Unknown color words fall back to the bg-muted token rather than a curated swatch. */}
                 <span
                   aria-hidden="true"
                   className="inline-block size-3 shrink-0 rounded-full border border-border bg-muted"
-                  style={{ backgroundColor: color.toLowerCase() }}
+                  style={swatchHex ? { backgroundColor: swatchHex } : undefined}
                 />
                 <span>{color}</span>
                 <span>({count})</span>
