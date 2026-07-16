@@ -1,5 +1,5 @@
 import type { Product } from '@/types/catalog'
-import { resolveDisplayPrice } from '@/lib/money'
+import { searchAndFilterProducts } from '@/features/catalog/lib/search'
 
 export type ListingSort = 'newest' | 'price-asc' | 'price-desc'
 
@@ -14,13 +14,6 @@ export interface ListingOptions {
   subcategory?: string
 }
 
-/** Minor units (kobo) per major unit (naira). */
-const NGN_MINOR_PER_MAJOR = 100
-
-function authoredNgnMinor(product: Product): number {
-  return resolveDisplayPrice(product.priceSet, 'NGN', {}).amountMinor
-}
-
 /**
  * Pure filter + sort over a product list, driven by listing-page controls
  * (sort, price range, subcategory). Price bounds are given in NGN major
@@ -29,32 +22,11 @@ function authoredNgnMinor(product: Product): number {
  * viewer currency.
  */
 export function filterAndSortProducts(products: Product[], opts: ListingOptions = {}): Product[] {
-  const { sort = 'newest', priceMin, priceMax, subcategory } = opts
-
-  let result = products.slice()
-
-  if (subcategory) {
-    result = result.filter((p) => p.subcategorySlug === subcategory)
-  }
-
-  if (priceMin !== undefined) {
-    const minMinor = Math.round(priceMin * NGN_MINOR_PER_MAJOR)
-    result = result.filter((p) => authoredNgnMinor(p) >= minMinor)
-  }
-
-  if (priceMax !== undefined) {
-    const maxMinor = Math.round(priceMax * NGN_MINOR_PER_MAJOR)
-    result = result.filter((p) => authoredNgnMinor(p) <= maxMinor)
-  }
-
-  if (sort === 'price-asc') {
-    result.sort((a, b) => authoredNgnMinor(a) - authoredNgnMinor(b))
-  } else if (sort === 'price-desc') {
-    result.sort((a, b) => authoredNgnMinor(b) - authoredNgnMinor(a))
-  }
-  // 'newest' intentionally leaves `result` in its input order.
-
-  return result
+  return searchAndFilterProducts(products, {
+    query: undefined, categories: [], subcategory: opts.subcategory, materials: [], colors: [],
+    badges: [], priceMin: opts.priceMin, priceMax: opts.priceMax, inStock: false,
+    sort: opts.sort ?? 'newest',
+  })
 }
 
 const VALID_SORTS: ListingSort[] = ['newest', 'price-asc', 'price-desc']
