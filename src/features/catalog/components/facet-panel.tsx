@@ -209,7 +209,7 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
             <div className="flex flex-col gap-2">
               <OptionRow
                 id={`${uid}-subcategory-all`}
-                name="facet-subcategory"
+                name={`${uid}-subcategory`}
                 type="radio"
                 label="All"
                 checked={!criteria.subcategory}
@@ -219,7 +219,7 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
                 <OptionRow
                   key={sub.slug}
                   id={`${uid}-subcategory-${sub.slug}`}
-                  name="facet-subcategory"
+                  name={`${uid}-subcategory`}
                   type="radio"
                   label={sub.name}
                   checked={criteria.subcategory === sub.slug}
