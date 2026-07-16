@@ -33,7 +33,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     categories: getAllCategories().map((c) => ({ slug: c.slug, name: c.name })),
   }
 
-  const heading = criteria.query ? `Results for "${criteria.query}"` : 'All products'
+  const heading = criteria.query ? `Results for “${criteria.query}”` : 'All products'
 
   return (
     <Container className="flex flex-col gap-8 py-12 sm:py-16">

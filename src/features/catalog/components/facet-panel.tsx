@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback } from 'react'
+import { useCallback, useId } from 'react'
 import { useRouter, usePathname, useSearchParams } from 'next/navigation'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
@@ -90,6 +90,7 @@ function OptionRow({ id, label, count, checked, onChange, type = 'checkbox', nam
  * from `searchParams`, always reflects what's shown.
  */
 export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPanelProps) {
+  const uid = useId()
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -158,12 +159,12 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <Label htmlFor="facet-sort">Sort by</Label>
+        <Label htmlFor={`${uid}-sort`}>Sort by</Label>
         <Select
           value={criteria.sort}
           onValueChange={(value) => setSingle('sort', value === 'newest' ? null : String(value))}
         >
-          <SelectTrigger id="facet-sort" className="w-full">
+          <SelectTrigger id={`${uid}-sort`} className="w-full">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -188,7 +189,7 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
               {vocab.categories!.map((category) => (
                 <OptionRow
                   key={category.slug}
-                  id={`facet-category-${category.slug}`}
+                  id={`${uid}-category-${category.slug}`}
                   label={category.name}
                   count={counts.categories[category.slug] ?? 0}
                   checked={criteria.categories.includes(category.slug)}
@@ -207,7 +208,7 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
             <legend className="text-sm font-medium text-foreground">Subcategory</legend>
             <div className="flex flex-col gap-2">
               <OptionRow
-                id="facet-subcategory-all"
+                id={`${uid}-subcategory-all`}
                 name="facet-subcategory"
                 type="radio"
                 label="All"
@@ -217,7 +218,7 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
               {vocab.subcategories!.map((sub) => (
                 <OptionRow
                   key={sub.slug}
-                  id={`facet-subcategory-${sub.slug}`}
+                  id={`${uid}-subcategory-${sub.slug}`}
                   name="facet-subcategory"
                   type="radio"
                   label={sub.name}
@@ -237,7 +238,7 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
           {vocab.materials.map((material) => (
             <OptionRow
               key={material}
-              id={`facet-material-${material}`}
+              id={`${uid}-material-${material}`}
               label={material}
               count={counts.materials[material] ?? 0}
               checked={criteria.materials.includes(material)}
@@ -286,9 +287,9 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
         <legend className="text-sm font-medium text-foreground">Price (NGN)</legend>
         <div className="flex items-end gap-3">
           <div className="flex flex-1 flex-col gap-1.5">
-            <Label htmlFor="facet-price-min">Min</Label>
+            <Label htmlFor={`${uid}-price-min`}>Min</Label>
             <Input
-              id="facet-price-min"
+              id={`${uid}-price-min`}
               key={`min-${priceMin}`}
               type="number"
               inputMode="numeric"
@@ -302,9 +303,9 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
             />
           </div>
           <div className="flex flex-1 flex-col gap-1.5">
-            <Label htmlFor="facet-price-max">Max</Label>
+            <Label htmlFor={`${uid}-price-max`}>Max</Label>
             <Input
-              id="facet-price-max"
+              id={`${uid}-price-max`}
               key={`max-${priceMax}`}
               type="number"
               inputMode="numeric"
@@ -323,7 +324,7 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
       <Separator />
 
       <OptionRow
-        id="facet-in-stock"
+        id={`${uid}-in-stock`}
         label="In stock only"
         checked={criteria.inStock}
         onChange={() => setSingle('inStock', !criteria.inStock ? '1' : null)}
@@ -337,7 +338,7 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
           {PRODUCT_BADGES.map((badge) => (
             <OptionRow
               key={badge}
-              id={`facet-badge-${badge}`}
+              id={`${uid}-badge-${badge}`}
               label={BADGE_LABELS[badge]}
               count={counts.badges[badge] ?? 0}
               checked={criteria.badges.includes(badge)}
