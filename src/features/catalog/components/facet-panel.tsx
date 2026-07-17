@@ -85,9 +85,8 @@ function OptionRow({ id, label, count, checked, onChange, type = 'checkbox', nam
  * experience: category/subcategory (route-gated), material, color, price
  * range, in-stock, badges, and sort. Reads current state from `criteria`
  * (parsed server-side from the URL) and `counts` (computed alongside it),
- * and pushes updates back to the URL — mirroring the pattern established in
- * `listing-controls.tsx` — so the server-rendered result list, which derives
- * from `searchParams`, always reflects what's shown.
+ * and pushes updates back to the URL so the server-rendered result list,
+ * which derives from `searchParams`, always reflects what's shown.
  */
 export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPanelProps) {
   const uid = useId()
