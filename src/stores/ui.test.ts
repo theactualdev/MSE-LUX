@@ -33,4 +33,10 @@ describe('useUiStore', () => {
     useUiStore.getState().closeCartDrawer()
     expect(useUiStore.getState().cartDrawerOpen).toBe(false)
   })
+
+  it('closes search', () => {
+    useUiStore.setState({ searchOpen: true })
+    useUiStore.getState().closeSearch()
+    expect(useUiStore.getState().searchOpen).toBe(false)
+  })
 })

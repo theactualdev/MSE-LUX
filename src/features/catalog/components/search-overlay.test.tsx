@@ -23,7 +23,7 @@ describe('SearchOverlay', () => {
     const user = userEvent.setup()
     render(<SearchOverlay />)
 
-    await user.type(screen.getByRole('searchbox'), 'brass')
+    await user.type(screen.getByRole('combobox'), 'brass')
     // Multiple products match "brass" and the "See all results" link also echoes the
     // query text, so assert on one specific, known result name rather than a loose regex.
     expect(await screen.findByText('Brass Pendant Necklace, Adire Motif')).toBeInTheDocument()
@@ -37,7 +37,7 @@ describe('SearchOverlay', () => {
     const user = userEvent.setup()
     render(<SearchOverlay />)
 
-    await user.type(screen.getByRole('searchbox'), 'zzzznomatch')
+    await user.type(screen.getByRole('combobox'), 'zzzznomatch')
     expect(await screen.findByText(/no results for/i)).toBeInTheDocument()
   })
 
@@ -52,6 +52,6 @@ describe('SearchOverlay', () => {
     useUiStore.setState({ searchOpen: false })
     render(<SearchOverlay />)
 
-    expect(screen.queryByRole('searchbox')).not.toBeInTheDocument()
+    expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
   })
 })

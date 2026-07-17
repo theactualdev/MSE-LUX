@@ -30,6 +30,9 @@ const EMPTY_CRITERIA: SearchCriteria = {
 const DEBOUNCE_MS = 150
 const MAX_RESULTS = 6
 
+const LISTBOX_ID = 'header-search-results'
+const optionId = (index: number) => `${LISTBOX_ID}-option-${index}`
+
 /**
  * Header search overlay: a focus-trapped dialog with instant client-side
  * results as the visitor types, opened from the header's search button.
@@ -123,29 +126,36 @@ export function SearchOverlay() {
         <Input
           id="header-search-input"
           ref={inputRef}
-          role="searchbox"
+          role="combobox"
           type="search"
           placeholder="Search jewelry, beads, materials…"
           value={value}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={handleKeyDown}
+          aria-expanded={results.length > 0}
+          aria-controls={LISTBOX_ID}
+          aria-autocomplete="list"
+          aria-activedescendant={
+            activeIndex >= 0 && results.length > 0 ? optionId(activeIndex) : undefined
+          }
         />
 
-        <div role="listbox" aria-label="Search results" className="flex flex-col gap-1">
-          {!deferredQuery ? (
-            <p className="px-1 py-6 text-center text-sm text-muted-foreground">
-              Search jewelry, beads, materials…
-            </p>
-          ) : results.length === 0 ? (
-            <p className="px-1 py-6 text-center text-sm text-muted-foreground">
-              No results for &ldquo;{deferredQuery}&rdquo;
-            </p>
-          ) : (
-            results.map((product, index) => (
+        {!deferredQuery ? (
+          <p className="px-1 py-6 text-center text-sm text-muted-foreground">
+            Search jewelry, beads, materials…
+          </p>
+        ) : results.length === 0 ? (
+          <p role="status" className="px-1 py-6 text-center text-sm text-muted-foreground">
+            No results for &ldquo;{deferredQuery}&rdquo;
+          </p>
+        ) : (
+          <div id={LISTBOX_ID} role="listbox" aria-label="Search results" className="flex flex-col gap-1">
+            {results.map((product, index) => (
               <Link
                 key={product.id}
                 href={`/products/${product.slug}`}
                 onClick={() => closeSearch()}
+                id={optionId(index)}
                 role="option"
                 aria-selected={index === activeIndex}
                 className={cn(
@@ -169,9 +179,9 @@ export function SearchOverlay() {
                   <PriceDisplay product={product} className="text-xs" />
                 </div>
               </Link>
-            ))
-          )}
-        </div>
+            ))}
+          </div>
+        )}
 
         {deferredQuery ? (
           <Link
