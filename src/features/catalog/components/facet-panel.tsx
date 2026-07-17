@@ -136,8 +136,8 @@ export function FacetPanel({ criteria, counts, vocab, show, className }: FacetPa
 
   const hasActiveFilters =
     Boolean(criteria.query) ||
-    criteria.categories.length > 0 ||
-    Boolean(criteria.subcategory) ||
+    (Boolean(show?.category) && criteria.categories.length > 0) ||
+    (Boolean(show?.subcategory) && Boolean(criteria.subcategory)) ||
     criteria.materials.length > 0 ||
     criteria.colors.length > 0 ||
     criteria.badges.length > 0 ||

@@ -76,7 +76,12 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
 
         <div className="flex flex-col gap-6">
           <Suspense fallback={null}>
-            <ActiveFilterChips criteria={criteria} counts={counts} vocab={vocab} />
+            <ActiveFilterChips
+              criteria={criteria}
+              counts={counts}
+              vocab={vocab}
+              show={{ category: false, subcategory: true }}
+            />
           </Suspense>
 
           <ProductGrid products={products} />

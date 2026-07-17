@@ -61,7 +61,12 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
         <div className="flex flex-col gap-6">
           <Suspense fallback={null}>
-            <ActiveFilterChips criteria={criteria} counts={counts} vocab={vocab} />
+            <ActiveFilterChips
+              criteria={criteria}
+              counts={counts}
+              vocab={vocab}
+              show={{ category: true, subcategory: false }}
+            />
           </Suspense>
 
           <ProductGrid products={products} />

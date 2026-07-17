@@ -15,6 +15,8 @@ interface ActiveFilterChipsProps {
   criteria: SearchCriteria
   counts: FacetCounts
   vocab: FacetVocab
+  /** Gates the category/subcategory chips. Route-scoped listing pages pass `false` for the dimension they force into `criteria`, so it never renders as a removable chip. Defaults to shown. */
+  show?: { category?: boolean; subcategory?: boolean }
   className?: string
 }
 
@@ -36,7 +38,7 @@ function withCount(name: string, count: number | undefined): string {
  * plus a "Clear all" reset. Reads/writes the same URL search params as
  * `FacetPanel` — each chip's remove control deletes just that one value.
  */
-export function ActiveFilterChips({ criteria, counts, vocab, className }: ActiveFilterChipsProps) {
+export function ActiveFilterChips({ criteria, counts, vocab, show, className }: ActiveFilterChipsProps) {
   const router = useRouter()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -81,11 +83,13 @@ export function ActiveFilterChips({ criteria, counts, vocab, className }: Active
   if (criteria.query) {
     chips.push({ key: 'query', name: criteria.query, label: `“${criteria.query}”`, onRemove: () => removeSingle('q') })
   }
-  for (const slug of criteria.categories) {
-    const name = categoryName(slug)
-    chips.push({ key: `category-${slug}`, name, label: withCount(name, counts.categories[slug]), onRemove: () => removeMulti('category', slug) })
+  if (show?.category !== false) {
+    for (const slug of criteria.categories) {
+      const name = categoryName(slug)
+      chips.push({ key: `category-${slug}`, name, label: withCount(name, counts.categories[slug]), onRemove: () => removeMulti('category', slug) })
+    }
   }
-  if (criteria.subcategory) {
+  if (show?.subcategory !== false && criteria.subcategory) {
     const name = subcategoryName(criteria.subcategory)
     chips.push({ key: 'subcategory', name, label: name, onRemove: () => removeSingle('subcategory') })
   }
