@@ -5,12 +5,13 @@ import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
 import { MobileDrawer } from '@/components/layout/mobile-drawer'
 import { MiniCartDrawer } from '@/features/cart/components/mini-cart-drawer'
+import { SearchOverlay } from '@/features/catalog/components/search-overlay'
 
 interface AppShellProps {
   children: ReactNode
 }
 
-/** Global chrome wrapping every page: announcement bar, header, mobile drawer, mini-cart drawer, footer, toast host. */
+/** Global chrome wrapping every page: announcement bar, header, mobile drawer, mini-cart drawer, search overlay, footer, toast host. */
 export function AppShell({ children }: AppShellProps) {
   return (
     <Toaster>
@@ -19,6 +20,7 @@ export function AppShell({ children }: AppShellProps) {
         <Header />
         <MobileDrawer />
         <MiniCartDrawer />
+        <SearchOverlay />
         <main className="flex-1">{children}</main>
         <Footer />
       </div>
