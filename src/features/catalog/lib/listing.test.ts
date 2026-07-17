@@ -18,6 +18,7 @@ function makeProduct(overrides: Partial<Product> & { id: string; ngn: number }):
     sku: `SKU-${overrides.id}`,
     inventory: 10,
     material: 'Gold',
+    materialTags: ['Gold-plated'],
     categorySlug: 'jewelry',
     subcategorySlug: 'necklaces',
     collectionSlugs: [],

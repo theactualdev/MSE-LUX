@@ -22,6 +22,7 @@ const simpleProduct: Product = {
   sku: 'TEST-SIMPLE-SKU',
   inventory: 10,
   material: 'Gold-plated brass',
+  materialTags: ['Gold-plated', 'Brass'],
   categorySlug: 'bracelets',
   collectionSlugs: [],
   images: [{ src: 'https://picsum.photos/seed/test-cuff-1/800/1000', alt: 'Test Cuff' }],
