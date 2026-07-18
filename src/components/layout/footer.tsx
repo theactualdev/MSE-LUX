@@ -9,6 +9,8 @@ const LEGAL_LINKS = [
   { label: 'Shipping & Returns', href: '/policies/shipping-returns' },
   { label: 'Privacy Policy', href: '/policies/privacy' },
   { label: 'Terms of Service', href: '/policies/terms' },
+  { label: 'Contact', href: '/contact' },
+  { label: 'FAQ', href: '/faq' },
 ]
 
 /** Site footer: nav columns, legal links, newsletter signup, and social. */
