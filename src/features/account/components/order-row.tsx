@@ -1,10 +1,10 @@
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { formatMoney } from '@/lib/money'
-import type { Order } from '@/features/checkout/lib/place-order'
+import type { MockOrder } from '@/features/account/data/orders'
 
 interface OrderRowProps {
-  order: Order
+  order: MockOrder
 }
 
 /**
@@ -33,7 +33,7 @@ export function OrderRow({ order }: OrderRowProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        <Badge variant="secondary">Delivered</Badge>
+        <Badge variant="secondary">{order.status}</Badge>
         <span className="text-sm font-medium text-foreground">{formatMoney(order.summary.total, 'en-NG')}</span>
       </div>
     </Link>

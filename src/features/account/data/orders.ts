@@ -1,10 +1,14 @@
 import type { Order } from '@/features/checkout/lib/place-order'
 
+export type OrderStatus = 'Processing' | 'Shipped' | 'Delivered'
+
+export type MockOrder = Order & { status: OrderStatus }
+
 /**
  * Seeded mock orders for the customer dashboard. `placedAt` values are
  * hard-coded ISO string literals (not generated) so the data is deterministic.
  */
-export const MOCK_ORDERS: Order[] = [
+export const MOCK_ORDERS: MockOrder[] = [
   {
     orderNumber: 'MSE-100001',
     email: 'ada.buyer@example.com',
@@ -34,6 +38,7 @@ export const MOCK_ORDERS: Order[] = [
       total: { amountMinor: 2_830_000, currency: 'NGN' },
     },
     placedAt: '2026-05-14T10:30:00.000Z',
+    status: 'Delivered',
   },
   {
     orderNumber: 'MSE-100002',
@@ -72,6 +77,7 @@ export const MOCK_ORDERS: Order[] = [
       total: { amountMinor: 3_080_000, currency: 'NGN' },
     },
     placedAt: '2026-06-02T14:05:00.000Z',
+    status: 'Delivered',
   },
   {
     orderNumber: 'MSE-100003',
@@ -102,9 +108,10 @@ export const MOCK_ORDERS: Order[] = [
       total: { amountMinor: 5_440_000, currency: 'NGN' },
     },
     placedAt: '2026-07-01T09:15:00.000Z',
+    status: 'Shipped',
   },
 ]
 
-export function getMockOrder(orderNumber: string): Order | undefined {
+export function getMockOrder(orderNumber: string): MockOrder | undefined {
   return MOCK_ORDERS.find((order) => order.orderNumber === orderNumber)
 }

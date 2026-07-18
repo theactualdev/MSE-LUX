@@ -1,11 +1,11 @@
 import { OrderRow } from '@/features/account/components/order-row'
-import type { Order } from '@/features/checkout/lib/place-order'
+import type { MockOrder } from '@/features/account/data/orders'
 
 interface OrderHistoryProps {
-  orders: Order[]
+  orders: MockOrder[]
 }
 
-/** Lists the signed-in customer's past orders, most recent first as passed in, or a strong empty state. */
+/** Lists the signed-in customer's past orders, most recent first, or a strong empty state. */
 export function OrderHistory({ orders }: OrderHistoryProps) {
   if (orders.length === 0) {
     return (
@@ -18,9 +18,11 @@ export function OrderHistory({ orders }: OrderHistoryProps) {
     )
   }
 
+  const sorted = [...orders].sort((a, b) => b.placedAt.localeCompare(a.placedAt))
+
   return (
     <div className="flex flex-col gap-3">
-      {orders.map((order) => (
+      {sorted.map((order) => (
         <OrderRow key={order.orderNumber} order={order} />
       ))}
     </div>
