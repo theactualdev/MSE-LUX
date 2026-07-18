@@ -46,7 +46,7 @@ export function Footer() {
           )}
 
           <div className="col-span-2 flex flex-col gap-3 sm:col-span-1">
-            <span className="font-display text-sm font-medium text-foreground">Policies</span>
+            <span className="font-display text-sm font-medium text-foreground">Help &amp; policies</span>
             <ul className="flex flex-col gap-2">
               {LEGAL_LINKS.map((link) => (
                 <li key={link.href}>

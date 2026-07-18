@@ -88,7 +88,7 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
     ],
   },
   terms: {
-    title: 'Terms of Use',
+    title: 'Terms of Service',
     lastUpdated: '2026-07-18',
     intro: 'The basics of shopping with MSE Lux online.',
     sections: [
