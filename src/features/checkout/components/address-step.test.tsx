@@ -5,7 +5,7 @@ import { AddressStep } from '@/features/checkout/components/address-step'
 
 describe('AddressStep', () => {
   it('shows validation errors and does not call onSubmit when submitted empty', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const onSubmit = vi.fn()
 
     render(<AddressStep onSubmit={onSubmit} />)
@@ -17,7 +17,7 @@ describe('AddressStep', () => {
   })
 
   it('calls onSubmit with the filled values when valid', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     const onSubmit = vi.fn()
 
     render(<AddressStep onSubmit={onSubmit} />)

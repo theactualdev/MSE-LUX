@@ -15,7 +15,7 @@ describe('WishlistView', () => {
 
     expect(screen.getByText(/your wishlist is empty/i)).toBeInTheDocument()
     const link = screen.getByRole('link')
-    expect(link.getAttribute('href')).toMatch(/^\/(collections)?$/)
+    expect(link).toHaveAttribute('href', '/collections')
   })
 
   it('renders saved products resolved from the store', () => {
