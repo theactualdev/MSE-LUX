@@ -1,13 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { Heart, Menu, Search, ShoppingBag, User } from 'lucide-react'
+import { Heart, Menu, Search, ShoppingBag } from 'lucide-react'
 import { Container } from '@/components/brand/container'
 import { Logo } from '@/components/brand/logo'
 import { MegaMenu } from '@/components/layout/mega-menu'
 import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList } from '@/components/ui/navigation-menu'
+import { AccountMenu } from '@/features/account/components/account-menu'
 import { useCartStore } from '@/features/cart/store'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { useWishlistStore } from '@/features/wishlist/store'
@@ -75,13 +76,7 @@ export function Header() {
               {showWishlistBadge ? wishlistCount : null}
             </Badge>
           </Link>
-          <Link
-            href="/account"
-            aria-label="Account"
-            className={cn(buttonVariants({ variant: 'ghost', size: 'icon-xl' }), 'hidden sm:inline-flex')}
-          >
-            <User aria-hidden="true" />
-          </Link>
+          <AccountMenu />
           <Button
             type="button"
             variant="ghost"

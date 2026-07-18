@@ -76,12 +76,12 @@ export function MobileDrawer() {
             Search
           </Link>
           <Link
-            href="/account/login"
+            href="/account"
             onClick={closeMobileNav}
             className="flex items-center gap-2 py-3 text-sm text-foreground"
           >
             <LogIn className="size-4" aria-hidden="true" />
-            Log in
+            Account
           </Link>
         </div>
       </SheetContent>
