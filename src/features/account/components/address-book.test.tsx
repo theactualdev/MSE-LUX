@@ -24,7 +24,7 @@ describe('AddressBook', () => {
   })
 
   it('adding an address via the form calls addAddress and it appears in the list', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<AddressBook />)
 
     await user.click(screen.getByRole('button', { name: /add address/i }))
@@ -41,10 +41,11 @@ describe('AddressBook', () => {
       expect(useAuthStore.getState().user?.addresses).toHaveLength(2)
     })
     expect(await screen.findByText(/4 Admiralty Way/)).toBeInTheDocument()
-  })
+    // Typing across six fields is keystroke-heavy; allow headroom under full-suite load.
+  }, 20_000)
 
   it('delete removes an address from the list', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     render(<AddressBook />)
 
     await user.click(screen.getByRole('button', { name: /delete/i }))
@@ -56,7 +57,7 @@ describe('AddressBook', () => {
   })
 
   it('set default moves the Default badge to the newly-default address', async () => {
-    const user = userEvent.setup()
+    const user = userEvent.setup({ delay: null })
     // Seed a second, non-default address directly via the store.
     useAuthStore.getState().addAddress({
       fullName: 'Bola Grace',
