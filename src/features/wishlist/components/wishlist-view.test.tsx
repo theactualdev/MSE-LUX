@@ -48,4 +48,25 @@ describe('WishlistView', () => {
     expect(useWishlistStore.getState().ids).toEqual([])
     expect(screen.getByText(/your wishlist is empty/i)).toBeInTheDocument()
   })
+
+  it('renders an "Add to bag" control for a variantless saved product', () => {
+    const product = getAllProducts().find((p) => p.variants.length === 0)
+    if (!product) throw new Error('fixture expects at least one variantless product')
+    useWishlistStore.getState().toggle(product.id)
+
+    render(<WishlistView />)
+
+    expect(screen.getByRole('button', { name: /add to bag/i })).toBeInTheDocument()
+  })
+
+  it('renders a "Select options" link to the PDP for a saved product with variants', () => {
+    const product = getAllProducts().find((p) => p.variants.length > 0)
+    if (!product) throw new Error('fixture expects at least one product with variants')
+    useWishlistStore.getState().toggle(product.id)
+
+    render(<WishlistView />)
+
+    const link = screen.getByRole('link', { name: /select options/i })
+    expect(link).toHaveAttribute('href', `/products/${product.slug}`)
+  })
 })

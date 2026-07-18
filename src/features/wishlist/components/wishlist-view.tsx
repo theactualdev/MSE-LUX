@@ -4,8 +4,9 @@ import Link from 'next/link'
 import { Heart } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import { ProductGrid } from '@/features/catalog/components/product-grid'
+import { ProductCard } from '@/features/catalog/components/product-card'
 import { getProductById } from '@/features/catalog/lib/selectors'
+import { AddToCart } from '@/features/cart/components/add-to-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { useWishlistStore } from '@/features/wishlist/store'
 import { cn } from '@/lib/utils'
@@ -67,7 +68,20 @@ export function WishlistView() {
           Clear wishlist
         </Button>
       </div>
-      <ProductGrid products={products} />
+      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+        {products.map((product) => (
+          <div key={product.id} className="flex flex-col gap-3">
+            <ProductCard product={product} />
+            {product.variants.length === 0 ? (
+              <AddToCart product={product} qty={1} />
+            ) : (
+              <Link href={`/products/${product.slug}`} className={cn(buttonVariants({ variant: 'outline' }), 'w-full')}>
+                Select options
+              </Link>
+            )}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }

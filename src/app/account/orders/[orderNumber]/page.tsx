@@ -104,9 +104,9 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3 py-16 text-center">
-            <h1 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">
+            <h2 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">
               We couldn&apos;t find that order
-            </h1>
+            </h2>
             <p className="max-w-sm text-sm text-muted-foreground">
               {`Order ${orderNumber} doesn't match anything in your history. Double-check the link, or head back to your orders.`}
             </p>

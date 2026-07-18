@@ -18,8 +18,7 @@ interface AuthState {
   setDefaultAddress: (id: string) => void
 }
 
-let addrSeq = 0
-const nextAddrId = () => `addr-${++addrSeq}-${Math.round(Math.random() * 1e6)}`
+const nextAddrId = () => crypto.randomUUID()
 
 export const useAuthStore = create<AuthState>()(
   persist(
