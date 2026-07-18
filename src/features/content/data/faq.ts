@@ -10,7 +10,7 @@ export const FAQ_GROUPS: FaqGroup[] = [
       },
       {
         q: 'What are your delivery times and rates?',
-        a: 'Lagos delivery is ₦2,500 and takes 1–2 days, nationwide delivery is ₦5,000 and takes 3–5 days, and international delivery is ₦20,000 and takes 7–14 days.',
+        a: 'Lagos delivery is ₦2,500 and takes 1–2 days, nationwide delivery is ₦5,000 and takes 3–5 days, and international delivery is ₦20,000 and takes 7–14 days. These times run from dispatch — because pieces are handmade, allow 2–3 business days for us to prepare your order first.',
       },
       {
         q: 'Is VAT included in the price shown?',
@@ -52,7 +52,7 @@ export const FAQ_GROUPS: FaqGroup[] = [
       },
       {
         q: 'Can I exchange an item for a different size or color?',
-        a: 'Yes, subject to stock availability. Contact us within 7 days of delivery to arrange an exchange.',
+        a: 'Yes, subject to stock availability — contact us within 7 days of delivery to arrange an exchange. Some items are excluded: pierced earrings once opened, and custom or made-to-order pieces, which are final sale. See our Shipping & Returns policy for the full details.',
       },
       {
         q: 'Are custom or made-to-order pieces returnable?',

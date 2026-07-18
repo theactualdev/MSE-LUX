@@ -15,6 +15,7 @@ export default function ContactPage() {
 
       <div className="grid grid-cols-1 gap-10 lg:grid-cols-2">
         <div className="flex flex-col gap-4 text-sm text-muted-foreground sm:text-base">
+          <h2 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">Reach us directly</h2>
           <p>
             Email:{' '}
             <a href={`mailto:${CONTACT_INFO.email}`} className="text-foreground underline underline-offset-4">
@@ -37,7 +38,10 @@ export default function ContactPage() {
           <p>{CONTACT_INFO.responseTime}</p>
         </div>
 
-        <ContactForm />
+        <div className="flex flex-col gap-4">
+          <h2 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">Send us a message</h2>
+          <ContactForm />
+        </div>
       </div>
     </Container>
   )
