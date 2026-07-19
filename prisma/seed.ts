@@ -238,7 +238,12 @@ async function seedProducts(
           where: { productId: dbProduct.id, collectionId: { notIn: fixtureCollectionIds } },
         })
       }
-    })
+    },
+    // Each product issues many small round-trips (upserts + prunes for images, variants,
+    // option types/values, collection joins). Against a remote Supabase pooler that
+    // comfortably exceeds Prisma's 5s interactive-transaction default, so raise it —
+    // the work itself is small, the cost is per-query network latency.
+    { timeout: 30_000, maxWait: 10_000 })
   }
 }
 
