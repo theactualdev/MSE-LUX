@@ -56,24 +56,42 @@ REVOKE ALL ON FUNCTION auth_hooks.handle_new_user() FROM PUBLIC;
 REVOKE ALL ON FUNCTION auth_hooks.handle_new_user() FROM anon;
 REVOKE ALL ON FUNCTION auth_hooks.handle_new_user() FROM authenticated;
 
-DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
-CREATE TRIGGER on_auth_user_created
-  AFTER INSERT ON auth.users
-  FOR EACH ROW
-  EXECUTE FUNCTION auth_hooks.handle_new_user();
+-- The `auth` schema is created by Supabase's GoTrue service, not by these migrations, so it
+-- does not exist in the throwaway shadow database `prisma migrate dev` builds to validate
+-- migration history. Referencing auth.users unguarded makes every future `migrate dev`
+-- (including `--create-only`) fail with 'schema "auth" does not exist'.
+--
+-- Guarding on to_regnamespace and issuing the auth-dependent statements via EXECUTE keeps
+-- them out of the parser unless the schema is really present: a no-op in the shadow database,
+-- fully applied against Supabase.
+DO $$
+BEGIN
+  IF to_regnamespace('auth') IS NOT NULL THEN
+    EXECUTE 'DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users';
+    EXECUTE '
+      CREATE TRIGGER on_auth_user_created
+        AFTER INSERT ON auth.users
+        FOR EACH ROW
+        EXECUTE FUNCTION auth_hooks.handle_new_user()
+    ';
 
--- Backfill: any auth user predating this trigger gets a profile now.
-INSERT INTO public."Profile" (id, email, name, "createdAt", "updatedAt")
-SELECT
-  u.id,
-  u.email,
-  NULLIF(TRIM(COALESCE(
-    u.raw_user_meta_data ->> 'full_name',
-    u.raw_user_meta_data ->> 'name',
-    ''
-  )), ''),
-  NOW(),
-  NOW()
-FROM auth.users AS u
-WHERE u.email IS NOT NULL
-ON CONFLICT DO NOTHING;
+    -- Backfill: any auth user predating this trigger gets a profile now.
+    EXECUTE '
+      INSERT INTO public."Profile" (id, email, name, "createdAt", "updatedAt")
+      SELECT
+        u.id,
+        u.email,
+        NULLIF(TRIM(COALESCE(
+          u.raw_user_meta_data ->> ''full_name'',
+          u.raw_user_meta_data ->> ''name'',
+          ''''
+        )), ''''),
+        NOW(),
+        NOW()
+      FROM auth.users AS u
+      WHERE u.email IS NOT NULL
+      ON CONFLICT DO NOTHING
+    ';
+  END IF;
+END
+$$;
