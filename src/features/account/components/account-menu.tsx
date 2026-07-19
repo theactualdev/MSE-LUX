@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 import { User } from 'lucide-react'
 import { Button, buttonVariants } from '@/components/ui/button'
 import {
@@ -11,6 +10,7 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
+import { signOut } from '@/features/auth/actions'
 import { useAuthStore } from '@/features/account/store'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { cn } from '@/lib/utils'
@@ -25,8 +25,6 @@ import { cn } from '@/lib/utils'
 export function AccountMenu() {
   const hydrated = useHydrated()
   const user = useAuthStore((s) => s.user)
-  const signOut = useAuthStore((s) => s.signOut)
-  const router = useRouter()
 
   if (!hydrated) {
     return (
@@ -78,8 +76,11 @@ export function AccountMenu() {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => {
-            signOut()
-            router.push('/')
+            // signOut() redirects to `/` itself on success — no client-side
+            // push here, or the two navigations would race (see Phase 2d
+            // follow-up: sign-out used to land on /login because the
+            // RequireAuth guard's redirect won that race).
+            void signOut()
           }}
         >
           Sign out

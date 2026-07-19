@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter } from 'next/navigation'
@@ -7,19 +8,19 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { loginSchema, type LoginValues } from '@/features/account/schema'
-import { useAuthStore } from '@/features/account/store'
+import { signIn } from '@/features/auth/actions'
 
 const DEFAULT_VALUES: LoginValues = { email: '', password: '' }
 
 /** Sign-in form. Validates with `loginSchema`; the password is never read past validation. */
 export function LoginForm() {
   const router = useRouter()
-  const signIn = useAuthStore((s) => s.signIn)
+  const [formError, setFormError] = useState<string>()
 
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isSubmitting },
   } = useForm<LoginValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: DEFAULT_VALUES,
@@ -29,8 +30,13 @@ export function LoginForm() {
     <form
       className="flex flex-col gap-4"
       noValidate
-      onSubmit={handleSubmit((values) => {
-        signIn(values.email)
+      onSubmit={handleSubmit(async (values) => {
+        setFormError(undefined)
+        const result = await signIn(values)
+        if (result?.error) {
+          setFormError(result.error)
+          return
+        }
         router.push('/account')
       })}
     >
@@ -68,7 +74,13 @@ export function LoginForm() {
         ) : null}
       </div>
 
-      <Button type="submit" className="mt-2 h-12 w-full">
+      {formError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {formError}
+        </p>
+      ) : null}
+
+      <Button type="submit" disabled={isSubmitting} className="mt-2 h-12 w-full">
         Sign in
       </Button>
     </form>

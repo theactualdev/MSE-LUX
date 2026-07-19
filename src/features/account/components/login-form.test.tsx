@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { LoginForm } from '@/features/account/components/login-form'
-import { useAuthStore } from '@/features/account/store'
+import { signIn } from '@/features/auth/actions'
 
 const push = vi.fn()
 
@@ -12,10 +12,16 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => new URLSearchParams(),
 }))
 
+vi.mock('@/features/auth/actions', () => ({
+  signIn: vi.fn(),
+}))
+
+const signInMock = vi.mocked(signIn)
+
 describe('LoginForm', () => {
   beforeEach(() => {
     push.mockClear()
-    useAuthStore.setState({ user: null })
+    signInMock.mockReset()
   })
 
   it('shows validation errors and does not call signIn when submitted empty', async () => {
@@ -25,11 +31,12 @@ describe('LoginForm', () => {
     await user.click(screen.getByRole('button', { name: /sign in/i }))
 
     expect(await screen.findAllByText(/required|invalid|must contain/i)).not.toHaveLength(0)
-    expect(useAuthStore.getState().user).toBeNull()
+    expect(signInMock).not.toHaveBeenCalled()
     expect(push).not.toHaveBeenCalled()
   })
 
-  it('valid submit signs in and redirects', async () => {
+  it('valid submit calls the signIn action and redirects on success', async () => {
+    signInMock.mockResolvedValue({})
     const user = userEvent.setup()
     render(<LoginForm />)
 
@@ -38,8 +45,21 @@ describe('LoginForm', () => {
     await user.click(screen.getByRole('button', { name: /sign in/i }))
 
     await vi.waitFor(() => {
-      expect(useAuthStore.getState().user?.email).toBe('ada@example.com')
+      expect(signInMock).toHaveBeenCalledWith({ email: 'ada@example.com', password: 'abcdefgh' })
     })
     expect(push).toHaveBeenCalledWith('/account')
+  })
+
+  it('shows the server error and does not redirect when signIn fails', async () => {
+    signInMock.mockResolvedValue({ error: 'Invalid login credentials' })
+    const user = userEvent.setup()
+    render(<LoginForm />)
+
+    await user.type(screen.getByLabelText(/email/i), 'ada@example.com')
+    await user.type(screen.getByLabelText(/password/i), 'wrongpass1')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/invalid login credentials/i)
+    expect(push).not.toHaveBeenCalled()
   })
 })

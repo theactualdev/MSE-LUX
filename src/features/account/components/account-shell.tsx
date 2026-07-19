@@ -2,9 +2,10 @@
 
 import type { ReactNode } from 'react'
 import Link from 'next/link'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import { Button } from '@/components/ui/button'
 import { Container } from '@/components/brand/container'
+import { signOut } from '@/features/auth/actions'
 import { useAuthStore } from '@/features/account/store'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { cn } from '@/lib/utils'
@@ -30,9 +31,7 @@ const NAV_LINKS = [
 export function AccountShell({ children }: AccountShellProps) {
   const hydrated = useHydrated()
   const user = useAuthStore((s) => s.user)
-  const signOut = useAuthStore((s) => s.signOut)
   const pathname = usePathname()
-  const router = useRouter()
 
   return (
     <Container className="flex flex-col gap-8 py-12 sm:py-16">
@@ -78,8 +77,11 @@ export function AccountShell({ children }: AccountShellProps) {
             size="sm"
             className="mt-4 w-full lg:w-auto"
             onClick={() => {
-              signOut()
-              router.push('/')
+              // signOut() redirects to `/` itself on success — no client-side
+              // push here, or the two navigations would race (see Phase 2d
+              // follow-up: sign-out used to land on /login because the
+              // RequireAuth guard's redirect won that race).
+              void signOut()
             }}
           >
             Sign out
