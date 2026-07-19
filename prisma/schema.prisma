@@ -82,6 +82,7 @@ model Product {
   collections   ProductCollection[]
   cartItems     CartItem[]
   wishlistItems WishlistItem[]
+  orderLines    OrderLine[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -102,9 +103,10 @@ model ProductVariant {
   priceNgnMinor Int?
   priceUsdMinor Int?
 
-  image     String?
-  options   VariantOption[]
-  cartItems CartItem[]
+  image      String?
+  options    VariantOption[]
+  cartItems  CartItem[]
+  orderLines OrderLine[]
 }
 
 model VariantOption {
@@ -168,6 +170,7 @@ model Profile {
   addresses Address[]
   carts     Cart[]
   wishlists Wishlist[]
+  orders    Order[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -248,4 +251,81 @@ model WishlistItem {
   product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
 
   @@unique([wishlistId, productId])
+}
+
+// --- Orders ---
+//
+// Orders are snapshot-based: nothing here is a live join. Shipping address and
+// line-item details are copied at the moment the order is placed so that later
+// edits or deletions to Profile/Address/Product/ProductVariant can never alter
+// or erase order history. Deleting a customer or a product must only null out
+// the (nullable, analytics-only) FK — never cascade into Order/OrderLine.
+
+enum OrderStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+}
+
+model Order {
+  id          String      @id @default(cuid())
+  orderNumber String      @unique
+  profileId   String?     @db.Uuid
+  profile     Profile?    @relation(fields: [profileId], references: [id], onDelete: SetNull)
+  email       String
+  status      OrderStatus @default(PENDING)
+  placedAt    DateTime    @default(now())
+
+  // Shipping address snapshot — copied at order placement, NOT a foreign key to
+  // Address, so later edits/deletion of the customer's saved address never
+  // changes historical orders.
+  shipFullName   String
+  shipPhone      String
+  shipLine1      String
+  shipLine2      String?
+  shipCity       String
+  shipState      String
+  shipCountry    String
+  shipPostalCode String?
+
+  shippingLabel String
+
+  // Money is always integer minor units; never floats.
+  subtotalNgnMinor Int
+  shippingNgnMinor Int
+  taxNgnMinor      Int
+  totalNgnMinor    Int
+
+  lines OrderLine[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([profileId, createdAt])
+  @@index([status])
+}
+
+model OrderLine {
+  id      String @id @default(cuid())
+  orderId String
+  order   Order  @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  // Denormalized product data, copied at order placement so the line survives
+  // catalog changes verbatim.
+  productName  String
+  variantLabel String?
+  image        String?
+  quantity     Int
+
+  unitPriceNgnMinor Int
+  lineTotalNgnMinor Int
+
+  // Nullable, analytics-only references. Deleting the product/variant must
+  // only null these out — never cascade — leaving the snapshot above intact.
+  productId String?
+  product   Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
+  variantId String?
+  variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
 }
