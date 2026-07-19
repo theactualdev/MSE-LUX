@@ -42,3 +42,6 @@ next-env.d.ts
 
 # project docs (specs, plans, PRD — kept local, not tracked)
 /docs/
+
+# Prisma generated client
+src/generated/

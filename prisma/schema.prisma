@@ -1,0 +1,15 @@
+// MSE Lux database schema.
+//
+// Prisma 7: the connection URL lives in `prisma.config.ts` (CLI/migrations) and is
+// passed to the runtime client in `src/lib/db.ts` — the datasource block below only
+// declares the provider. Money is always stored as integer minor units in the two
+// admin-authored currencies (NGN, USD); never floats, never FX-derived values.
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
