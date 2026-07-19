@@ -4,6 +4,17 @@
 // passed to the runtime client in `src/lib/db.ts` — the datasource block below only
 // declares the provider. Money is always stored as integer minor units in the two
 // admin-authored currencies (NGN, USD); never floats, never FX-derived values.
+//
+// --- Hand-maintained SQL constraints ---
+//
+// Two constraints below cannot be expressed in Prisma's schema language and only exist
+// as hand-edited SQL in `prisma/migrations/20260719013937_init/migration.sql`. Prisma is
+// blind to both, so a future `prisma migrate dev` will diff them away and emit a
+// `DROP INDEX` for each — that generated migration must be inspected and stripped of the
+// drop before being applied. See the comments on the fields below for details:
+//   1. `Address_one_default_per_profile` — partial unique index, above `Address.isDefault`.
+//   2. `CartItem_cartId_productId_variantId_key` with `NULLS NOT DISTINCT` — above
+//      `CartItem`'s `@@unique([cartId, productId, variantId])`.
 
 generator client {
   provider = "prisma-client"
@@ -223,6 +234,15 @@ model Address {
   country    String
   postalCode String?
 
+  // HAND-ADDED CONSTRAINT — invisible to Prisma, lives only in SQL:
+  // `prisma/migrations/20260719013937_init/migration.sql` hand-adds a partial unique index,
+  // `Address_one_default_per_profile ON "Address"("profileId") WHERE "isDefault"`, enforcing
+  // at most one default address per profile at the DB layer (spec §3.3/§7's safety net behind
+  // the application-level single-default invariant). Prisma's schema language cannot express
+  // partial unique indexes, so it has no representation here and will never appear in a
+  // Prisma-generated migration diff. Before applying any future `prisma migrate dev` output,
+  // inspect it for `DROP INDEX "Address_one_default_per_profile"` and remove that line — Prisma
+  // will otherwise conclude the index is unmanaged/extraneous and drop it.
   isDefault Boolean @default(false)
 
   createdAt DateTime @default(now())
@@ -259,6 +279,15 @@ model CartItem {
 
   quantity Int
 
+  // HAND-ADDED CONSTRAINT — invisible to Prisma, lives only in SQL:
+  // `prisma/migrations/20260719013937_init/migration.sql` hand-adds `NULLS NOT DISTINCT` to the
+  // unique index generated for this `@@unique`. Postgres normally treats NULLs as distinct in
+  // unique indexes, so without this clause a variantless product (`variantId = null`) could be
+  // added to the same cart an unbounded number of times as separate rows. Prisma's schema
+  // language cannot express `NULLS NOT DISTINCT`, so it has no representation here and a future
+  // `prisma migrate dev` will silently regenerate this index WITHOUT it. Before applying any
+  // generated migration, inspect it for a plain `DROP INDEX "CartItem_cartId_productId_variantId_key"`
+  // followed by a re-create missing `NULLS NOT DISTINCT`, and fix it up to preserve the clause.
   @@unique([cartId, productId, variantId])
 }
 

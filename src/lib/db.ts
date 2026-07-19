@@ -11,6 +11,11 @@ import { PrismaClient } from '@/generated/prisma/client'
  *
  * The instance is cached on `globalThis` in development so Next's hot reload doesn't
  * open a new pool on every refresh and exhaust Supabase connections.
+ *
+ * Construction is deferred to first property access (via the `Proxy` below) rather than
+ * happening at module load: eagerly constructing here would throw the instant any route
+ * imports `db` if `DATABASE_URL` isn't set yet, which would fail `next build` in any
+ * environment where the URL is only injected at runtime rather than at build time.
  */
 const globalForPrisma = globalThis as unknown as { prisma?: PrismaClient }
 
@@ -22,6 +27,21 @@ function createPrismaClient(): PrismaClient {
   return new PrismaClient({ adapter: new PrismaPg(connectionString) })
 }
 
-export const db = globalForPrisma.prisma ?? createPrismaClient()
+function getPrismaClient(): PrismaClient {
+  if (!globalForPrisma.prisma) {
+    const client = createPrismaClient()
+    if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = client
+    return client
+  }
+  return globalForPrisma.prisma
+}
 
-if (process.env.NODE_ENV !== 'production') globalForPrisma.prisma = db
+// A Proxy around the lazily-created client: every property/method access (`db.product`,
+// `db.$transaction`, ...) resolves the real client on demand via `getPrismaClient()`, so
+// nothing runs — and no error can throw — until `db` is actually used. The exported name
+// and type are unchanged, so every existing call site keeps working as-is.
+export const db = new Proxy({} as PrismaClient, {
+  get(_target, prop, receiver) {
+    return Reflect.get(getPrismaClient(), prop, receiver)
+  },
+})
