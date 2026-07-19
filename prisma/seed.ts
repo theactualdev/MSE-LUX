@@ -10,6 +10,10 @@
 // Run via `npm run db:seed` (Task 7) once a database connection is available. Do NOT run this
 // from Task 6 — it requires `DATABASE_URL`/`DIRECT_URL`, which this task does not set up.
 
+// Must precede the `@/lib/db` import: unlike Next.js and prisma.config.ts, a standalone
+// `tsx` process does not load `.env` on its own, so DATABASE_URL would be undefined.
+import 'dotenv/config'
+
 import { db } from '@/lib/db'
 import { getAllCategories, getAllCollections, getAllProducts } from '@/features/catalog/lib/selectors'
 import { toProductCreate } from './seed-mappers'
