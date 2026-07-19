@@ -32,7 +32,10 @@ export function SignupForm() {
       noValidate
       onSubmit={handleSubmit(async (values) => {
         setFormError(undefined)
-        const result = await signUp(values)
+        // Only the fields signUp needs — confirmPassword was already
+        // enforced client-side by zodResolver and has no reason to be sent
+        // to the server a second time.
+        const result = await signUp({ name: values.name, email: values.email, password: values.password })
         if (result?.error) {
           setFormError(result.error)
           return

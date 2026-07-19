@@ -25,6 +25,11 @@ import { cn } from '@/lib/utils'
 export function AccountMenu() {
   const hydrated = useHydrated()
   const user = useAuthStore((s) => s.user)
+  // Transitional: the mock store's `signOut` still owns `user` in
+  // localStorage until Task 8 retires the store. Without clearing it here,
+  // the stale mock `user` would keep this menu (and `RedirectIfAuthed`)
+  // believing the visitor is signed in after a real sign-out.
+  const clearMockSession = useAuthStore((s) => s.signOut)
 
   if (!hydrated) {
     return (
@@ -80,6 +85,7 @@ export function AccountMenu() {
             // push here, or the two navigations would race (see Phase 2d
             // follow-up: sign-out used to land on /login because the
             // RequireAuth guard's redirect won that race).
+            clearMockSession()
             void signOut()
           }}
         >

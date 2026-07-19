@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { env } from '@/lib/env'
 
 // `redirect` is a control-flow throw in real Next.js (its return type is
 // `never`). Mocking it to throw — rather than to just record a call — is
@@ -82,21 +83,24 @@ describe('signUp', () => {
       password: 'abcdefgh',
       options: {
         data: { full_name: 'Ada Lovelace' },
-        emailRedirectTo: expect.stringContaining('/auth/callback'),
+        emailRedirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
       },
     })
+    expect(redirect).not.toHaveBeenCalled()
   })
 
   it('returns no error on success', async () => {
     signUp.mockResolvedValue({ data: {}, error: null })
 
     await expect(signUpAction(SIGNUP_VALUES)).resolves.toEqual({})
+    expect(redirect).not.toHaveBeenCalled()
   })
 
   it('returns the Supabase error message on failure', async () => {
     signUp.mockResolvedValue({ data: {}, error: { message: 'User already registered' } })
 
     await expect(signUpAction(SIGNUP_VALUES)).resolves.toEqual({ error: 'User already registered' })
+    expect(redirect).not.toHaveBeenCalled()
   })
 })
 
