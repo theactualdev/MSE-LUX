@@ -359,11 +359,11 @@ model Order {
 
   // Money is always integer minor units; never floats. Totals are stored in
   // `currency`'s minor units.
-  currency         String @default("NGN")
-  subtotalNgnMinor Int
-  shippingNgnMinor Int
-  taxNgnMinor      Int
-  totalNgnMinor    Int
+  currency      String @default("NGN")
+  subtotalMinor Int
+  shippingMinor Int
+  taxMinor      Int
+  totalMinor    Int
 
   lines OrderLine[]
 
@@ -391,8 +391,8 @@ model OrderLine {
   imageAlt     String?
   quantity     Int
 
-  unitPriceNgnMinor Int
-  lineTotalNgnMinor Int
+  unitPriceMinor Int
+  lineTotalMinor Int
 
   // Nullable, analytics-only references. Deleting the product/variant must
   // only null these out — never cascade — leaving the snapshot above intact.
