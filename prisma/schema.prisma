@@ -68,6 +68,10 @@ model Product {
   // Inventory for products without variants; variant products track inventory on ProductVariant instead.
   inventory Int @default(0)
 
+  // Optional per-product SEO overrides; the PDP falls back to name/shortDescription when null.
+  seoTitle       String?
+  seoDescription String?
+
   categoryId    String
   category      Category     @relation(fields: [categoryId], references: [id])
   subcategoryId String?
