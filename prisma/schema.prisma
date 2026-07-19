@@ -13,3 +13,129 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+// --- Catalog ---
+
+enum ProductStatus {
+  ACTIVE
+  DRAFT
+}
+
+enum Badge {
+  NEW
+  BEST_SELLER
+}
+
+model Category {
+  id            String        @id @default(cuid())
+  slug          String        @unique
+  name          String
+  description   String?
+  image         String?
+  subcategories Subcategory[]
+  products      Product[]
+}
+
+model Subcategory {
+  id         String    @id @default(cuid())
+  slug       String
+  name       String
+  categoryId String
+  category   Category  @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  products   Product[]
+
+  @@unique([categoryId, slug])
+}
+
+model Product {
+  id               String        @id @default(cuid())
+  slug             String        @unique
+  sku              String        @unique
+  name             String
+  shortDescription String
+  description      String
+  material         String
+  materialTags     String[]
+  badges           Badge[]
+  status           ProductStatus @default(ACTIVE)
+
+  // Money is always integer minor units in both authored currencies; never floats.
+  priceNgnMinor     Int
+  priceUsdMinor     Int
+  salePriceNgnMinor Int?
+  salePriceUsdMinor Int?
+
+  // Inventory for products without variants; variant products track inventory on ProductVariant instead.
+  inventory Int @default(0)
+
+  categoryId    String
+  category      Category     @relation(fields: [categoryId], references: [id])
+  subcategoryId String?
+  subcategory   Subcategory? @relation(fields: [subcategoryId], references: [id])
+
+  images      ProductImage[]
+  variants    ProductVariant[]
+  collections ProductCollection[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryId, status])
+  @@index([subcategoryId])
+  @@index([status])
+}
+
+model ProductVariant {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  sku       String  @unique
+  inventory Int     @default(0)
+
+  // Nullable overrides: null means "inherit the product's price".
+  priceNgnMinor Int?
+  priceUsdMinor Int?
+
+  image   String?
+  options VariantOption[]
+}
+
+model VariantOption {
+  id        String         @id @default(cuid())
+  variantId String
+  variant   ProductVariant @relation(fields: [variantId], references: [id], onDelete: Cascade)
+  name      String
+  value     String
+
+  @@unique([variantId, name])
+}
+
+model ProductImage {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  src       String
+  alt       String
+  position  Int
+
+  @@unique([productId, position])
+}
+
+model Collection {
+  id          String              @id @default(cuid())
+  slug        String              @unique
+  name        String
+  description String?
+  image       String?
+  products    ProductCollection[]
+}
+
+model ProductCollection {
+  productId    String
+  product      Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  collectionId String
+  collection   Collection @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+  position     Int?
+
+  @@id([productId, collectionId])
+}
