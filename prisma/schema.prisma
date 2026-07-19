@@ -79,6 +79,7 @@ model Product {
 
   images        ProductImage[]
   variants      ProductVariant[]
+  optionTypes   ProductOptionType[]
   collections   ProductCollection[]
   cartItems     CartItem[]
   wishlistItems WishlistItem[]
@@ -89,7 +90,6 @@ model Product {
 
   @@index([categoryId, status])
   @@index([subcategoryId])
-  @@index([status])
 }
 
 model ProductVariant {
@@ -107,6 +107,38 @@ model ProductVariant {
   options    VariantOption[]
   cartItems  CartItem[]
   orderLines OrderLine[]
+
+  @@index([productId])
+}
+
+// Authored, ordered option types/values for a product (e.g. Size: S|M|L|XL,
+// Color: Turquoise|Coral|Ivory), matching `optionTypes: { name, values[] }[]`
+// in `src/types/catalog.ts`. `position` preserves authoring order, and a value
+// can exist here even if no variant currently uses it. Distinct from
+// `VariantOption`, which records the option values a specific variant *is*.
+model ProductOptionType {
+  id        String               @id @default(cuid())
+  productId String
+  product   Product              @relation(fields: [productId], references: [id], onDelete: Cascade)
+  name      String
+  position  Int
+  values    ProductOptionValue[]
+
+  @@unique([productId, name])
+  @@unique([productId, position])
+  @@index([productId])
+}
+
+model ProductOptionValue {
+  id           String            @id @default(cuid())
+  optionTypeId String
+  optionType   ProductOptionType @relation(fields: [optionTypeId], references: [id], onDelete: Cascade)
+  value        String
+  position     Int
+
+  @@unique([optionTypeId, value])
+  @@unique([optionTypeId, position])
+  @@index([optionTypeId])
 }
 
 model VariantOption {
@@ -147,6 +179,7 @@ model ProductCollection {
   position     Int?
 
   @@id([productId, collectionId])
+  @@index([collectionId])
 }
 
 // --- Identity ---
@@ -276,6 +309,9 @@ model Order {
   profile     Profile?    @relation(fields: [profileId], references: [id], onDelete: SetNull)
   email       String
   status      OrderStatus @default(PENDING)
+  // The canonical business-event timestamp ("when the order was placed"); the
+  // app queries/sorts orders by this column. `createdAt` below is the row's
+  // audit timestamp and is not the same thing, even though both default to now().
   placedAt    DateTime    @default(now())
 
   // Shipping address snapshot — copied at order placement, NOT a foreign key to
@@ -292,7 +328,9 @@ model Order {
 
   shippingLabel String
 
-  // Money is always integer minor units; never floats.
+  // Money is always integer minor units; never floats. Totals are stored in
+  // `currency`'s minor units.
+  currency         String @default("NGN")
   subtotalNgnMinor Int
   shippingNgnMinor Int
   taxNgnMinor      Int
@@ -300,10 +338,12 @@ model Order {
 
   lines OrderLine[]
 
+  // Row-audit timestamp (when this record was created/last touched), distinct
+  // from `placedAt`, the business event timestamp.
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  @@index([profileId, createdAt])
+  @@index([profileId, placedAt])
   @@index([status])
 }
 
@@ -316,7 +356,10 @@ model OrderLine {
   // catalog changes verbatim.
   productName  String
   variantLabel String?
+  // Snapshot columns: `image`/`imageAlt` are copied at order placement, not a
+  // live join to ProductImage, so alt text survives catalog changes verbatim.
   image        String?
+  imageAlt     String?
   quantity     Int
 
   unitPriceNgnMinor Int
@@ -328,4 +371,8 @@ model OrderLine {
   product   Product?        @relation(fields: [productId], references: [id], onDelete: SetNull)
   variantId String?
   variant   ProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([productId])
+  @@index([variantId])
 }
