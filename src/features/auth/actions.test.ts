@@ -20,6 +20,7 @@ const signOut = vi.fn()
 const resetPasswordForEmail = vi.fn()
 const updateUser = vi.fn()
 const getClaims = vi.fn()
+const signInWithOAuth = vi.fn()
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
@@ -30,6 +31,7 @@ vi.mock('@/lib/supabase/server', () => ({
       resetPasswordForEmail: (...args: unknown[]) => resetPasswordForEmail(...args),
       updateUser: (...args: unknown[]) => updateUser(...args),
       getClaims: (...args: unknown[]) => getClaims(...args),
+      signInWithOAuth: (...args: unknown[]) => signInWithOAuth(...args),
     },
   }),
 }))
@@ -54,6 +56,7 @@ const {
   signOut: signOutAction,
   requestPasswordReset,
   updatePassword,
+  signInWithGoogle,
 } = await import('@/features/auth/actions')
 
 describe('signIn', () => {
@@ -275,5 +278,57 @@ describe('updatePassword', () => {
       error: RESET_LINK_INVALID_ERROR,
     })
     expect(updateUser).not.toHaveBeenCalled()
+  })
+})
+
+describe('signInWithGoogle', () => {
+  beforeEach(() => {
+    signInWithOAuth.mockReset()
+  })
+
+  it('requests the google provider with a redirectTo pointing at the callback route', async () => {
+    signInWithOAuth.mockResolvedValue({
+      data: { provider: 'google', url: 'https://accounts.google.com/o/oauth2/auth?...' },
+      error: null,
+    })
+
+    await signInWithGoogle()
+
+    expect(signInWithOAuth).toHaveBeenCalledWith({
+      provider: 'google',
+      options: {
+        redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+      },
+    })
+  })
+
+  it('returns the provider URL for the client to navigate to on success', async () => {
+    signInWithOAuth.mockResolvedValue({
+      data: { provider: 'google', url: 'https://accounts.google.com/o/oauth2/auth?...' },
+      error: null,
+    })
+
+    await expect(signInWithGoogle()).resolves.toEqual({
+      url: 'https://accounts.google.com/o/oauth2/auth?...',
+    })
+  })
+
+  it('returns a fixed generic error when Supabase reports a failure, not the raw message', async () => {
+    signInWithOAuth.mockResolvedValue({
+      data: { provider: 'google', url: null },
+      error: { message: 'Provider not enabled' },
+    })
+
+    await expect(signInWithGoogle()).resolves.toEqual({
+      error: 'Something went wrong. Please try again.',
+    })
+  })
+
+  it('returns a fixed generic error when Supabase reports no error but also no URL', async () => {
+    signInWithOAuth.mockResolvedValue({ data: { provider: 'google', url: null }, error: null })
+
+    await expect(signInWithGoogle()).resolves.toEqual({
+      error: 'Something went wrong. Please try again.',
+    })
   })
 })

@@ -24,6 +24,17 @@ export interface AuthActionResult {
 }
 
 /**
+ * Result shape for `signInWithGoogle`: a URL to navigate to on success,
+ * rather than a redirect this action performs itself. Distinct from
+ * `AuthActionResult` (which never carries a success payload) because this
+ * action's one job is to hand the caller somewhere to go.
+ */
+export interface OAuthActionResult {
+  url?: string
+  error?: string
+}
+
+/**
  * Signs in with email + password. Never logs or persists the password.
  *
  * A `'use server'` export is a public HTTP endpoint: anyone can POST it
@@ -98,6 +109,48 @@ export async function signUp({
   }
 
   return {}
+}
+
+/**
+ * Starts the Google OAuth flow. Unlike every other action in this file,
+ * there is nothing here to `safeParse` — this action takes no user-supplied
+ * input at all, so there's no untrusted payload to re-validate before
+ * calling Supabase.
+ *
+ * Returns the provider consent-screen URL rather than calling `redirect()`
+ * itself. `signInWithOAuth`, called from a Server Action (Node, not a
+ * browser), never has a `window` to auto-navigate with, so it just returns
+ * `{ url }` — the caller (the Google button) does the actual navigation
+ * with a full-page `window.location.href` assignment once this promise
+ * resolves, since the destination is a different origin entirely
+ * (accounts.google.com) and Next's client-side router has no way to
+ * navigate there.
+ *
+ * `redirectTo` points at the callback route Task 7 adds (this task), built
+ * the same way `signUp`'s `emailRedirectTo` and `requestPasswordReset`'s
+ * `redirectTo` already are — see those for why `env.NEXT_PUBLIC_SITE_URL`
+ * rather than a request-derived origin.
+ *
+ * A fixed, generic error on any failure (missing `url`, or a reported
+ * `error`), never `error.message` — matching `requestPasswordReset` and
+ * `updatePassword`'s established convention over `signIn`/`signUp`'s older
+ * pass-through, since there's no legitimate reason for a caller of this
+ * action to see GoTrue's internals (e.g. "Provider not enabled").
+ */
+export async function signInWithGoogle(): Promise<OAuthActionResult> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
+    },
+  })
+
+  if (error || !data.url) {
+    return { error: 'Something went wrong. Please try again.' }
+  }
+
+  return { url: data.url }
 }
 
 /**
