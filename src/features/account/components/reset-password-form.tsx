@@ -56,7 +56,7 @@ export function ResetPasswordForm() {
           // `redirect()` called from a server action invoked by a client
           // event handler surfaces here as a *rejected* promise carrying
           // Next's internal NEXT_REDIRECT digest, never a resolved value.
-          // `use-sign-out.ts` documents the identical shape for `signOut()`
+          // `sign-out.ts` documents the identical shape for `signOut()`
           // and establishes (empirically, against the real dev server) that
           // Next applies the redirect via its own action-handling
           // independently of whether/how this promise settles — nothing
@@ -64,7 +64,7 @@ export function ResetPasswordForm() {
           // `unstable_rethrow` is used purely as a version-resilient
           // classifier: it rethrows only for Next's own internal
           // control-flow errors (redirect/notFound/etc.), which is caught
-          // right here and swallowed, matching `use-sign-out.ts`'s
+          // right here and swallowed, matching `sign-out.ts`'s
           // `.catch()`. Anything unstable_rethrow does *not* rethrow is a
           // genuine failure (network drop, server exception) and gets the
           // same generic message as a Supabase-reported error.

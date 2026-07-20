@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { Container } from '@/components/brand/container'
 import { AuthCard } from '@/features/account/components/auth-card'
 import { LoginForm } from '@/features/account/components/login-form'
-import { RedirectIfAuthed } from '@/features/account/components/redirect-if-authed'
+import { redirectIfAuthenticated } from '@/features/auth/redirect-if-authed'
 import { callbackErrorMessage } from '@/features/auth/callback-errors'
 
 export const metadata: Metadata = {
@@ -24,36 +24,42 @@ interface LoginPageProps {
  * handing it down as a prop means `LoginForm` doesn't need its own
  * search-param plumbing, and the message lands in the `role="alert"` region
  * it already has, rather than new UI.
+ *
+ * `redirectIfAuthenticated()` runs before the error param is even read: an
+ * already-signed-in visitor belongs on `/account`, and doing this on the
+ * server (from verified claims) rather than in a client wrapper is what
+ * stops a stale client-side "signed in" belief from bouncing a legitimately
+ * signed-out user away from this page.
  */
 export default async function LoginPage({ searchParams }: LoginPageProps) {
+  await redirectIfAuthenticated()
+
   const { error } = await searchParams
   const initialError = callbackErrorMessage(error)
 
   return (
-    <RedirectIfAuthed>
-      <Container className="flex flex-col gap-8 py-12 sm:py-16">
-        <AuthCard
-          title="Sign in"
-          subtitle="Welcome back. Enter your details to continue."
-          footer={
-            <div className="flex flex-col gap-2">
-              <p>
-                <Link href="/forgot-password" className="text-accent hover:underline">
-                  Forgot your password?
-                </Link>
-              </p>
-              <p>
-                New here?{' '}
-                <Link href="/signup" className="text-accent hover:underline">
-                  Create an account
-                </Link>
-              </p>
-            </div>
-          }
-        >
-          <LoginForm initialError={initialError} />
-        </AuthCard>
-      </Container>
-    </RedirectIfAuthed>
+    <Container className="flex flex-col gap-8 py-12 sm:py-16">
+      <AuthCard
+        title="Sign in"
+        subtitle="Welcome back. Enter your details to continue."
+        footer={
+          <div className="flex flex-col gap-2">
+            <p>
+              <Link href="/forgot-password" className="text-accent hover:underline">
+                Forgot your password?
+              </Link>
+            </p>
+            <p>
+              New here?{' '}
+              <Link href="/signup" className="text-accent hover:underline">
+                Create an account
+              </Link>
+            </p>
+          </div>
+        }
+      >
+        <LoginForm initialError={initialError} />
+      </AuthCard>
+    </Container>
   )
 }

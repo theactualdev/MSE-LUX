@@ -2,30 +2,77 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AddressBook } from '@/features/account/components/address-book'
-import { useAuthStore } from '@/features/account/store'
-import { buildMockUser } from '@/features/account/lib/mock-user'
+import {
+  addAddress,
+  editAddress,
+  makeAddressDefault,
+  removeAddress,
+} from '@/features/account/actions'
+import type { SavedAddress } from '@/features/account/data'
 
-vi.mock('next/navigation', () => ({
-  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
-  usePathname: () => '/account/addresses',
-  useSearchParams: () => new URLSearchParams(),
+vi.mock('@/features/account/actions', () => ({
+  addAddress: vi.fn(),
+  editAddress: vi.fn(),
+  makeAddressDefault: vi.fn(),
+  removeAddress: vi.fn(),
 }))
+
+vi.mock('next/navigation', async () => {
+  const actual = await vi.importActual<typeof import('next/navigation')>('next/navigation')
+  return {
+    ...actual,
+    useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
+    usePathname: () => '/account/addresses',
+    useSearchParams: () => new URLSearchParams(),
+  }
+})
+
+const addAddressMock = vi.mocked(addAddress)
+const editAddressMock = vi.mocked(editAddress)
+const makeAddressDefaultMock = vi.mocked(makeAddressDefault)
+const removeAddressMock = vi.mocked(removeAddress)
+
+const DEFAULT_ADDRESS: SavedAddress = {
+  id: 'addr-1',
+  isDefault: true,
+  fullName: 'Ada Lovelace',
+  phone: '0800 000 0000',
+  line1: '12 Marina Road',
+  line2: '',
+  city: 'Lagos',
+  state: 'Lagos',
+  country: 'Nigeria',
+  postalCode: '',
+}
+
+const SECOND_ADDRESS: SavedAddress = {
+  ...DEFAULT_ADDRESS,
+  id: 'addr-2',
+  isDefault: false,
+  fullName: 'Bola Grace',
+  line1: '4 Admiralty Way',
+  city: 'Lekki',
+}
 
 describe('AddressBook', () => {
   beforeEach(() => {
-    useAuthStore.setState({ user: buildMockUser('ada@example.com', 'Ada Lovelace') })
+    vi.clearAllMocks()
+    addAddressMock.mockResolvedValue({})
+    editAddressMock.mockResolvedValue({})
+    makeAddressDefaultMock.mockResolvedValue({})
+    removeAddressMock.mockResolvedValue({})
   })
 
-  it('lists the signed-in user\'s saved address with a Default badge', () => {
-    render(<AddressBook />)
+  it("lists the signed-in user's saved address with a Default badge", () => {
+    render(<AddressBook addresses={[DEFAULT_ADDRESS]} />)
 
     expect(screen.getByText(/12 Marina Road/)).toBeInTheDocument()
     expect(screen.getByText('Default')).toBeInTheDocument()
   })
 
-  it('adding an address via the form calls addAddress and it appears in the list', async () => {
+  it('adding an address via the form calls the create action', async () => {
     const user = userEvent.setup({ delay: null })
-    render(<AddressBook />)
+    render(<AddressBook addresses={[DEFAULT_ADDRESS]} />)
 
     await user.click(screen.getByRole('button', { name: /add address/i }))
 
@@ -38,52 +85,75 @@ describe('AddressBook', () => {
     await user.click(within(dialog).getByRole('button', { name: /add address/i }))
 
     await vi.waitFor(() => {
-      expect(useAuthStore.getState().user?.addresses).toHaveLength(2)
+      expect(addAddressMock).toHaveBeenCalledWith(
+        expect.objectContaining({ line1: '4 Admiralty Way', city: 'Lekki' }),
+      )
     })
-    expect(await screen.findByText(/4 Admiralty Way/)).toBeInTheDocument()
     // Typing across six fields is keystroke-heavy; allow headroom under full-suite load.
   }, 20_000)
 
-  it('delete removes an address from the list', async () => {
+  it('editing an address passes that row\'s id to the edit action', async () => {
     const user = userEvent.setup({ delay: null })
-    render(<AddressBook />)
+    render(<AddressBook addresses={[DEFAULT_ADDRESS]} />)
+
+    await user.click(screen.getByRole('button', { name: /edit/i }))
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /save/i }))
+
+    await vi.waitFor(() => {
+      expect(editAddressMock).toHaveBeenCalledWith('addr-1', expect.objectContaining({
+        line1: '12 Marina Road',
+      }))
+    })
+  }, 20_000)
+
+  it('delete calls the remove action with that row\'s id', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<AddressBook addresses={[DEFAULT_ADDRESS]} />)
 
     await user.click(screen.getByRole('button', { name: /delete/i }))
 
     await vi.waitFor(() => {
-      expect(useAuthStore.getState().user?.addresses).toHaveLength(0)
+      expect(removeAddressMock).toHaveBeenCalledWith('addr-1')
     })
-    expect(screen.queryByText(/12 Marina Road/)).not.toBeInTheDocument()
   })
 
-  it('set default moves the Default badge to the newly-default address', async () => {
+  it('set default is only offered on non-default rows and calls the action', async () => {
     const user = userEvent.setup({ delay: null })
-    // Seed a second, non-default address directly via the store.
-    useAuthStore.getState().addAddress({
-      fullName: 'Bola Grace',
-      phone: '0801 234 5678',
-      line1: '4 Admiralty Way',
-      city: 'Lekki',
-      state: 'Lagos',
-      country: 'Nigeria',
-    })
-    render(<AddressBook />)
+    render(<AddressBook addresses={[DEFAULT_ADDRESS, SECOND_ADDRESS]} />)
 
-    await user.click(screen.getByRole('button', { name: /set default/i }))
+    const setDefaultButtons = screen.getAllByRole('button', { name: /set default/i })
+    expect(setDefaultButtons).toHaveLength(1)
+
+    await user.click(setDefaultButtons[0])
 
     await vi.waitFor(() => {
-      const state = useAuthStore.getState().user
-      expect(state?.addresses.find((a) => a.line1 === '4 Admiralty Way')?.isDefault).toBe(true)
+      expect(makeAddressDefaultMock).toHaveBeenCalledWith('addr-2')
     })
+  })
+
+  it('renders exactly one Default badge, on the row the server marked default', () => {
+    render(<AddressBook addresses={[DEFAULT_ADDRESS, SECOND_ADDRESS]} />)
 
     const badges = screen.getAllByText('Default')
     expect(badges).toHaveLength(1)
-    expect(badges[0].closest('li')).toHaveTextContent('4 Admiralty Way')
+    expect(badges[0].closest('li')).toHaveTextContent('12 Marina Road')
+  })
+
+  it('surfaces a rejected mutation instead of pretending it applied', async () => {
+    // The mock store always "succeeded"; a server-side rejection (someone
+    // else's row, concurrent delete) had no way to reach the user before.
+    removeAddressMock.mockResolvedValue({ error: 'That address is no longer available.' })
+    const user = userEvent.setup({ delay: null })
+    render(<AddressBook addresses={[DEFAULT_ADDRESS]} />)
+
+    await user.click(screen.getByRole('button', { name: /delete/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/no longer available/i)
   })
 
   it('shows a strong empty state when there are no saved addresses', () => {
-    useAuthStore.setState((s) => (s.user ? { user: { ...s.user, addresses: [] } } : s))
-    render(<AddressBook />)
+    render(<AddressBook addresses={[]} />)
 
     expect(screen.getByText(/no saved addresses/i)).toBeInTheDocument()
   })

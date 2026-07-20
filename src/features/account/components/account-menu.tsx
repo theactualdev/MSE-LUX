@@ -10,24 +10,26 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
-import { useSignOut } from '@/features/auth/use-sign-out'
-import { useAuthStore } from '@/features/account/store'
-import { useHydrated } from '@/features/cart/use-hydrated'
+import { handleSignOut } from '@/features/auth/sign-out'
+import { useSession } from '@/features/auth/use-session'
 import { cn } from '@/lib/utils'
 
 /**
- * Header account affordance. Before hydration (so the server-rendered markup
- * matches the client's initial render regardless of persisted auth state) it
- * shows an inert placeholder icon button. Once hydrated: a signed-out
- * visitor sees a link to `/login`; a signed-in user gets a dropdown with
- * account navigation and sign-out.
+ * Header account affordance. While the session read is settling (so the
+ * server-rendered markup matches the client's initial render) it shows an
+ * inert placeholder icon button. Once settled: a signed-out visitor sees a
+ * link to `/login`; a signed-in user gets a dropdown with account navigation
+ * and sign-out.
+ *
+ * `useSession` is UX only — it reads a browser cookie, so it decides what to
+ * *render*, never what to *permit*. Every destination below is enforced
+ * server-side by `requireUser()`, so a tampered cookie buys nothing more than
+ * a dropdown whose links all bounce to `/login`.
  */
 export function AccountMenu() {
-  const hydrated = useHydrated()
-  const user = useAuthStore((s) => s.user)
-  const handleSignOut = useSignOut()
+  const { signedIn, loading } = useSession()
 
-  if (!hydrated) {
+  if (loading) {
     return (
       <Button
         type="button"
@@ -42,7 +44,7 @@ export function AccountMenu() {
     )
   }
 
-  if (!user) {
+  if (!signedIn) {
     return (
       <Link
         href="/login"

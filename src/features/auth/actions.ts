@@ -225,7 +225,7 @@ const RESET_LINK_INVALID_ERROR = 'This reset link is no longer valid. Request a 
  * asks for the current password, so it must not run against an ordinary
  * signed-in session — see `hasRecentRecoveryAuth` in `claims.ts` for the
  * full reasoning and how the `recovery` AMR claim was verified. `/reset
- * -password` is deliberately not wrapped in `RedirectIfAuthed` (Supabase's
+ * -password` is deliberately not given `redirectIfAuthenticated()` (Supabase's
  * recovery link signs the user in before they reach it), so an ordinary
  * authenticated visitor — e.g. an unlocked shared browser — can load this
  * screen; this check is what stops them from actually changing the

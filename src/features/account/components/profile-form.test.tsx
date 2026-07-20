@@ -2,24 +2,32 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ProfileForm } from '@/features/account/components/profile-form'
-import { useAuthStore } from '@/features/account/store'
-import { buildMockUser } from '@/features/account/lib/mock-user'
+import { saveProfile } from '@/features/account/actions'
+
+vi.mock('@/features/account/actions', () => ({
+  saveProfile: vi.fn(),
+}))
+
+const saveProfileMock = vi.mocked(saveProfile)
+
+const DEFAULTS = { name: 'Ada Lovelace', email: 'ada@example.com', phone: '' }
 
 describe('ProfileForm', () => {
   beforeEach(() => {
-    useAuthStore.setState({ user: buildMockUser('ada@example.com', 'Ada Lovelace') })
+    saveProfileMock.mockReset()
+    saveProfileMock.mockResolvedValue({})
   })
 
-  it('prefills fields from the current user', () => {
-    render(<ProfileForm />)
+  it('prefills fields from the profile the server passed in', () => {
+    render(<ProfileForm defaultValues={DEFAULTS} />)
 
     expect(screen.getByLabelText(/name/i)).toHaveValue('Ada Lovelace')
     expect(screen.getByLabelText(/email/i)).toHaveValue('ada@example.com')
   })
 
-  it('valid submit updates the profile and shows a saved confirmation', async () => {
+  it('valid submit calls the save action and shows a saved confirmation', async () => {
     const user = userEvent.setup()
-    render(<ProfileForm />)
+    render(<ProfileForm defaultValues={DEFAULTS} />)
 
     const nameInput = screen.getByLabelText(/name/i)
     await user.clear(nameInput)
@@ -27,20 +35,47 @@ describe('ProfileForm', () => {
     await user.click(screen.getByRole('button', { name: /save changes/i }))
 
     await vi.waitFor(() => {
-      expect(useAuthStore.getState().user?.name).toBe('Ada Byron')
+      expect(saveProfileMock).toHaveBeenCalledWith({
+        name: 'Ada Byron',
+        email: 'ada@example.com',
+        phone: '',
+      })
     })
     expect(await screen.findByRole('status')).toHaveTextContent(/saved/i)
   })
 
-  it('invalid submit (empty name) shows an error and does not save', async () => {
+  it('invalid submit (empty name) shows an error and does not call the action', async () => {
     const user = userEvent.setup()
-    render(<ProfileForm />)
+    render(<ProfileForm defaultValues={DEFAULTS} />)
 
     const nameInput = screen.getByLabelText(/name/i)
     await user.clear(nameInput)
     await user.click(screen.getByRole('button', { name: /save changes/i }))
 
     expect(await screen.findAllByText(/required/i)).not.toHaveLength(0)
-    expect(useAuthStore.getState().user?.name).toBe('Ada Lovelace')
+    expect(saveProfileMock).not.toHaveBeenCalled()
+  })
+
+  it('surfaces a server-side rejection instead of claiming the save worked', async () => {
+    // Previously uncoverable: the mock store's `updateProfile` could not fail,
+    // so a rejected write would have shown "Saved." regardless.
+    saveProfileMock.mockResolvedValue({ error: 'That email address is already in use.' })
+    const user = userEvent.setup()
+    render(<ProfileForm defaultValues={DEFAULTS} />)
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/already in use/i)
+    expect(screen.queryByRole('status')).not.toBeInTheDocument()
+  })
+
+  it('surfaces a transport failure rather than silently doing nothing', async () => {
+    saveProfileMock.mockRejectedValue(new Error('offline'))
+    const user = userEvent.setup()
+    render(<ProfileForm defaultValues={DEFAULTS} />)
+
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
   })
 })

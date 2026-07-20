@@ -9,13 +9,18 @@ export const metadata: Metadata = {
 }
 
 /**
- * Deliberately NOT wrapped in `RedirectIfAuthed`, unlike the other auth
- * pages. Supabase's recovery link establishes a session before the user
- * ever reaches this page (via the callback route), so a signed-in user is
- * the *expected* visitor here, not an edge case to bounce to `/account`.
- * Wrapping it would make the reset flow unreachable by construction — see
+ * Deliberately does NOT call `redirectIfAuthenticated()`, unlike the other
+ * auth pages (`/login`, `/signup`, `/forgot-password`). Supabase's recovery
+ * link establishes a session before the user ever reaches this page (via the
+ * callback route), so a signed-in user is the *expected* visitor here, not an
+ * edge case to bounce to `/account`. Adding that guard would make the reset
+ * flow unreachable by construction — see
  * docs/phases/phase-2-storefront/2d-auth-dashboard/summary.md, which flagged
  * this as a follow-up for the real token flow.
+ *
+ * That this page is reachable by an *ordinary* authenticated session is
+ * exactly why `updatePassword` gates on `hasRecentRecoveryAuth()` rather than
+ * on the route — see `claims.ts`.
  */
 export default function ResetPasswordPage() {
   return (

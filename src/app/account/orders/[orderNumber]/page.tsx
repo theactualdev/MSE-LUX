@@ -4,7 +4,8 @@ import Link from 'next/link'
 import { buttonVariants } from '@/components/ui/button'
 import { SectionHeading } from '@/components/brand/section-heading'
 import { AccountShell } from '@/features/account/components/account-shell'
-import { RequireAuth } from '@/features/account/components/require-auth'
+import { requireUser } from '@/features/auth/guards'
+import { getProfile } from '@/features/account/data'
 import { CartSummary } from '@/features/cart/components/cart-summary'
 import { getMockOrder } from '@/features/account/data/orders'
 import { formatMoney } from '@/lib/money'
@@ -29,14 +30,20 @@ export async function generateMetadata({ params }: OrderDetailPageProps): Promis
  * since this view is for browsing a past order rather than confirming a new
  * one. Falls back to a graceful "not found" state for an unknown order
  * number.
+ *
+ * Server-guarded by `requireUser()`, which runs before the order is looked up
+ * so an unauthenticated request never reaches the data read at all. As on the
+ * orders index, the order itself is still Phase 5's static mock and is not
+ * scoped to the signed-in user.
  */
 export default async function OrderDetailPage({ params }: OrderDetailPageProps) {
+  await requireUser()
   const { orderNumber } = await params
   const order = getMockOrder(orderNumber)
+  const profile = await getProfile()
 
   return (
-    <RequireAuth>
-      <AccountShell>
+    <AccountShell user={profile}>
         {order ? (
           <div className="flex flex-col gap-8">
             <div className="flex flex-col gap-3">
@@ -116,6 +123,5 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
           </div>
         )}
       </AccountShell>
-    </RequireAuth>
   )
 }

@@ -88,7 +88,7 @@ const RECOVERY_AUTH_WINDOW_SECONDS = 15 * 60
  * this check, *any* signed-in session (an ordinary browser login, left
  * unlocked on a shared machine) could overwrite the account's credential.
  * `/reset-password` has to be reachable by an ordinary authenticated session
- * too (it's not gated by `RedirectIfAuthed`, since Supabase's recovery link
+ * too (it's not gated by `redirectIfAuthenticated()`, since Supabase's recovery link
  * establishes a session before the user ever lands there), so the route
  * alone can't tell the two apart — only the claims can.
  *

@@ -1,17 +1,30 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useTransition } from 'react'
+import { unstable_rethrow } from 'next/navigation'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { AddressForm } from '@/features/account/components/address-form'
-import { useAuthStore } from '@/features/account/store'
-import type { SavedAddress } from '@/features/account/lib/mock-user'
+import {
+  addAddress,
+  editAddress,
+  makeAddressDefault,
+  removeAddress,
+  type AccountActionResult,
+} from '@/features/account/actions'
+import type { SavedAddress } from '@/features/account/data'
 import type { Address } from '@/features/checkout/schema'
-import { useHydrated } from '@/features/cart/use-hydrated'
 
 type DialogState = { mode: 'add' } | { mode: 'edit'; address: SavedAddress } | null
+
+const GENERIC_ERROR = 'Something went wrong. Please try again.'
+
+interface AddressBookProps {
+  /** The signed-in user's saved addresses, read server-side (default first). */
+  addresses: SavedAddress[]
+}
 
 /** Renders a saved address as a formatted block (no PII beyond what's stored). */
 function formatAddressLines(address: SavedAddress): string[] {
@@ -24,39 +37,57 @@ function formatAddressLines(address: SavedAddress): string[] {
 }
 
 /**
- * Saved-addresses book for the customer dashboard: lists the signed-in
- * user's `SavedAddress` records with a "Default" badge, and lets them add,
- * edit, delete, or set a default address. Add/edit happens in a shared
- * `Dialog` containing `AddressForm`; hydration-gated so the persisted store
- * doesn't cause a server/client markup mismatch.
+ * Saved-addresses book for the customer dashboard: lists the signed-in user's
+ * stored addresses with a "Default" badge, and lets them add, edit, delete, or
+ * set a default address. Add/edit happens in a shared `Dialog` containing
+ * `AddressForm`.
+ *
+ * The list arrives as a server-rendered prop and every mutation goes through a
+ * Server Action that scopes the write to the session user and calls
+ * `revalidatePath('/account/addresses')`. That revalidation is what refreshes
+ * `addresses` — this component keeps no local copy of the list, so what's on
+ * screen after a mutation is what the database actually holds rather than an
+ * optimistic guess that could silently diverge (a rejected write used to be
+ * invisible under the mock store).
+ *
+ * No hydration gate any more: with the data server-rendered instead of read
+ * from persisted client storage, first paint is already correct.
  */
-export function AddressBook() {
-  const hydrated = useHydrated()
-  const user = useAuthStore((s) => s.user)
-  const addAddress = useAuthStore((s) => s.addAddress)
-  const updateAddress = useAuthStore((s) => s.updateAddress)
-  const removeAddress = useAuthStore((s) => s.removeAddress)
-  const setDefaultAddress = useAuthStore((s) => s.setDefaultAddress)
-
+export function AddressBook({ addresses }: AddressBookProps) {
   const [dialogState, setDialogState] = useState<DialogState>(null)
-
-  if (!hydrated) {
-    return <div aria-hidden className="h-64 w-full animate-pulse rounded-xl bg-muted" />
-  }
-
-  const addresses = user?.addresses ?? []
+  const [error, setError] = useState<string | undefined>(undefined)
+  const [pending, startTransition] = useTransition()
 
   function closeDialog() {
     setDialogState(null)
   }
 
+  /**
+   * Runs a mutation inside a transition so the revalidated server render is
+   * what re-renders the list. `pending` disables the row actions meanwhile,
+   * which also stops a double-click from firing two `setDefault` writes at
+   * once — the second would race the first against the
+   * `Address_one_default_per_profile` partial unique index.
+   */
+  function run(action: () => Promise<AccountActionResult>) {
+    setError(undefined)
+    startTransition(async () => {
+      let result
+      try {
+        result = await action()
+      } catch (caught) {
+        unstable_rethrow(caught)
+        setError(GENERIC_ERROR)
+        return
+      }
+      if (result.error) setError(result.error)
+    })
+  }
+
   function handleFormSubmit(values: Address) {
-    if (dialogState?.mode === 'edit') {
-      updateAddress(dialogState.address.id, values)
-    } else {
-      addAddress(values)
-    }
+    const editing = dialogState?.mode === 'edit' ? dialogState.address.id : null
     closeDialog()
+    run(() => (editing ? editAddress(editing, values) : addAddress(values)))
   }
 
   return (
@@ -67,6 +98,12 @@ export function AddressBook() {
           Add address
         </Button>
       </div>
+
+      {error ? (
+        <p role="alert" className="text-sm text-destructive">
+          {error}
+        </p>
+      ) : null}
 
       {addresses.length === 0 ? (
         <div className="flex flex-col items-center gap-2 rounded-xl border border-dashed border-border py-16 text-center">
@@ -103,7 +140,8 @@ export function AddressBook() {
                           type="button"
                           variant="outline"
                           size="sm"
-                          onClick={() => setDefaultAddress(address.id)}
+                          disabled={pending}
+                          onClick={() => run(() => makeAddressDefault(address.id))}
                         >
                           Set default
                         </Button>
@@ -112,6 +150,7 @@ export function AddressBook() {
                         type="button"
                         variant="outline"
                         size="sm"
+                        disabled={pending}
                         onClick={() => setDialogState({ mode: 'edit', address })}
                       >
                         Edit
@@ -120,7 +159,8 @@ export function AddressBook() {
                         type="button"
                         variant="outline"
                         size="sm"
-                        onClick={() => removeAddress(address.id)}
+                        disabled={pending}
+                        onClick={() => run(() => removeAddress(address.id))}
                       >
                         Delete
                       </Button>
