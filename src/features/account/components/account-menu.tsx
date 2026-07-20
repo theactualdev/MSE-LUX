@@ -28,7 +28,9 @@ export function AccountMenu() {
   // Transitional: the mock store's `signOut` still owns `user` in
   // localStorage until Task 8 retires the store. Without clearing it here,
   // the stale mock `user` would keep this menu (and `RedirectIfAuthed`)
-  // believing the visitor is signed in after a real sign-out.
+  // believing the visitor is signed in after a real sign-out. Cleared only
+  // *after* the server action settles (see the onClick below) so it can't
+  // race `RequireAuth`'s redirect.
   const clearMockSession = useAuthStore((s) => s.signOut)
 
   if (!hydrated) {
@@ -84,9 +86,16 @@ export function AccountMenu() {
             // signOut() redirects to `/` itself on success — no client-side
             // push here, or the two navigations would race (see Phase 2d
             // follow-up: sign-out used to land on /login because the
-            // RequireAuth guard's redirect won that race).
-            clearMockSession()
-            void signOut()
+            // RequireAuth guard's redirect won that race). Clearing the mock
+            // store must wait until *after* the server action resolves: on
+            // an /account* page this menu renders inside RequireAuth, and
+            // nulling `user` synchronously (before the server round-trip)
+            // reintroduces that exact race — RequireAuth's effect fires
+            // router.replace('/login') long before redirect('/') lands. On
+            // success redirect() unmounts everything before this ever runs;
+            // on failure it correctly leaves the store in sync with the
+            // still-live session.
+            void signOut().then(() => clearMockSession())
           }}
         >
           Sign out

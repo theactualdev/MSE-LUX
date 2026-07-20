@@ -3,7 +3,12 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { env } from '@/lib/env'
-import { loginSchema, signupSchema, type LoginValues, type SignupValues } from '@/features/account/schema'
+import {
+  loginServerSchema,
+  signupServerSchema,
+  type LoginValues,
+  type SignupValues,
+} from '@/features/account/schema'
 
 /**
  * Result shape every action below returns instead of throwing, so the
@@ -22,10 +27,15 @@ export interface AuthActionResult {
  * arbitrary JSON directly, bypassing the browser form entirely, so RHF's
  * `zodResolver` (which only ever runs client-side) buys no protection here
  * and the `LoginValues` parameter type is erased at runtime. Re-validating
- * with the same `loginSchema` server-side is the actual security boundary.
+ * server-side is the actual security boundary — but against
+ * `loginServerSchema`, not the client's `loginSchema`: this is the
+ * verify-password path, not the set-password path, so the only rule that
+ * belongs here is "a password was supplied," not a strength rule like
+ * `min(8)` that could reject a valid Supabase account (min 6) created
+ * outside this form.
  */
 export async function signIn(values: LoginValues): Promise<AuthActionResult> {
-  const parsed = loginSchema.safeParse(values)
+  const parsed = loginServerSchema.safeParse(values)
   if (!parsed.success) {
     return { error: 'Invalid email or password' }
   }
@@ -47,23 +57,25 @@ export async function signIn(values: LoginValues): Promise<AuthActionResult> {
  * for DISPLAY only — the Profile-provisioning trigger reads it for the
  * initial name, but nothing here or downstream may use it for authorization.
  * Unvalidated, `name` would flow straight into `raw_user_meta_data` and then
- * the Task 2 trigger's `Profile` row with no length or content bound, so it
- * goes through `signupSchema` below like every other field.
+ * the Task 2 trigger's `Profile` row bounded only by `signupServerSchema`
+ * below (currently 1-100 characters), so it goes through that schema like
+ * every other field.
  * `emailRedirectTo` points at the callback route Task 7 adds; until then the
  * confirmation link 404s, which is expected at this point in the build.
  *
  * Takes `{ name, email, password }` rather than the full `SignupValues` —
  * `confirmPassword` is a client-only UX check (RHF's `zodResolver` already
  * enforced the match before this was called) and has no reason to be sent
- * over the wire a second time. `signupSchema` still requires it, so it's
- * synthesized from `password` below purely to satisfy the schema's shape.
+ * over the wire a second time. `signupServerSchema` mirrors that: it's
+ * `signupSchema`'s field set minus `confirmPassword`, so re-validation here
+ * checks exactly what the server actually received.
  */
 export async function signUp({
   name,
   email,
   password,
 }: Omit<SignupValues, 'confirmPassword'>): Promise<AuthActionResult> {
-  const parsed = signupSchema.safeParse({ name, email, password, confirmPassword: password })
+  const parsed = signupServerSchema.safeParse({ name, email, password })
   if (!parsed.success) {
     return { error: 'Please check your details and try again' }
   }
