@@ -4,6 +4,7 @@ import { useEffect, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { useAuthStore } from '@/features/account/store'
+import { isSignOutInFlight } from '@/features/auth/use-sign-out'
 
 interface RequireAuthProps {
   children: ReactNode
@@ -14,6 +15,13 @@ interface RequireAuthProps {
  * skeleton until the client has hydrated (avoiding a server/client mismatch
  * on persisted auth state); once hydrated, redirects a signed-out user to
  * `/login` and otherwise renders `children`.
+ *
+ * Skips that redirect while `isSignOutInFlight()` is true. `useSignOut`
+ * clears the mock store synchronously, which re-renders this component with
+ * `user === null` well before its `signOut()` server action settles; without
+ * this guard, this effect would fire its own `/login` navigation and win the
+ * race against `signOut()`'s `redirect('/')` every time (see
+ * `use-sign-out.ts` and task-5-report.md "Fix pass 4" for the full trace).
  */
 export function RequireAuth({ children }: RequireAuthProps) {
   const hydrated = useHydrated()
@@ -21,7 +29,7 @@ export function RequireAuth({ children }: RequireAuthProps) {
   const router = useRouter()
 
   useEffect(() => {
-    if (hydrated && !user) router.replace('/login')
+    if (hydrated && !user && !isSignOutInFlight()) router.replace('/login')
   }, [hydrated, user, router])
 
   if (!hydrated) {
