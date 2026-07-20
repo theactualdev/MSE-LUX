@@ -60,11 +60,13 @@ describe('signIn', () => {
   })
 })
 
+// `signUp`'s parameter type is `Omit<SignupValues, 'confirmPassword'>` — this
+// fixture matches that shape exactly, since `confirmPassword` is a
+// client-only RHF check the server never receives (see signup-form.tsx).
 const SIGNUP_VALUES = {
   name: 'Ada Lovelace',
   email: 'ada@example.com',
   password: 'abcdefgh',
-  confirmPassword: 'abcdefgh',
 }
 
 describe('signUp', () => {

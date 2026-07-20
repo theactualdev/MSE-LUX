@@ -41,4 +41,9 @@ describe('account schemas', () => {
     expect(resetSchema.safeParse({ password: 'abcdefgh', confirmPassword: 'nope' }).success).toBe(false)
     expect(profileSchema.safeParse({ name: 'Ada', email: 'a@b.com' }).success).toBe(true)
   })
+  it('profileSchema: rejects a name over 100 characters, matching signup', () => {
+    const base = { email: 'a@b.com' }
+    expect(profileSchema.safeParse({ ...base, name: 'A'.repeat(100) }).success).toBe(true)
+    expect(profileSchema.safeParse({ ...base, name: 'A'.repeat(101) }).success).toBe(false)
+  })
 })

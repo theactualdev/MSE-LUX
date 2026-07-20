@@ -35,9 +35,14 @@ export function AccountShell({ children }: AccountShellProps) {
   // Transitional: the mock store's `signOut` still owns `user` in
   // localStorage until Task 8 retires the store. Without clearing it here,
   // the stale mock `user` would keep this shell (and `RedirectIfAuthed`)
-  // believing the visitor is signed in after a real sign-out. Cleared only
-  // *after* the server action settles (see the onClick below) so it can't
-  // race `RequireAuth`'s redirect.
+  // believing the visitor is signed in after a real sign-out. Cleared
+  // synchronously at click time (see the onClick below) and restored if the
+  // server action reports the sign-out failed, rather than waiting for the
+  // server action to settle — it settles by *rejecting* on success (a
+  // server-action `redirect()` turns into a rejected client promise, not a
+  // resolved one; confirmed empirically, see task-5-report.md "Fix pass
+  // 3"), so a `.then(onFulfilled)` after the call never runs on success and
+  // there is no later point at which to clear it instead.
   const clearMockSession = useAuthStore((s) => s.signOut)
 
   return (
@@ -87,16 +92,39 @@ export function AccountShell({ children }: AccountShellProps) {
               // signOut() redirects to `/` itself on success — no client-side
               // push here, or the two navigations would race (see Phase 2d
               // follow-up: sign-out used to land on /login because the
-              // RequireAuth guard's redirect won that race). Clearing the
-              // mock store must wait until *after* the server action
-              // resolves: this component renders inside RequireAuth, and
-              // nulling `user` synchronously (before the server round-trip)
-              // reintroduces that exact race — RequireAuth's effect fires
-              // router.replace('/login') long before redirect('/') lands.
-              // On success redirect() unmounts everything before this ever
-              // runs; on failure it correctly leaves the store in sync with
-              // the still-live session.
-              void signOut().then(() => clearMockSession())
+              // RequireAuth guard's redirect won that race).
+              //
+              // The mock store is cleared *synchronously*, optimistically
+              // assuming success, and restored only if the action resolves
+              // with `{ error }` — the one outcome that genuinely resolves.
+              // A successful `signOut()` never resolves on the client: its
+              // `redirect('/')` makes Next.js reject this call's promise
+              // with an internal NEXT_REDIRECT error instead (verified by
+              // driving a scratch server action + redirect through the dev
+              // server: `.then(onFulfilled)` never fired, `.catch()` did,
+              // and the navigation happened either way). So there is no
+              // "wait for success, then clear" hook available — clearing
+              // eagerly and rolling back on a reported failure is the only
+              // way to keep the store in sync with both outcomes.
+              clearMockSession()
+              void signOut()
+                .then((result) => {
+                  if (result?.error) {
+                    // Supabase reported a real error — the session cookie is
+                    // still live, so put the mock user back rather than
+                    // presenting a signed-out UI over a signed-in session.
+                    useAuthStore.setState({ user })
+                  }
+                })
+                .catch(() => {
+                  // Reached for the expected redirect-as-rejection above
+                  // (already handled by Next's router; nothing to do) and
+                  // for a genuine transport failure (offline, 500). Neither
+                  // has an error-surfacing UI at this button, and a
+                  // transport failure gives no reliable signal the session
+                  // is still valid, so the store is left as the synchronous
+                  // clear above left it rather than guessing.
+                })
             }}
           >
             Sign out

@@ -52,7 +52,11 @@ export const resetSchema = z
   .refine((v) => v.password === v.confirmPassword, { message: 'Passwords do not match', path: ['confirmPassword'] })
 
 export const profileSchema = z.object({
-  name: z.string().min(1, 'Required'),
+  // Bounded the same as `signupFields.name`: both write the same
+  // `Profile.name` column (Task 2's provisioning trigger for signup, this
+  // schema for profile edits), so they should enforce the same limit rather
+  // than letting a profile update write a value signup itself would reject.
+  name: z.string().min(1, 'Required').max(100, '100 characters or fewer'),
   email: z.email(),
   phone: z.string().optional(),
 })
