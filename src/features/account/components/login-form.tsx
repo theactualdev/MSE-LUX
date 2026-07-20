@@ -15,17 +15,31 @@ import { GoogleAuthButton } from '@/features/account/components/google-auth-butt
 const DEFAULT_VALUES: LoginValues = { email: '', password: '' }
 const GENERIC_ERROR = 'Something went wrong. Please try again.'
 
+interface LoginFormProps {
+  /**
+   * Pre-seeds the shared `role="alert"` region, sourced from
+   * `/auth/callback`'s `?error=` redirect (see `callback-errors.ts` and
+   * `login/page.tsx`, which resolves the raw param to this string
+   * server-side). `undefined` when there's nothing to show — e.g. a normal
+   * visit to `/login`, or a value `callbackErrorMessage` didn't recognize.
+   */
+  initialError?: string
+}
+
 /**
  * Sign-in form. Validates with `loginSchema`; the password is never read
  * past validation. The email form stays the primary path — `GoogleAuthButton`
  * below is deliberately styled `outline` (secondary emphasis) and shares
  * this component's own `formError`/`role="alert"` region rather than owning
  * a second one, so a Google failure and an email-form failure are never
- * shown in two places at once.
+ * shown in two places at once. That same region also surfaces
+ * `initialError` on first render, for a failure that happened one whole
+ * redirect earlier (an expired/used callback link) rather than during this
+ * form's own submission.
  */
-export function LoginForm() {
+export function LoginForm({ initialError }: LoginFormProps) {
   const router = useRouter()
-  const [formError, setFormError] = useState<string>()
+  const [formError, setFormError] = useState<string | undefined>(initialError)
 
   const {
     register,
@@ -107,10 +121,16 @@ export function LoginForm() {
         </Button>
       </form>
 
+      {/*
+        Both rules are `aria-hidden` — Base UI's `Separator` renders
+        `role="separator"` by default, and two of them either side of the
+        "or" label made screen readers announce "separator, or, separator".
+        The label itself carries the meaning; the rules are purely visual.
+      */}
       <div className="flex items-center gap-3">
-        <Separator className="flex-1" />
+        <Separator aria-hidden="true" className="flex-1" />
         <span className="text-xs text-muted-foreground">or</span>
-        <Separator className="flex-1" />
+        <Separator aria-hidden="true" className="flex-1" />
       </div>
 
       <GoogleAuthButton onError={setFormError} />

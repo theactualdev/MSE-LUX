@@ -143,10 +143,16 @@ export function SignupForm() {
         </Button>
       </form>
 
+      {/*
+        Both rules are `aria-hidden` — Base UI's `Separator` renders
+        `role="separator"` by default, and two of them either side of the
+        "or" label made screen readers announce "separator, or, separator".
+        The label itself carries the meaning; the rules are purely visual.
+      */}
       <div className="flex items-center gap-3">
-        <Separator className="flex-1" />
+        <Separator aria-hidden="true" className="flex-1" />
         <span className="text-xs text-muted-foreground">or</span>
-        <Separator className="flex-1" />
+        <Separator aria-hidden="true" className="flex-1" />
       </div>
 
       <GoogleAuthButton onError={setFormError} />

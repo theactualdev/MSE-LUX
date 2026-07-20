@@ -34,6 +34,9 @@ export interface OAuthActionResult {
   error?: string
 }
 
+/** Fixed copy for every `signIn` failure — see the comment below for why. */
+const INVALID_CREDENTIALS_ERROR = 'Invalid email or password'
+
 /**
  * Signs in with email + password. Never logs or persists the password.
  *
@@ -47,11 +50,21 @@ export interface OAuthActionResult {
  * belongs here is "a password was supplied," not a strength rule like
  * `min(8)` that could reject a valid Supabase account (min 6) created
  * outside this form.
+ *
+ * Every failure path — local validation *and* a genuine Supabase
+ * `signInWithPassword` error — returns the same fixed `INVALID_CREDENTIALS_
+ * ERROR`, never `error.message`. GoTrue's raw messages distinguish cases
+ * like "no user found for this email" from "wrong password for this email",
+ * and this is precisely the endpoint where handing that distinction to the
+ * caller matters: it's a direct credential-enumeration oracle for anyone
+ * probing whether an address has an account. `requestPasswordReset` and
+ * `updatePassword` (Task 6) already made this call for the same reason;
+ * `signIn` following it closes the one credential-facing action that hadn't.
  */
 export async function signIn(values: LoginValues): Promise<AuthActionResult> {
   const parsed = loginServerSchema.safeParse(values)
   if (!parsed.success) {
-    return { error: 'Invalid email or password' }
+    return { error: INVALID_CREDENTIALS_ERROR }
   }
   const { email, password } = parsed.data
 
@@ -59,7 +72,7 @@ export async function signIn(values: LoginValues): Promise<AuthActionResult> {
   const { error } = await supabase.auth.signInWithPassword({ email, password })
 
   if (error) {
-    return { error: error.message }
+    return { error: INVALID_CREDENTIALS_ERROR }
   }
 
   return {}
@@ -255,13 +268,22 @@ export async function updatePassword(newPassword: string): Promise<AuthActionRes
   redirect('/login')
 }
 
-/** Clears the session, then redirects to `/` — the deliberate post-sign-out destination. */
+/**
+ * Clears the session, then redirects to `/` — the deliberate post-sign-out
+ * destination.
+ *
+ * A Supabase failure here is far less sensitive than `signIn`'s (there's no
+ * credential-verification signal in a sign-out error), but returns the same
+ * fixed generic copy the other non-`signIn`/`signUp` actions in this file
+ * use, rather than `error.message`, for consistency with that convention
+ * rather than because this particular path needed it.
+ */
 export async function signOut(): Promise<AuthActionResult> {
   const supabase = await createClient()
   const { error } = await supabase.auth.signOut()
 
   if (error) {
-    return { error: error.message }
+    return { error: 'Something went wrong. Please try again.' }
   }
 
   redirect('/')

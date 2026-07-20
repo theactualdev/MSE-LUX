@@ -79,13 +79,24 @@ describe('signIn', () => {
     await expect(signIn({ email: 'ada@example.com', password: 'abcdefgh' })).resolves.toEqual({})
   })
 
-  it('returns the Supabase error message on failure, without redirecting', async () => {
+  it('returns a fixed generic error on failure, not the raw Supabase message, without redirecting', async () => {
+    // Fix 3: GoTrue's raw message here is a credential-enumeration oracle
+    // (e.g. distinguishing "no such user" from "wrong password") — matching
+    // the fixed-copy convention `requestPasswordReset`/`updatePassword`
+    // (Task 6) already use.
     signInWithPassword.mockResolvedValue({ data: {}, error: { message: 'Invalid login credentials' } })
 
     await expect(signIn({ email: 'ada@example.com', password: 'wrongpass' })).resolves.toEqual({
-      error: 'Invalid login credentials',
+      error: 'Invalid email or password',
     })
     expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it('returns the same fixed error for a local validation failure as for a Supabase failure', async () => {
+    await expect(signIn({ email: 'not-an-email', password: '' })).resolves.toEqual({
+      error: 'Invalid email or password',
+    })
+    expect(signInWithPassword).not.toHaveBeenCalled()
   })
 })
 
@@ -149,10 +160,14 @@ describe('signOut', () => {
     expect(redirect).toHaveBeenCalledWith('/')
   })
 
-  it('returns the error and does not redirect when sign-out fails', async () => {
+  it('returns a fixed generic error and does not redirect when sign-out fails', async () => {
+    // Fix 3: matches the fixed-copy convention, not because this path is
+    // especially sensitive.
     signOut.mockResolvedValue({ error: { message: 'Network error' } })
 
-    await expect(signOutAction()).resolves.toEqual({ error: 'Network error' })
+    await expect(signOutAction()).resolves.toEqual({
+      error: 'Something went wrong. Please try again.',
+    })
     expect(redirect).not.toHaveBeenCalled()
   })
 })
