@@ -175,6 +175,21 @@ export async function getCurrentUserId(): Promise<string | null> {
   return claims?.sub ?? null
 }
 
+/**
+ * The current user's verified sign-in email (JWT `email` claim), or `null`
+ * when unauthenticated.
+ *
+ * This is the email Supabase Auth actually authenticates against — distinct
+ * from `Profile.email`, which is application data. Read this (not the
+ * `Profile` row) anywhere the UI needs to show "the email you sign in with",
+ * so a stored `Profile.email` that has gone stale (out-of-band edit, a
+ * provisioning replay) can never be presented as the sign-in address.
+ */
+export async function getCurrentUserEmail(): Promise<string | null> {
+  const claims = await getSessionClaims()
+  return typeof claims?.email === 'string' ? claims.email : null
+}
+
 /** The current user's application role, defaulting to `CUSTOMER` when unauthenticated. */
 export async function getCurrentRole(): Promise<Role> {
   const claims = await getSessionClaims()

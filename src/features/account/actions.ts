@@ -7,6 +7,7 @@ import { profileSchema, type ProfileValues } from '@/features/account/schema'
 import {
   createAddress,
   deleteAddress,
+  MAX_ADDRESSES_PER_PROFILE,
   setDefaultAddress,
   updateAddress,
   updateProfile,
@@ -37,7 +38,6 @@ export interface AccountActionResult {
 
 const PROFILE_INVALID = 'Please check your details and try again.'
 const ADDRESS_INVALID = 'Please check the address details and try again.'
-const EMAIL_TAKEN = 'That email address is already in use.'
 const GENERIC_ERROR = 'Something went wrong. Please try again.'
 
 /**
@@ -49,12 +49,27 @@ const GENERIC_ERROR = 'Something went wrong. Please try again.'
  */
 const ADDRESS_GONE = 'That address is no longer available.'
 
+const ADDRESS_LIMIT = `You've reached the limit of ${MAX_ADDRESSES_PER_PROFILE} saved addresses. Remove one before adding another.`
+
 const addressIdSchema = z.string().min(1)
 
-/** Maps the data layer's reason codes to caller-safe copy. Nothing else in this file returns a string. */
+/**
+ * Maps the data layer's reason codes to caller-safe copy. Nothing else in
+ * this file returns a string. `conflict` (two writers racing the same
+ * partial unique index — see `createAddress`) has no dedicated copy: it's
+ * rare, transient, and "something went wrong, try again" is exactly the
+ * right instruction for it.
+ */
 function addressErrorFor(result: MutationResult): AccountActionResult {
   if (result.ok) return {}
-  return { error: result.reason === 'not-found' ? ADDRESS_GONE : GENERIC_ERROR }
+  switch (result.reason) {
+    case 'not-found':
+      return { error: ADDRESS_GONE }
+    case 'limit-reached':
+      return { error: ADDRESS_LIMIT }
+    default:
+      return { error: GENERIC_ERROR }
+  }
 }
 
 /**
@@ -71,8 +86,12 @@ export async function saveProfile(values: ProfileValues): Promise<AccountActionR
 
   const result = await updateProfile(parsed.data)
 
+  // `email` was validated away by `profileSchema` above — see `data.ts`'s
+  // `updateProfile` for why `Profile.email` is read-only — so the only
+  // failure reasons reachable here are `unauthenticated` and `not-found`
+  // (a missing/removed `Profile` row); both get the same generic copy.
   if (!result.ok) {
-    return { error: result.reason === 'email-taken' ? EMAIL_TAKEN : GENERIC_ERROR }
+    return { error: GENERIC_ERROR }
   }
 
   revalidatePath('/account')

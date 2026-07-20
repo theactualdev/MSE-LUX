@@ -39,11 +39,21 @@ describe('account schemas', () => {
   it('forgot/reset/profile', () => {
     expect(forgotSchema.safeParse({ email: 'a@b.com' }).success).toBe(true)
     expect(resetSchema.safeParse({ password: 'abcdefgh', confirmPassword: 'nope' }).success).toBe(false)
-    expect(profileSchema.safeParse({ name: 'Ada', email: 'a@b.com' }).success).toBe(true)
+    expect(profileSchema.safeParse({ name: 'Ada' }).success).toBe(true)
   })
   it('profileSchema: rejects a name over 100 characters, matching signup', () => {
-    const base = { email: 'a@b.com' }
-    expect(profileSchema.safeParse({ ...base, name: 'A'.repeat(100) }).success).toBe(true)
-    expect(profileSchema.safeParse({ ...base, name: 'A'.repeat(101) }).success).toBe(false)
+    expect(profileSchema.safeParse({ name: 'A'.repeat(100) }).success).toBe(true)
+    expect(profileSchema.safeParse({ name: 'A'.repeat(101) }).success).toBe(false)
+  })
+  it('profileSchema: has no email field — Profile.email is read-only from this form', () => {
+    // A caller that still sends `email` shouldn't be rejected for it (Zod
+    // silently ignores unknown keys on a non-strict object) — but it must not
+    // be part of what gets validated or written.
+    expect(profileSchema.safeParse({ name: 'Ada', email: 'not-an-email' }).success).toBe(true)
+    expect('email' in profileSchema.shape).toBe(false)
+  })
+  it('profileSchema: caps phone the same as addressSchema', () => {
+    expect(profileSchema.safeParse({ name: 'Ada', phone: '1'.repeat(20) }).success).toBe(true)
+    expect(profileSchema.safeParse({ name: 'Ada', phone: '1'.repeat(21) }).success).toBe(false)
   })
 })

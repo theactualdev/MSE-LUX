@@ -16,6 +16,7 @@ vi.mock('@/features/account/data', () => ({
   updateAddress: (...a: unknown[]) => updateAddress(...a),
   deleteAddress: (...a: unknown[]) => deleteAddress(...a),
   setDefaultAddress: (...a: unknown[]) => setDefaultAddress(...a),
+  MAX_ADDRESSES_PER_PROFILE: 20,
 }))
 
 const revalidatePath = vi.fn()
@@ -51,13 +52,10 @@ describe('saveProfile', () => {
   it('saves a valid patch and revalidates the account pages', async () => {
     updateProfile.mockResolvedValue({ ok: true })
 
-    await expect(
-      saveProfile({ name: 'Ada Byron', email: 'ada@example.com', phone: '0812' }),
-    ).resolves.toEqual({})
+    await expect(saveProfile({ name: 'Ada Byron', phone: '0812' })).resolves.toEqual({})
 
     expect(updateProfile).toHaveBeenCalledWith({
       name: 'Ada Byron',
-      email: 'ada@example.com',
       phone: '0812',
     })
     expect(revalidatePath).toHaveBeenCalledWith('/account')
@@ -66,31 +64,39 @@ describe('saveProfile', () => {
   it('re-validates server-side and rejects a payload the client form would have blocked', async () => {
     // A `'use server'` export is a public HTTP endpoint — RHF's resolver only
     // ever ran in the browser, so this is the real validation boundary.
-    await expect(saveProfile({ name: '', email: 'not-an-email' } as never)).resolves.toEqual({
+    await expect(saveProfile({ name: '' } as never)).resolves.toEqual({
       error: 'Please check your details and try again.',
     })
     expect(updateProfile).not.toHaveBeenCalled()
   })
 
   it('rejects a name past the schema maximum', async () => {
-    await expect(
-      saveProfile({ name: 'a'.repeat(101), email: 'ada@example.com' }),
-    ).resolves.toEqual({ error: 'Please check your details and try again.' })
+    await expect(saveProfile({ name: 'a'.repeat(101) })).resolves.toEqual({
+      error: 'Please check your details and try again.',
+    })
     expect(updateProfile).not.toHaveBeenCalled()
   })
 
-  it('surfaces a taken email as its own field-level message', async () => {
-    updateProfile.mockResolvedValue({ ok: false, reason: 'email-taken' })
+  it('never forwards an email even if the caller smuggles one in — Profile.email is read-only from this action', async () => {
+    updateProfile.mockResolvedValue({ ok: true })
 
-    await expect(saveProfile({ name: 'Ada', email: 'taken@example.com' })).resolves.toEqual({
-      error: 'That email address is already in use.',
+    await saveProfile({ name: 'Ada', email: 'attacker@example.com', phone: '0812' } as never)
+
+    expect(updateProfile).toHaveBeenCalledWith({ name: 'Ada', phone: '0812' })
+  })
+
+  it('returns fixed generic copy for a data-layer failure', async () => {
+    updateProfile.mockResolvedValue({ ok: false, reason: 'not-found' })
+
+    await expect(saveProfile({ name: 'Ada' })).resolves.toEqual({
+      error: 'Something went wrong. Please try again.',
     })
   })
 
   it('returns fixed generic copy for an unauthenticated caller', async () => {
     updateProfile.mockResolvedValue({ ok: false, reason: 'unauthenticated' })
 
-    await expect(saveProfile({ name: 'Ada', email: 'ada@example.com' })).resolves.toEqual({
+    await expect(saveProfile({ name: 'Ada' })).resolves.toEqual({
       error: 'Something went wrong. Please try again.',
     })
   })
@@ -118,6 +124,22 @@ describe('addAddress', () => {
     await addAddress({ ...VALID_ADDRESS, profileId: 'someone-else', isDefault: true } as never)
 
     expect(createAddress).toHaveBeenCalledWith(VALID_ADDRESS)
+  })
+
+  it('surfaces the address cap as its own message', async () => {
+    createAddress.mockResolvedValue({ ok: false, reason: 'limit-reached' })
+
+    await expect(addAddress(VALID_ADDRESS)).resolves.toEqual({
+      error: expect.stringMatching(/limit/i),
+    })
+  })
+
+  it('surfaces a concurrent-insert conflict as the generic message rather than throwing', async () => {
+    createAddress.mockResolvedValue({ ok: false, reason: 'conflict' })
+
+    await expect(addAddress(VALID_ADDRESS)).resolves.toEqual({
+      error: 'Something went wrong. Please try again.',
+    })
   })
 })
 

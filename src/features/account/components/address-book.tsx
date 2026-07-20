@@ -64,10 +64,13 @@ export function AddressBook({ addresses }: AddressBookProps) {
 
   /**
    * Runs a mutation inside a transition so the revalidated server render is
-   * what re-renders the list. `pending` disables the row actions meanwhile,
-   * which also stops a double-click from firing two `setDefault` writes at
-   * once — the second would race the first against the
-   * `Address_one_default_per_profile` partial unique index.
+   * what re-renders the list. `pending` disables the row actions AND the
+   * header "Add address" button meanwhile, which also stops a double-click
+   * (or an add racing a set-default) from firing two writes at once — either
+   * pair would race against the `Address_one_default_per_profile` partial
+   * unique index. The data layer catches that race's `P2002` too (see
+   * `data.ts`'s `createAddress`), so this is a UX nicety on top of a real
+   * server-side guarantee, not a substitute for one.
    */
   function run(action: () => Promise<AccountActionResult>) {
     setError(undefined)
@@ -76,7 +79,17 @@ export function AddressBook({ addresses }: AddressBookProps) {
       try {
         result = await action()
       } catch (caught) {
-        unstable_rethrow(caught)
+        // `unstable_rethrow` wrapped in its own try/catch — the repo-wide
+        // convention (see `reset-password-form.tsx`, which documents it in
+        // full) — so a real Next control-flow error is swallowed here
+        // rather than left to become an unhandled rejection out of this
+        // `startTransition` callback; Next's own action-handling applies
+        // the redirect/notFound regardless of how this promise settles.
+        try {
+          unstable_rethrow(caught)
+        } catch {
+          return
+        }
         setError(GENERIC_ERROR)
         return
       }
@@ -94,7 +107,7 @@ export function AddressBook({ addresses }: AddressBookProps) {
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between gap-4">
         <h2 className="font-display text-lg font-semibold text-foreground">Saved addresses</h2>
-        <Button type="button" onClick={() => setDialogState({ mode: 'add' })}>
+        <Button type="button" disabled={pending} onClick={() => setDialogState({ mode: 'add' })}>
           Add address
         </Button>
       </div>

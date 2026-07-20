@@ -33,9 +33,11 @@ export default async function AccountPage() {
         // on a property access.
         defaultValues={{
           name: profile?.name ?? '',
-          email: profile?.email ?? '',
           phone: profile?.phone ?? '',
         }}
+        // Read-only — the verified Supabase Auth email, not editable here.
+        // See `data.ts`'s `updateProfile` for why.
+        email={profile?.email ?? ''}
       />
     </AccountShell>
   )

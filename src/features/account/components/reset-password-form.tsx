@@ -68,6 +68,13 @@ export function ResetPasswordForm() {
           // `.catch()`. Anything unstable_rethrow does *not* rethrow is a
           // genuine failure (network drop, server exception) and gets the
           // same generic message as a Supabase-reported error.
+          //
+          // This wrap-in-its-own-try/catch shape is the repo-wide convention
+          // for `unstable_rethrow` (also used in `profile-form.tsx` and
+          // `address-book.tsx`'s `run()`), precisely so a real control-flow
+          // error never escapes an async event handler / `startTransition`
+          // callback as an unhandled rejection. Keep new call sites
+          // consistent with this rather than calling `unstable_rethrow` bare.
           try {
             unstable_rethrow(error)
           } catch {

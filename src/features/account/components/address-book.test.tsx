@@ -152,6 +152,30 @@ describe('AddressBook', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/no longer available/i)
   })
 
+  it('disables "Add address" while another mutation is pending', async () => {
+    // Regression coverage: the header button used to stay enabled during a
+    // pending row mutation, so a user could fire a `createAddress` while a
+    // `setDefaultAddress`/delete/edit was still in flight — exactly the
+    // scenario that used to surface an unhandled P2002 from the data layer.
+    let resolveRemove: (value: { error?: string }) => void = () => {}
+    removeAddressMock.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveRemove = resolve
+        }),
+    )
+    const user = userEvent.setup({ delay: null })
+    render(<AddressBook addresses={[DEFAULT_ADDRESS]} />)
+
+    await user.click(screen.getByRole('button', { name: /delete/i }))
+
+    await vi.waitFor(() => {
+      expect(screen.getByRole('button', { name: /add address/i })).toBeDisabled()
+    })
+
+    resolveRemove({})
+  })
+
   it('shows a strong empty state when there are no saved addresses', () => {
     render(<AddressBook addresses={[]} />)
 

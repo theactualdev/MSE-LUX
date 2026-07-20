@@ -66,14 +66,22 @@ export const resetSchema = resetFields.refine((v) => v.password === v.confirmPas
  */
 export const resetServerSchema = resetFields.omit({ confirmPassword: true })
 
+// Same bound as `addressSchema.phone` (`src/features/checkout/schema.ts`) —
+// one phone-length limit for the whole app rather than two schemas quietly
+// disagreeing about how long a phone number is allowed to be.
+const PHONE_MAX = 20
+
 export const profileSchema = z.object({
   // Bounded the same as `signupFields.name`: both write the same
   // `Profile.name` column (Task 2's provisioning trigger for signup, this
   // schema for profile edits), so they should enforce the same limit rather
   // than letting a profile update write a value signup itself would reject.
   name: z.string().min(1, 'Required').max(100, '100 characters or fewer'),
-  email: z.email(),
-  phone: z.string().optional(),
+  // No `email` field: `Profile.email` is read-only from this form (see
+  // `data.ts`'s `updateProfile`) — the account page displays the verified
+  // Supabase Auth email instead, sourced from `getCurrentUserEmail()`, and
+  // never accepts it back as input.
+  phone: z.string().max(PHONE_MAX, `${PHONE_MAX} characters or fewer`).optional(),
 })
 
 export type LoginValues = z.infer<typeof loginSchema>

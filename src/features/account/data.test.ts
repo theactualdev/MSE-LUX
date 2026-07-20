@@ -42,9 +42,11 @@ vi.mock('@/lib/db', () => ({
 }))
 
 const getCurrentUserId = vi.fn()
+const getCurrentUserEmail = vi.fn()
 
 vi.mock('@/features/auth/claims', () => ({
   getCurrentUserId: () => getCurrentUserId(),
+  getCurrentUserEmail: () => getCurrentUserEmail(),
 }))
 
 const {
@@ -55,6 +57,7 @@ const {
   updateAddress,
   deleteAddress,
   setDefaultAddress,
+  MAX_ADDRESSES_PER_PROFILE,
 } = await import('@/features/account/data')
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
@@ -85,14 +88,14 @@ function dbAddress(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   getCurrentUserId.mockResolvedValue(USER_ID)
+  getCurrentUserEmail.mockResolvedValue('ada@example.com')
 })
 
 describe('getProfile', () => {
-  it('scopes the lookup to the session user id', async () => {
+  it('scopes the lookup to the session user id and takes email from the verified claims, not the row', async () => {
     profile.findUnique.mockResolvedValue({
       id: USER_ID,
       name: 'Ada Lovelace',
-      email: 'ada@example.com',
       phone: null,
     })
 
@@ -104,6 +107,12 @@ describe('getProfile', () => {
     })
     expect(profile.findUnique).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: USER_ID } }),
+    )
+    // The `Profile.email` column is not even selected any more — display
+    // email comes from `getCurrentUserEmail()` instead. See `updateProfile`
+    // for why the column is no longer treated as the source of truth.
+    expect(profile.findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ select: expect.not.objectContaining({ email: true }) }),
     )
   })
 
@@ -122,30 +131,31 @@ describe('getProfile', () => {
 })
 
 describe('updateProfile', () => {
-  it('writes only to the session user\'s row', async () => {
+  it('writes only to the session user\'s row and never writes email', async () => {
     profile.update.mockResolvedValue({
       id: USER_ID,
       name: 'Ada Byron',
-      email: 'ada@example.com',
       phone: '0812',
     })
 
-    await expect(
-      updateProfile({ name: 'Ada Byron', email: 'ada@example.com', phone: '0812' }),
-    ).resolves.toEqual({ ok: true })
+    await expect(updateProfile({ name: 'Ada Byron', phone: '0812' })).resolves.toEqual({
+      ok: true,
+    })
 
     expect(profile.update).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: USER_ID },
-        data: { name: 'Ada Byron', email: 'ada@example.com', phone: '0812' },
+        data: { name: 'Ada Byron', phone: '0812' },
       }),
     )
+    const data = profile.update.mock.calls[0][0].data
+    expect(data).not.toHaveProperty('email')
   })
 
   it('normalises an empty phone to null rather than an empty string', async () => {
     profile.update.mockResolvedValue({})
 
-    await updateProfile({ name: 'Ada', email: 'ada@example.com', phone: '' })
+    await updateProfile({ name: 'Ada', phone: '' })
 
     expect(profile.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ phone: null }) }),
@@ -155,20 +165,26 @@ describe('updateProfile', () => {
   it('refuses to write when unauthenticated', async () => {
     getCurrentUserId.mockResolvedValue(null)
 
-    await expect(updateProfile({ name: 'A', email: 'a@b.com' })).resolves.toEqual({
+    await expect(updateProfile({ name: 'A' })).resolves.toEqual({
       ok: false,
       reason: 'unauthenticated',
     })
     expect(profile.update).not.toHaveBeenCalled()
   })
 
-  it('reports a duplicate email as a conflict instead of throwing', async () => {
-    profile.update.mockRejectedValue({ code: 'P2002' })
+  it('reports a missing row (P2025) as not-found instead of throwing', async () => {
+    profile.update.mockRejectedValue({ code: 'P2025' })
 
-    await expect(updateProfile({ name: 'A', email: 'taken@example.com' })).resolves.toEqual({
+    await expect(updateProfile({ name: 'A' })).resolves.toEqual({
       ok: false,
-      reason: 'email-taken',
+      reason: 'not-found',
     })
+  })
+
+  it('re-throws an error it does not recognise', async () => {
+    profile.update.mockRejectedValue(new Error('connection reset'))
+
+    await expect(updateProfile({ name: 'A' })).rejects.toThrow('connection reset')
   })
 })
 
@@ -238,6 +254,36 @@ describe('createAddress', () => {
       reason: 'unauthenticated',
     })
     expect(address.create).not.toHaveBeenCalled()
+  })
+
+  it('refuses to write once the profile is at the address cap', async () => {
+    address.count.mockResolvedValue(MAX_ADDRESSES_PER_PROFILE)
+
+    await expect(createAddress(ADDRESS_INPUT)).resolves.toEqual({
+      ok: false,
+      reason: 'limit-reached',
+    })
+    expect(address.create).not.toHaveBeenCalled()
+  })
+
+  it('reports a concurrent-insert collision (P2002 on the partial unique index) as a conflict instead of throwing', async () => {
+    // This is what actually stops two concurrent "first" inserts from both
+    // claiming isDefault — not the transaction, which runs at READ COMMITTED
+    // and lets both see count === 0. See the doc comment on createAddress.
+    address.count.mockResolvedValue(0)
+    address.create.mockRejectedValue({ code: 'P2002' })
+
+    await expect(createAddress(ADDRESS_INPUT)).resolves.toEqual({
+      ok: false,
+      reason: 'conflict',
+    })
+  })
+
+  it('re-throws an error it does not recognise', async () => {
+    address.count.mockResolvedValue(0)
+    address.create.mockRejectedValue(new Error('connection reset'))
+
+    await expect(createAddress(ADDRESS_INPUT)).rejects.toThrow('connection reset')
   })
 })
 
@@ -388,5 +434,26 @@ describe('setDefaultAddress', () => {
       reason: 'unauthenticated',
     })
     expect($transaction).not.toHaveBeenCalled()
+  })
+
+  it('reports a concurrent delete (P2025 on the final update) as not-found instead of throwing', async () => {
+    // Ownership was verified by findFirst, but the row can still vanish
+    // between that check and the update under READ COMMITTED.
+    address.findFirst.mockResolvedValue({ id: 'addr-2' })
+    address.updateMany.mockResolvedValue({ count: 1 })
+    address.update.mockRejectedValue({ code: 'P2025' })
+
+    await expect(setDefaultAddress('addr-2')).resolves.toEqual({
+      ok: false,
+      reason: 'not-found',
+    })
+  })
+
+  it('re-throws an error it does not recognise from the final update', async () => {
+    address.findFirst.mockResolvedValue({ id: 'addr-2' })
+    address.updateMany.mockResolvedValue({ count: 1 })
+    address.update.mockRejectedValue(new Error('connection reset'))
+
+    await expect(setDefaultAddress('addr-2')).rejects.toThrow('connection reset')
   })
 })

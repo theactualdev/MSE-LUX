@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { db } from '@/lib/db'
-import { getCurrentUserId } from '@/features/auth/claims'
+import { getCurrentUserEmail, getCurrentUserId } from '@/features/auth/claims'
 import type { Address } from '@/features/checkout/schema'
 
 /**
@@ -48,22 +48,39 @@ export type SavedAddress = Address & { id: string; isDefault: boolean }
 /**
  * Why a discriminated result instead of `boolean` or a thrown error: the
  * caller (a Server Action) has to distinguish "not signed in" (redirect) from
- * "not yours / gone" (refresh the list) from "that email is already in use"
- * (a field-level message), but must never leak Prisma's own error text. A
- * closed set of reason codes gives the action exactly enough to choose copy
- * and nothing more.
+ * "not yours / gone" (refresh the list) from "two writers collided" from
+ * "you've hit the address cap", but must never leak Prisma's own error text.
+ * A closed set of reason codes gives the action exactly enough to choose
+ * copy and nothing more.
  */
 export type MutationResult =
   | { ok: true }
-  | { ok: false; reason: 'unauthenticated' | 'not-found' | 'email-taken' }
+  | { ok: false; reason: 'unauthenticated' | 'not-found' | 'conflict' | 'limit-reached' }
+
+/**
+ * Per-profile cap on saved addresses. `addAddress` is a public authenticated
+ * Server Action writing straight to Postgres, so without a limit a single
+ * caller could store an unbounded number of rows. 20 comfortably covers every
+ * legitimate case this app has (home/work/gift addresses, a few relatives)
+ * while keeping the ceiling far below anything that would matter for storage
+ * or list-rendering cost.
+ */
+export const MAX_ADDRESSES_PER_PROFILE = 20
 
 const UNAUTHENTICATED = { ok: false, reason: 'unauthenticated' } as const
 const NOT_FOUND = { ok: false, reason: 'not-found' } as const
+const CONFLICT = { ok: false, reason: 'conflict' } as const
+const LIMIT_REACHED = { ok: false, reason: 'limit-reached' } as const
 const OK = { ok: true } as const
 
 /** Prisma's unique-constraint violation. Matched structurally so this module needn't import the error class. */
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2002'
+}
+
+/** Prisma's "record to update/delete not found" error. Matched structurally for the same reason. */
+function isRecordNotFound(error: unknown): boolean {
+  return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2025'
 }
 
 /**
@@ -83,6 +100,11 @@ function toColumnValue(value: string | undefined): string | null {
 /**
  * The current user's profile, or `null` when unauthenticated.
  *
+ * `email` comes from the verified JWT (`getCurrentUserEmail()`), not from the
+ * `Profile.email` column — that's the address Supabase Auth actually signs
+ * the user in with, and the only one this dashboard displays. See
+ * `updateProfile` for why `Profile.email` is no longer writable from here.
+ *
  * Also returns `null` if the row is missing. Task 2's `auth.users` trigger
  * provisions a `Profile` for every signup, so in practice a signed-in user
  * always has one — but a trigger that failed, or a user created out-of-band
@@ -93,17 +115,20 @@ export async function getProfile(): Promise<AccountProfile | null> {
   const userId = await getCurrentUserId()
   if (!userId) return null
 
-  const row = await db.profile.findUnique({
-    where: { id: userId },
-    select: { id: true, name: true, email: true, phone: true },
-  })
+  const [row, email] = await Promise.all([
+    db.profile.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, phone: true },
+    }),
+    getCurrentUserEmail(),
+  ])
 
   if (!row) return null
 
   return {
     id: row.id,
     name: toFormValue(row.name),
-    email: row.email,
+    email: email ?? '',
     phone: toFormValue(row.phone),
   }
 }
@@ -111,17 +136,23 @@ export async function getProfile(): Promise<AccountProfile | null> {
 /**
  * Patches the signed-in user's profile.
  *
- * NOTE: this writes `Profile.email` only — it does not change the Supabase
- * Auth email the user signs in with. Changing that is a separate flow
+ * `email` is deliberately not a parameter: `Profile.email` is `@unique` and
+ * the `auth.users` provisioning trigger (`handle_new_user()`) inserts new
+ * profiles with an untargeted `ON CONFLICT DO NOTHING`, which absorbs a
+ * conflict on that unique email exactly as silently as one on `id`. A caller
+ * able to point `Profile.email` at another address could permanently starve
+ * that address's future signup of a `Profile` row. Changing the address a
+ * user signs in with is a separate, out-of-scope flow
  * (`updateUser({ email })` plus a confirmation round-trip to both the old and
- * new address) and is deliberately out of scope here; the two can therefore
- * diverge, which is a Phase 5 concern and is recorded in the task report.
- * `Profile.email` is `@unique`, so a collision surfaces as `email-taken`
- * rather than an unhandled P2002.
+ * new address) — this column is now read-only from the application. See
+ * `getProfile` for what the dashboard displays instead.
+ *
+ * Catches `P2025` (row missing — reachable if the trigger never ran, or the
+ * row was removed out-of-band between the route guard and this write) and
+ * reports it rather than throwing out of the action.
  */
 export async function updateProfile(patch: {
   name: string
-  email: string
   phone?: string
 }): Promise<MutationResult> {
   const userId = await getCurrentUserId()
@@ -132,15 +163,15 @@ export async function updateProfile(patch: {
       where: { id: userId },
       // Fields are listed explicitly rather than spread from `patch`: this is
       // the last hop before the database, and an explicit projection is what
-      // guarantees a smuggled `role` or `id` key can never reach `data`.
+      // guarantees a smuggled `role`, `id`, or `email` key can never reach
+      // `data`.
       data: {
         name: patch.name.trim(),
-        email: patch.email.trim(),
         phone: toColumnValue(patch.phone),
       },
     })
   } catch (error) {
-    if (isUniqueViolation(error)) return { ok: false, reason: 'email-taken' }
+    if (isRecordNotFound(error)) return NOT_FOUND
     throw error
   }
 
@@ -173,35 +204,56 @@ export async function listAddresses(): Promise<SavedAddress[]> {
 
 /**
  * Adds an address for the signed-in user. The very first address becomes the
- * default (mirroring the behaviour the mock store had), which is why the
- * count and the insert share a transaction: two concurrent "first" inserts
- * would otherwise both see zero and both claim `isDefault`, colliding with
- * the `Address_one_default_per_profile` partial unique index.
+ * default (mirroring the behaviour the mock store had).
+ *
+ * The count and the insert share a transaction, but — correction from an
+ * earlier version of this comment — that transaction does NOT by itself stop
+ * two concurrent "first" inserts from both seeing zero and both claiming
+ * `isDefault`. Prisma's `$transaction` runs at Postgres's default READ
+ * COMMITTED isolation, under which two concurrent transactions can both
+ * `count()` zero before either commits. What actually prevents two default
+ * rows for one profile is the `Address_one_default_per_profile` partial
+ * unique index: the second insert's commit is rejected with `P2002`, caught
+ * below and reported as `conflict` rather than left to throw out of the
+ * action. The transaction's real job is only to keep the count and the
+ * insert atomic with respect to *other* statements (e.g. a concurrent
+ * delete), not to serialize concurrent inserts against each other.
+ *
+ * Also enforces `MAX_ADDRESSES_PER_PROFILE`, in the same transaction as the
+ * count used for the default flag, so the two checks read a consistent
+ * snapshot.
  */
 export async function createAddress(input: Address): Promise<MutationResult> {
   const userId = await getCurrentUserId()
   if (!userId) return UNAUTHENTICATED
 
-  await db.$transaction(async (tx) => {
-    const existing = await tx.address.count({ where: { profileId: userId } })
+  try {
+    return await db.$transaction(async (tx) => {
+      const existing = await tx.address.count({ where: { profileId: userId } })
 
-    await tx.address.create({
-      data: {
-        profileId: userId,
-        isDefault: existing === 0,
-        fullName: input.fullName,
-        phone: input.phone,
-        line1: input.line1,
-        line2: toColumnValue(input.line2),
-        city: input.city,
-        state: input.state,
-        country: input.country,
-        postalCode: toColumnValue(input.postalCode),
-      },
+      if (existing >= MAX_ADDRESSES_PER_PROFILE) return LIMIT_REACHED
+
+      await tx.address.create({
+        data: {
+          profileId: userId,
+          isDefault: existing === 0,
+          fullName: input.fullName,
+          phone: input.phone,
+          line1: input.line1,
+          line2: toColumnValue(input.line2),
+          city: input.city,
+          state: input.state,
+          country: input.country,
+          postalCode: toColumnValue(input.postalCode),
+        },
+      })
+
+      return OK
     })
-  })
-
-  return OK
+  } catch (error) {
+    if (isUniqueViolation(error)) return CONFLICT
+    throw error
+  }
 }
 
 /**
@@ -298,6 +350,15 @@ export async function deleteAddress(id: string): Promise<MutationResult> {
  * `updateAddress` the check can't be folded into the write itself. Holding
  * both in one transaction closes the gap that would otherwise open between
  * them.
+ *
+ * That gap isn't fully closed, though: under READ COMMITTED, a concurrent
+ * delete of this same row can commit between the ownership `findFirst` and
+ * the `update` below, which then raises `P2025` ("record to update not
+ * found"). Caught and reported as `not-found` rather than left to throw —
+ * the row genuinely is gone by the time the write runs, which is exactly
+ * what `not-found` means to callers of this function. Not an authorization
+ * hole: `profileId` is never writable by application code, so a row cannot
+ * change owners between the check and the write, only disappear.
  */
 export async function setDefaultAddress(id: string): Promise<MutationResult> {
   const userId = await getCurrentUserId()
@@ -316,10 +377,15 @@ export async function setDefaultAddress(id: string): Promise<MutationResult> {
       data: { isDefault: false },
     })
 
-    await tx.address.update({
-      where: { id },
-      data: { isDefault: true },
-    })
+    try {
+      await tx.address.update({
+        where: { id },
+        data: { isDefault: true },
+      })
+    } catch (error) {
+      if (isRecordNotFound(error)) return NOT_FOUND
+      throw error
+    }
 
     return OK
   })
