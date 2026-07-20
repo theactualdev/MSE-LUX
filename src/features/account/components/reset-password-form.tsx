@@ -8,21 +8,26 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { resetSchema, type ResetValues } from '@/features/account/schema'
+import { updatePassword } from '@/features/auth/actions'
 
 const DEFAULT_VALUES: ResetValues = { password: '', confirmPassword: '' }
 
 /**
- * Reset-password form. Mock only — no reset token is read or validated and
- * no password is ever stored; on valid submit it just swaps to a
- * confirmation panel.
+ * Reset-password form. Reached after Supabase's recovery link has already
+ * established a session (via the callback route Task 7 adds), so this calls
+ * `updatePassword` on that session rather than reading a token itself. Only
+ * the new password is sent to the server — `confirmPassword` is a
+ * client-only RHF check already enforced by `resetSchema`'s refine. No
+ * password is ever logged or persisted client-side.
  */
 export function ResetPasswordForm() {
   const [done, setDone] = useState(false)
+  const [formError, setFormError] = useState<string>()
 
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isSubmitting },
   } = useForm<ResetValues>({
     resolver: zodResolver(resetSchema),
     defaultValues: DEFAULT_VALUES,
@@ -45,7 +50,13 @@ export function ResetPasswordForm() {
     <form
       className="flex flex-col gap-4"
       noValidate
-      onSubmit={handleSubmit(() => {
+      onSubmit={handleSubmit(async (values) => {
+        setFormError(undefined)
+        const result = await updatePassword(values.password)
+        if (result?.error) {
+          setFormError(result.error)
+          return
+        }
         setDone(true)
       })}
     >
@@ -83,7 +94,13 @@ export function ResetPasswordForm() {
         ) : null}
       </div>
 
-      <Button type="submit" className="mt-2 h-12 w-full">
+      {formError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {formError}
+        </p>
+      ) : null}
+
+      <Button type="submit" disabled={isSubmitting} className="mt-2 h-12 w-full">
         Reset password
       </Button>
     </form>

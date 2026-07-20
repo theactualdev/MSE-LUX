@@ -6,6 +6,8 @@ import { env } from '@/lib/env'
 import {
   loginServerSchema,
   signupServerSchema,
+  forgotSchema,
+  resetServerSchema,
   type LoginValues,
   type SignupValues,
 } from '@/features/account/schema'
@@ -89,6 +91,63 @@ export async function signUp({
       emailRedirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback`,
     },
   })
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return {}
+}
+
+/**
+ * Requests a password-reset email. Supabase's `resetPasswordForEmail`
+ * resolves successfully whether or not the address has an account — it
+ * doesn't error to signal "no such user" — which is exactly what the form's
+ * "if an account exists" copy already assumes, so no extra enumeration
+ * handling is needed here.
+ *
+ * `redirectTo` points at the callback route Task 7 adds, with
+ * `next=/reset-password` so the callback knows to land the user back on the
+ * reset screen after exchanging the recovery link for a session; until Task
+ * 7 lands, the link 404s, which is expected at this point in the build.
+ */
+export async function requestPasswordReset(email: string): Promise<AuthActionResult> {
+  const parsed = forgotSchema.safeParse({ email })
+  if (!parsed.success) {
+    return { error: 'Enter a valid email address' }
+  }
+
+  const supabase = await createClient()
+  const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
+    redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/reset-password`,
+  })
+
+  if (error) {
+    return { error: error.message }
+  }
+
+  return {}
+}
+
+/**
+ * Sets a new password. Reachable only once the callback route (Task 7) has
+ * exchanged Supabase's recovery link for a session, so `updateUser` here
+ * acts on that session rather than taking a token as an argument.
+ *
+ * Takes just the new password, not `confirmPassword` — that's a client-only
+ * RHF check `resetSchema`'s refine already enforced before this was called,
+ * so `resetServerSchema` (the refine's base object minus `confirmPassword`)
+ * is what gets re-validated here, mirroring `signUp`'s `signupServerSchema`
+ * treatment.
+ */
+export async function updatePassword(newPassword: string): Promise<AuthActionResult> {
+  const parsed = resetServerSchema.safeParse({ password: newPassword })
+  if (!parsed.success) {
+    return { error: 'Please choose a stronger password' }
+  }
+
+  const supabase = await createClient()
+  const { error } = await supabase.auth.updateUser({ password: parsed.data.password })
 
   if (error) {
     return { error: error.message }

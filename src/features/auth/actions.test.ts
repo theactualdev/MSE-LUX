@@ -17,6 +17,8 @@ vi.mock('next/navigation', () => ({
 const signInWithPassword = vi.fn()
 const signUp = vi.fn()
 const signOut = vi.fn()
+const resetPasswordForEmail = vi.fn()
+const updateUser = vi.fn()
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
@@ -24,11 +26,19 @@ vi.mock('@/lib/supabase/server', () => ({
       signInWithPassword: (...args: unknown[]) => signInWithPassword(...args),
       signUp: (...args: unknown[]) => signUp(...args),
       signOut: (...args: unknown[]) => signOut(...args),
+      resetPasswordForEmail: (...args: unknown[]) => resetPasswordForEmail(...args),
+      updateUser: (...args: unknown[]) => updateUser(...args),
     },
   }),
 }))
 
-const { signIn, signUp: signUpAction, signOut: signOutAction } = await import('@/features/auth/actions')
+const {
+  signIn,
+  signUp: signUpAction,
+  signOut: signOutAction,
+  requestPasswordReset,
+  updatePassword,
+} = await import('@/features/auth/actions')
 
 describe('signIn', () => {
   beforeEach(() => {
@@ -125,5 +135,77 @@ describe('signOut', () => {
 
     await expect(signOutAction()).resolves.toEqual({ error: 'Network error' })
     expect(redirect).not.toHaveBeenCalled()
+  })
+})
+
+describe('requestPasswordReset', () => {
+  beforeEach(() => {
+    resetPasswordForEmail.mockReset()
+  })
+
+  it('calls resetPasswordForEmail with the email and a callback redirectTo carrying next=/reset-password', async () => {
+    resetPasswordForEmail.mockResolvedValue({ data: {}, error: null })
+
+    await requestPasswordReset('ada@example.com')
+
+    expect(resetPasswordForEmail).toHaveBeenCalledWith('ada@example.com', {
+      redirectTo: `${env.NEXT_PUBLIC_SITE_URL}/auth/callback?next=/reset-password`,
+    })
+  })
+
+  it('returns no error on success', async () => {
+    resetPasswordForEmail.mockResolvedValue({ data: {}, error: null })
+
+    await expect(requestPasswordReset('ada@example.com')).resolves.toEqual({})
+  })
+
+  it('returns the Supabase error message on failure', async () => {
+    resetPasswordForEmail.mockResolvedValue({ data: {}, error: { message: 'Email rate limit exceeded' } })
+
+    await expect(requestPasswordReset('ada@example.com')).resolves.toEqual({
+      error: 'Email rate limit exceeded',
+    })
+  })
+
+  it('rejects an invalid email without calling Supabase', async () => {
+    await expect(requestPasswordReset('not-an-email')).resolves.toEqual({
+      error: 'Enter a valid email address',
+    })
+    expect(resetPasswordForEmail).not.toHaveBeenCalled()
+  })
+})
+
+describe('updatePassword', () => {
+  beforeEach(() => {
+    updateUser.mockReset()
+  })
+
+  it('calls updateUser with the new password', async () => {
+    updateUser.mockResolvedValue({ data: {}, error: null })
+
+    await updatePassword('newpassword1')
+
+    expect(updateUser).toHaveBeenCalledWith({ password: 'newpassword1' })
+  })
+
+  it('returns no error on success', async () => {
+    updateUser.mockResolvedValue({ data: {}, error: null })
+
+    await expect(updatePassword('newpassword1')).resolves.toEqual({})
+  })
+
+  it('returns the Supabase error message on failure', async () => {
+    updateUser.mockResolvedValue({ data: {}, error: { message: 'Auth session missing' } })
+
+    await expect(updatePassword('newpassword1')).resolves.toEqual({
+      error: 'Auth session missing',
+    })
+  })
+
+  it('rejects a too-short password without calling Supabase', async () => {
+    await expect(updatePassword('short')).resolves.toEqual({
+      error: 'Please choose a stronger password',
+    })
+    expect(updateUser).not.toHaveBeenCalled()
   })
 })

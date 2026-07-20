@@ -47,9 +47,24 @@ export const signupServerSchema = signupFields.omit({ confirmPassword: true })
 
 export const forgotSchema = z.object({ email: z.email() })
 
-export const resetSchema = z
-  .object({ password: z.string().min(8, 'At least 8 characters'), confirmPassword: z.string() })
-  .refine((v) => v.password === v.confirmPassword, { message: 'Passwords do not match', path: ['confirmPassword'] })
+const resetFields = z.object({
+  password: z.string().min(8, 'At least 8 characters'),
+  confirmPassword: z.string(),
+})
+
+export const resetSchema = resetFields.refine((v) => v.password === v.confirmPassword, {
+  message: 'Passwords do not match',
+  path: ['confirmPassword'],
+})
+
+/**
+ * Server-side counterpart to `resetSchema` for `updatePassword`'s
+ * re-validation. Same treatment as `signupServerSchema`: `.refine()` returns
+ * a `ZodEffects` with no `.omit()`, and `updatePassword` never receives
+ * `confirmPassword` (client-only RHF check, already enforced before this is
+ * called), so this validates only the field the server actually gets.
+ */
+export const resetServerSchema = resetFields.omit({ confirmPassword: true })
 
 export const profileSchema = z.object({
   // Bounded the same as `signupFields.name`: both write the same

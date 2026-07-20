@@ -8,21 +8,26 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { forgotSchema, type ForgotValues } from '@/features/account/schema'
+import { requestPasswordReset } from '@/features/auth/actions'
 
 const DEFAULT_VALUES: ForgotValues = { email: '' }
 
 /**
- * Forgot-password form. Validates with `forgotSchema` and, on success,
- * swaps to a confirmation panel — mock only, no email is ever sent.
+ * Forgot-password form. Validates with `forgotSchema`, calls the
+ * `requestPasswordReset` server action, and on success swaps to a "check
+ * your inbox" confirmation panel — Supabase resolves this successfully
+ * whether or not the address has an account, so the confirmation copy is
+ * deliberately non-committal about existence either way.
  */
 export function ForgotPasswordForm() {
   const [submitted, setSubmitted] = useState(false)
   const [email, setEmail] = useState('')
+  const [formError, setFormError] = useState<string>()
 
   const {
     register,
     handleSubmit,
-    formState: { errors },
+    formState: { errors, isSubmitting },
   } = useForm<ForgotValues>({
     resolver: zodResolver(forgotSchema),
     defaultValues: DEFAULT_VALUES,
@@ -48,7 +53,13 @@ export function ForgotPasswordForm() {
     <form
       className="flex flex-col gap-4"
       noValidate
-      onSubmit={handleSubmit((values) => {
+      onSubmit={handleSubmit(async (values) => {
+        setFormError(undefined)
+        const result = await requestPasswordReset(values.email)
+        if (result?.error) {
+          setFormError(result.error)
+          return
+        }
         setEmail(values.email)
         setSubmitted(true)
       })}
@@ -70,7 +81,13 @@ export function ForgotPasswordForm() {
         ) : null}
       </div>
 
-      <Button type="submit" className="mt-2 h-12 w-full">
+      {formError ? (
+        <p role="alert" className="text-sm text-destructive">
+          {formError}
+        </p>
+      ) : null}
+
+      <Button type="submit" disabled={isSubmitting} className="mt-2 h-12 w-full">
         Send reset link
       </Button>
     </form>
