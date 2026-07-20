@@ -76,9 +76,11 @@ function loginErrorRedirect(base: string, code: CallbackErrorCode) {
  * `next` against a fixed `http://` base precisely so it gets the same WHATWG
  * "special scheme" normalisation this route's own resolution gets — see
  * `redirect-safety.ts`. `env.NEXT_PUBLIC_SITE_URL` is Zod-validated
- * (`z.url()`, `src/lib/env.ts`) to always be an absolute `http`/`https` URL,
- * so it stays in that same special-scheme class as `origin` was; swapping
- * the base doesn't break the equivalence the validator relies on.
+ * (`z.url({ protocol: /^https?$/ })`, `src/lib/env.ts` — the protocol
+ * constraint matters: a bare `z.url()` also accepts `ftp://`/`javascript:`)
+ * to always be an absolute `http`/`https` URL, so it stays in that same
+ * special-scheme class as `origin` was; swapping the base doesn't break the
+ * equivalence the validator relies on.
  */
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl

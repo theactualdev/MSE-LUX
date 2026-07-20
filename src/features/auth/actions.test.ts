@@ -131,17 +131,35 @@ describe('signUp', () => {
     expect(redirect).not.toHaveBeenCalled()
   })
 
-  it('returns no error on success', async () => {
-    signUp.mockResolvedValue({ data: {}, error: null })
+  it('returns no error and no confirmation flag when Supabase returns a session', async () => {
+    // Email confirmation disabled in the dashboard: signUp signs the user in
+    // immediately, so there's nothing for the caller to show a "check your
+    // email" state for.
+    signUp.mockResolvedValue({ data: { session: { access_token: 'x' } }, error: null })
 
     await expect(signUpAction(SIGNUP_VALUES)).resolves.toEqual({})
     expect(redirect).not.toHaveBeenCalled()
   })
 
-  it('returns the Supabase error message on failure', async () => {
+  it('returns requiresConfirmation when Supabase reports success but no session', async () => {
+    // Email confirmation enabled (spec §3.6): the account is created but not
+    // signed in yet.
+    signUp.mockResolvedValue({ data: { session: null }, error: null })
+
+    await expect(signUpAction(SIGNUP_VALUES)).resolves.toEqual({ requiresConfirmation: true })
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it('returns a fixed generic error on failure, not the raw Supabase message', async () => {
+    // Fix 1: GoTrue's raw message here is a credential-enumeration oracle
+    // (e.g. "User already registered"), the same class of leak `signIn`
+    // closed for its own failures — collapsed to the same fixed-copy
+    // convention every other sibling action already uses.
     signUp.mockResolvedValue({ data: {}, error: { message: 'User already registered' } })
 
-    await expect(signUpAction(SIGNUP_VALUES)).resolves.toEqual({ error: 'User already registered' })
+    await expect(signUpAction(SIGNUP_VALUES)).resolves.toEqual({
+      error: 'Something went wrong. Please try again.',
+    })
     expect(redirect).not.toHaveBeenCalled()
   })
 })

@@ -15,7 +15,12 @@ export const contactSchema = z.object({
  * gates checkout, which must never reject a genuine address.
  */
 const NAME_MAX = 100
-const PHONE_MAX = 20
+// 20 was too tight: a formatted international number with an extension can
+// exceed it (`"+44 (0) 20 7946 0958"` is exactly 20 characters, and any
+// extension pushes past it). 32 comfortably covers real-world formatted
+// numbers with extensions while staying well under the abuse-cap intent
+// above.
+const PHONE_MAX = 32
 const LINE_MAX = 200
 const REGION_MAX = 100
 const POSTAL_MAX = 20

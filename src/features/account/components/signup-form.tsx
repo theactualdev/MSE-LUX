@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -22,10 +23,24 @@ const GENERIC_ERROR = 'Something went wrong. Please try again.'
  * this component's own `formError`/`role="alert"` region rather than owning
  * a second one, so a Google failure and an email-form failure are never
  * shown in two places at once.
+ *
+ * On success, the confirmation state mirrors `ForgotPasswordForm`'s
+ * "check your inbox" panel rather than navigating straight to `/account`:
+ * with email confirmation enabled (spec §3.6), `signUp` returns no session,
+ * so `requireUser()` on `/account` would just redirect back to `/login` with
+ * no explanation. `signUp`'s `requiresConfirmation` flag tells this form
+ * which case it's in — if Supabase ever returns a session immediately
+ * (confirmation disabled in the dashboard), this form still navigates
+ * straight to `/account` instead of showing a pointless "check your email"
+ * screen for an account that's already signed in. The copy is deliberately
+ * non-committal about whether the address was already registered — the same
+ * enumeration hygiene `signUp`'s fixed error copy protects.
  */
 export function SignupForm() {
   const router = useRouter()
   const [formError, setFormError] = useState<string>()
+  const [submitted, setSubmitted] = useState(false)
+  const [email, setEmail] = useState('')
 
   const {
     register,
@@ -35,6 +50,22 @@ export function SignupForm() {
     resolver: zodResolver(signupSchema),
     defaultValues: DEFAULT_VALUES,
   })
+
+  if (submitted) {
+    return (
+      <div className="flex flex-col gap-4">
+        <p className="text-sm text-foreground">
+          Check your inbox — if <span className="font-medium">{email}</span> isn&apos;t already registered, a
+          confirmation link is on its way.
+        </p>
+        <p className="text-sm">
+          <Link href="/login" className="text-accent hover:underline">
+            Back to sign in
+          </Link>
+        </p>
+      </div>
+    )
+  }
 
   return (
     <div className="flex flex-col gap-6">
@@ -60,6 +91,11 @@ export function SignupForm() {
           }
           if (result.error) {
             setFormError(result.error)
+            return
+          }
+          if (result.requiresConfirmation) {
+            setEmail(values.email)
+            setSubmitted(true)
             return
           }
           router.push('/account')

@@ -84,6 +84,19 @@ function isRecordNotFound(error: unknown): boolean {
 }
 
 /**
+ * Sentinel thrown from inside `setDefaultAddress`'s `$transaction` callback
+ * when the final `update` raises `P2025`. A `return` from inside a
+ * `$transaction` callback resolves the transaction normally — Postgres
+ * **commits** it — so returning `NOT_FOUND` directly from that catch would
+ * commit the `updateMany` just above it that already cleared every default,
+ * leaving the profile with zero defaults. Throwing instead makes
+ * `$transaction` reject, which rolls the clear back too; the catch outside
+ * `$transaction` below translates this back into the ordinary `NOT_FOUND`
+ * result callers expect.
+ */
+class SetDefaultNotFoundError extends Error {}
+
+/**
  * The DB stores optional text as `null`; the forms bind to `string`. Convert
  * at the boundary in both directions so neither side has to think about it
  * (`?? ''` on read, `|| null` on write) — an empty input must clear the
@@ -354,39 +367,49 @@ export async function deleteAddress(id: string): Promise<MutationResult> {
  * That gap isn't fully closed, though: under READ COMMITTED, a concurrent
  * delete of this same row can commit between the ownership `findFirst` and
  * the `update` below, which then raises `P2025` ("record to update not
- * found"). Caught and reported as `not-found` rather than left to throw —
- * the row genuinely is gone by the time the write runs, which is exactly
- * what `not-found` means to callers of this function. Not an authorization
- * hole: `profileId` is never writable by application code, so a row cannot
- * change owners between the check and the write, only disappear.
+ * found"). Reported as `not-found` rather than left to throw — the row
+ * genuinely is gone by the time the write runs, which is exactly what
+ * `not-found` means to callers of this function. Not an authorization hole:
+ * `profileId` is never writable by application code, so a row cannot change
+ * owners between the check and the write, only disappear.
+ *
+ * That `P2025` is *thrown* as `SetDefaultNotFoundError`, not returned, from
+ * inside the `$transaction` callback — see that class's own comment for why
+ * a `return` there would silently commit the defaults the `updateMany` above
+ * just cleared. The outer try/catch translates it back to `NOT_FOUND`.
  */
 export async function setDefaultAddress(id: string): Promise<MutationResult> {
   const userId = await getCurrentUserId()
   if (!userId) return UNAUTHENTICATED
 
-  return db.$transaction(async (tx) => {
-    const owned = await tx.address.findFirst({
-      where: { id, profileId: userId },
-      select: { id: true },
-    })
-
-    if (!owned) return NOT_FOUND
-
-    await tx.address.updateMany({
-      where: { profileId: userId, isDefault: true },
-      data: { isDefault: false },
-    })
-
-    try {
-      await tx.address.update({
-        where: { id },
-        data: { isDefault: true },
+  try {
+    return await db.$transaction(async (tx) => {
+      const owned = await tx.address.findFirst({
+        where: { id, profileId: userId },
+        select: { id: true },
       })
-    } catch (error) {
-      if (isRecordNotFound(error)) return NOT_FOUND
-      throw error
-    }
 
-    return OK
-  })
+      if (!owned) return NOT_FOUND
+
+      await tx.address.updateMany({
+        where: { profileId: userId, isDefault: true },
+        data: { isDefault: false },
+      })
+
+      try {
+        await tx.address.update({
+          where: { id },
+          data: { isDefault: true },
+        })
+      } catch (error) {
+        if (isRecordNotFound(error)) throw new SetDefaultNotFoundError()
+        throw error
+      }
+
+      return OK
+    })
+  } catch (error) {
+    if (error instanceof SetDefaultNotFoundError) return NOT_FOUND
+    throw error
+  }
 }

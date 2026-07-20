@@ -79,6 +79,26 @@ export async function signIn(values: LoginValues): Promise<AuthActionResult> {
 }
 
 /**
+ * Result shape for `signUp`, alongside the shared `{ error? }` shape:
+ * `requiresConfirmation` tells the caller whether Supabase actually
+ * established a session. With email confirmation enabled (spec §3.6), a
+ * successful call returns `data.user` but no `data.session` — the account
+ * exists but isn't signed in yet, so the signup form has to show a
+ * "check your email" state rather than navigating anywhere that assumes a
+ * session. If email confirmation is ever disabled in the Supabase dashboard,
+ * `signUp` returns a session immediately, this flag stays unset, and the
+ * caller can navigate straight to the dashboard as before — this action
+ * doesn't assume either dashboard setting, it reports what actually came
+ * back.
+ */
+export interface SignUpActionResult extends AuthActionResult {
+  requiresConfirmation?: boolean
+}
+
+/** Fixed copy for a Supabase-reported `signUp` failure — see the comment below for why. */
+const SIGNUP_FAILED_ERROR = 'Something went wrong. Please try again.'
+
+/**
  * Creates a new account. The display name is passed through
  * `options.data` (lands in Supabase's `user_metadata` / `raw_user_meta_data`)
  * for DISPLAY only — the Profile-provisioning trigger reads it for the
@@ -96,19 +116,27 @@ export async function signIn(values: LoginValues): Promise<AuthActionResult> {
  * over the wire a second time. `signupServerSchema` mirrors that: it's
  * `signupSchema`'s field set minus `confirmPassword`, so re-validation here
  * checks exactly what the server actually received.
+ *
+ * A Supabase-reported failure returns the same fixed, generic
+ * `SIGNUP_FAILED_ERROR`, never `error.message` — GoTrue populates that
+ * message with "User already registered" for a duplicate email, which is
+ * the identical credential-enumeration oracle `signIn` closes with
+ * `INVALID_CREDENTIALS_ERROR`. This was the one sibling action that hadn't
+ * been collapsed to fixed copy; it now matches `signOut`,
+ * `requestPasswordReset`, `updatePassword`, and `signInWithGoogle`.
  */
 export async function signUp({
   name,
   email,
   password,
-}: Omit<SignupValues, 'confirmPassword'>): Promise<AuthActionResult> {
+}: Omit<SignupValues, 'confirmPassword'>): Promise<SignUpActionResult> {
   const parsed = signupServerSchema.safeParse({ name, email, password })
   if (!parsed.success) {
     return { error: 'Please check your details and try again' }
   }
 
   const supabase = await createClient()
-  const { error } = await supabase.auth.signUp({
+  const { data, error } = await supabase.auth.signUp({
     email: parsed.data.email,
     password: parsed.data.password,
     options: {
@@ -118,10 +146,15 @@ export async function signUp({
   })
 
   if (error) {
-    return { error: error.message }
+    return { error: SIGNUP_FAILED_ERROR }
   }
 
-  return {}
+  // No session means Supabase requires email confirmation before this
+  // account can sign in — tell the caller so it can show a "check your
+  // email" state instead of navigating to a dashboard that would just
+  // bounce back to /login. When confirmation is disabled, `data.session` is
+  // present and this is indistinguishable from any other successful action.
+  return data.session ? {} : { requiresConfirmation: true }
 }
 
 /**
