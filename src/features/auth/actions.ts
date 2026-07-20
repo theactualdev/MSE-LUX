@@ -3,6 +3,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { env } from '@/lib/env'
+import { getSessionClaims, hasRecentRecoveryAuth } from '@/features/auth/claims'
 import {
   loginServerSchema,
   signupServerSchema,
@@ -110,6 +111,16 @@ export async function signUp({
  * `next=/reset-password` so the callback knows to land the user back on the
  * reset screen after exchanging the recovery link for a session; until Task
  * 7 lands, the link 404s, which is expected at this point in the build.
+ *
+ * A Supabase-reported failure here returns a fixed, generic message rather
+ * than `error.message` — GoTrue's per-address rate-limit response ("For
+ * security purposes, you can only request this after N seconds") only
+ * appears on a *repeat* request for an address, so passing it through would
+ * let an attacker distinguish "this address has been requested before" from
+ * a fresh one, undermining the same enumeration hygiene the form's "if an
+ * account exists" copy is there for. `forgot-password-form.tsx` also
+ * doesn't branch on `{ error }` at all for this action, for the same
+ * reason — this return value only matters to non-form callers.
  */
 export async function requestPasswordReset(email: string): Promise<AuthActionResult> {
   const parsed = forgotSchema.safeParse({ email })
@@ -123,11 +134,14 @@ export async function requestPasswordReset(email: string): Promise<AuthActionRes
   })
 
   if (error) {
-    return { error: error.message }
+    return { error: 'Something went wrong. Please try again.' }
   }
 
   return {}
 }
+
+/** Fixed copy for every `updatePassword` failure — see the comment below for why. */
+const RESET_LINK_INVALID_ERROR = 'This reset link is no longer valid. Request a new one and try again.'
 
 /**
  * Sets a new password. Reachable only once the callback route (Task 7) has
@@ -139,6 +153,24 @@ export async function requestPasswordReset(email: string): Promise<AuthActionRes
  * so `resetServerSchema` (the refine's base object minus `confirmPassword`)
  * is what gets re-validated here, mirroring `signUp`'s `signupServerSchema`
  * treatment.
+ *
+ * SECURITY — authorization, not just re-validation: `supabase.auth
+ * .updateUser({ password })` acts on *whatever* session is present and never
+ * asks for the current password, so it must not run against an ordinary
+ * signed-in session — see `hasRecentRecoveryAuth` in `claims.ts` for the
+ * full reasoning and how the `recovery` AMR claim was verified. `/reset
+ * -password` is deliberately not wrapped in `RedirectIfAuthed` (Supabase's
+ * recovery link signs the user in before they reach it), so an ordinary
+ * authenticated visitor — e.g. an unlocked shared browser — can load this
+ * screen; this check is what stops them from actually changing the
+ * password from it.
+ *
+ * Every failure path here — no/stale recovery claim, or a genuine Supabase
+ * `updateUser` error — returns the same fixed, non-revealing message.
+ * Distinguishing them (e.g. echoing "Auth session missing") would tell a
+ * caller *why* it failed, which is exactly the kind of detail an
+ * unauthenticated or session-confused caller shouldn't get for a
+ * credential-changing endpoint.
  */
 export async function updatePassword(newPassword: string): Promise<AuthActionResult> {
   const parsed = resetServerSchema.safeParse({ password: newPassword })
@@ -146,14 +178,28 @@ export async function updatePassword(newPassword: string): Promise<AuthActionRes
     return { error: 'Please choose a stronger password' }
   }
 
+  const claims = await getSessionClaims()
+  if (!hasRecentRecoveryAuth(claims)) {
+    return { error: RESET_LINK_INVALID_ERROR }
+  }
+
   const supabase = await createClient()
   const { error } = await supabase.auth.updateUser({ password: parsed.data.password })
 
   if (error) {
-    return { error: error.message }
+    return { error: RESET_LINK_INVALID_ERROR }
   }
 
-  return {}
+  // Standard credential-rotation hygiene: invalidate every session for this
+  // account (`scope: 'global'`, not just the current one), not merely the
+  // recovery session that made this change — a password change should log
+  // out every device signed in under the old credential. This is
+  // best-effort: if it fails, the password change itself already succeeded,
+  // so we still redirect rather than leaving the user on a dead success
+  // panel or surfacing an error for something that in fact worked.
+  await supabase.auth.signOut({ scope: 'global' })
+
+  redirect('/login')
 }
 
 /** Clears the session, then redirects to `/` — the deliberate post-sign-out destination. */

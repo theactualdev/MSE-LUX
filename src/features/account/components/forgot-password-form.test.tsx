@@ -40,7 +40,10 @@ describe('ForgotPasswordForm', () => {
     expect(screen.getByText('ada@example.com')).toBeInTheDocument()
   })
 
-  it('shows the server error and stays on the form when requestPasswordReset fails', async () => {
+  it('shows the check-your-inbox confirmation even when requestPasswordReset resolves with an error', async () => {
+    // Fix 3: server failures (e.g. GoTrue's per-address rate-limit message)
+    // must not be distinguishable from success in the UI — that
+    // distinguishability is itself an email-enumeration signal.
     requestPasswordResetMock.mockResolvedValue({ error: 'Email rate limit exceeded' })
     const user = userEvent.setup()
     render(<ForgotPasswordForm />)
@@ -48,7 +51,22 @@ describe('ForgotPasswordForm', () => {
     await user.type(screen.getByLabelText(/email/i), 'ada@example.com')
     await user.click(screen.getByRole('button', { name: /send reset link/i }))
 
-    expect(await screen.findByRole('alert')).toHaveTextContent(/email rate limit exceeded/i)
+    expect(await screen.findByText(/check your inbox/i)).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
+
+  it('shows a generic error and stays on the form when requestPasswordReset rejects (transport failure)', async () => {
+    // Fix 4: a genuine transport failure (network drop, server exception) is
+    // the one case that should keep the user on the form — the action never
+    // throws for a Supabase-reported error, only for this.
+    requestPasswordResetMock.mockRejectedValue(new Error('Failed to fetch'))
+    const user = userEvent.setup()
+    render(<ForgotPasswordForm />)
+
+    await user.type(screen.getByLabelText(/email/i), 'ada@example.com')
+    await user.click(screen.getByRole('button', { name: /send reset link/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
     expect(screen.queryByText(/check your inbox/i)).not.toBeInTheDocument()
   })
 })

@@ -11,6 +11,7 @@ import { forgotSchema, type ForgotValues } from '@/features/account/schema'
 import { requestPasswordReset } from '@/features/auth/actions'
 
 const DEFAULT_VALUES: ForgotValues = { email: '' }
+const GENERIC_ERROR = 'Something went wrong. Please try again.'
 
 /**
  * Forgot-password form. Validates with `forgotSchema`, calls the
@@ -18,6 +19,16 @@ const DEFAULT_VALUES: ForgotValues = { email: '' }
  * your inbox" confirmation panel — Supabase resolves this successfully
  * whether or not the address has an account, so the confirmation copy is
  * deliberately non-committal about existence either way.
+ *
+ * The confirmation panel shows once client-side validation passes,
+ * regardless of whether the action resolves with `{}` or `{ error }` —
+ * GoTrue's per-address rate-limit message only appears on a *repeat*
+ * request, so surfacing it would let an attacker distinguish "this address
+ * was requested before" from a fresh one, defeating the same enumeration
+ * hygiene the confirmation copy is already there for. Only a genuine
+ * rejection (network drop, server exception — the action never throws for
+ * a Supabase-reported error, only for transport failures) keeps the user on
+ * the form, via the `catch` below.
  */
 export function ForgotPasswordForm() {
   const [submitted, setSubmitted] = useState(false)
@@ -55,9 +66,10 @@ export function ForgotPasswordForm() {
       noValidate
       onSubmit={handleSubmit(async (values) => {
         setFormError(undefined)
-        const result = await requestPasswordReset(values.email)
-        if (result?.error) {
-          setFormError(result.error)
+        try {
+          await requestPasswordReset(values.email)
+        } catch {
+          setFormError(GENERIC_ERROR)
           return
         }
         setEmail(values.email)

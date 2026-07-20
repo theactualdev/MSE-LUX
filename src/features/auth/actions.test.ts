@@ -19,6 +19,7 @@ const signUp = vi.fn()
 const signOut = vi.fn()
 const resetPasswordForEmail = vi.fn()
 const updateUser = vi.fn()
+const getClaims = vi.fn()
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
@@ -28,9 +29,24 @@ vi.mock('@/lib/supabase/server', () => ({
       signOut: (...args: unknown[]) => signOut(...args),
       resetPasswordForEmail: (...args: unknown[]) => resetPasswordForEmail(...args),
       updateUser: (...args: unknown[]) => updateUser(...args),
+      getClaims: (...args: unknown[]) => getClaims(...args),
     },
   }),
 }))
+
+/** A claims payload with a fresh `recovery` AMR entry — the shape `updatePassword` requires. */
+function recoveryClaims(overrides: { ageSeconds?: number; method?: string } = {}) {
+  const { ageSeconds = 0, method = 'recovery' } = overrides
+  return {
+    data: {
+      claims: {
+        sub: 'user-1',
+        amr: [{ method, timestamp: Date.now() / 1000 - ageSeconds }],
+      },
+    },
+    error: null,
+  }
+}
 
 const {
   signIn,
@@ -159,11 +175,16 @@ describe('requestPasswordReset', () => {
     await expect(requestPasswordReset('ada@example.com')).resolves.toEqual({})
   })
 
-  it('returns the Supabase error message on failure', async () => {
+  it('returns a fixed generic error on failure, not the raw Supabase message', async () => {
+    // GoTrue's rate-limit message only appears on a *repeat* request for an
+    // address — passing it through would let a caller distinguish "this
+    // address was requested before" from a fresh one, leaking exactly the
+    // existence signal the form's "if an account exists" copy is meant to
+    // hide.
     resetPasswordForEmail.mockResolvedValue({ data: {}, error: { message: 'Email rate limit exceeded' } })
 
     await expect(requestPasswordReset('ada@example.com')).resolves.toEqual({
-      error: 'Email rate limit exceeded',
+      error: 'Something went wrong. Please try again.',
     })
   })
 
@@ -176,35 +197,82 @@ describe('requestPasswordReset', () => {
 })
 
 describe('updatePassword', () => {
+  const RESET_LINK_INVALID_ERROR = 'This reset link is no longer valid. Request a new one and try again.'
+
   beforeEach(() => {
+    redirect.mockClear()
     updateUser.mockReset()
+    signOut.mockReset()
+    getClaims.mockReset()
   })
 
-  it('calls updateUser with the new password', async () => {
+  it('calls updateUser with the new password when the session has a fresh recovery claim', async () => {
+    getClaims.mockResolvedValue(recoveryClaims())
     updateUser.mockResolvedValue({ data: {}, error: null })
+    signOut.mockResolvedValue({ error: null })
 
-    await updatePassword('newpassword1')
+    await expect(updatePassword('newpassword1')).rejects.toThrow('REDIRECT:/login')
 
     expect(updateUser).toHaveBeenCalledWith({ password: 'newpassword1' })
   })
 
-  it('returns no error on success', async () => {
+  it('signs out globally then redirects to /login on success', async () => {
+    getClaims.mockResolvedValue(recoveryClaims())
     updateUser.mockResolvedValue({ data: {}, error: null })
+    signOut.mockResolvedValue({ error: null })
 
-    await expect(updatePassword('newpassword1')).resolves.toEqual({})
+    await expect(updatePassword('newpassword1')).rejects.toThrow('REDIRECT:/login')
+
+    expect(signOut).toHaveBeenCalledWith({ scope: 'global' })
+    expect(redirect).toHaveBeenCalledWith('/login')
   })
 
-  it('returns the Supabase error message on failure', async () => {
+  it('returns a fixed generic error when updateUser fails, not the raw Supabase message', async () => {
+    getClaims.mockResolvedValue(recoveryClaims())
     updateUser.mockResolvedValue({ data: {}, error: { message: 'Auth session missing' } })
 
     await expect(updatePassword('newpassword1')).resolves.toEqual({
-      error: 'Auth session missing',
+      error: RESET_LINK_INVALID_ERROR,
     })
+    expect(redirect).not.toHaveBeenCalled()
+    expect(signOut).not.toHaveBeenCalled()
   })
 
   it('rejects a too-short password without calling Supabase', async () => {
     await expect(updatePassword('short')).resolves.toEqual({
       error: 'Please choose a stronger password',
+    })
+    expect(getClaims).not.toHaveBeenCalled()
+    expect(updateUser).not.toHaveBeenCalled()
+  })
+
+  // Fix 6 — the security-critical case: a signed-in session that did NOT
+  // come from Supabase's recovery link must never be able to call
+  // updateUser at all, regardless of whether it holds a valid password.
+  it('rejects a non-recovery session without calling updateUser', async () => {
+    getClaims.mockResolvedValue(recoveryClaims({ method: 'password' }))
+
+    await expect(updatePassword('newpassword1')).resolves.toEqual({
+      error: RESET_LINK_INVALID_ERROR,
+    })
+    expect(updateUser).not.toHaveBeenCalled()
+    expect(redirect).not.toHaveBeenCalled()
+  })
+
+  it('rejects an unauthenticated caller (no claims) without calling updateUser', async () => {
+    getClaims.mockResolvedValue({ data: null, error: null })
+
+    await expect(updatePassword('newpassword1')).resolves.toEqual({
+      error: RESET_LINK_INVALID_ERROR,
+    })
+    expect(updateUser).not.toHaveBeenCalled()
+  })
+
+  it('rejects a stale recovery claim (outside the freshness window) without calling updateUser', async () => {
+    getClaims.mockResolvedValue(recoveryClaims({ ageSeconds: 60 * 60 }))
+
+    await expect(updatePassword('newpassword1')).resolves.toEqual({
+      error: RESET_LINK_INVALID_ERROR,
     })
     expect(updateUser).not.toHaveBeenCalled()
   })

@@ -11,6 +11,7 @@ import { signupSchema, type SignupValues } from '@/features/account/schema'
 import { signUp } from '@/features/auth/actions'
 
 const DEFAULT_VALUES: SignupValues = { name: '', email: '', password: '', confirmPassword: '' }
+const GENERIC_ERROR = 'Something went wrong. Please try again.'
 
 /** Sign-up form. Validates with `signupSchema`; passwords are never read past validation. */
 export function SignupForm() {
@@ -32,11 +33,22 @@ export function SignupForm() {
       noValidate
       onSubmit={handleSubmit(async (values) => {
         setFormError(undefined)
-        // Only the fields signUp needs — confirmPassword was already
-        // enforced client-side by zodResolver and has no reason to be sent
-        // to the server a second time.
-        const result = await signUp({ name: values.name, email: values.email, password: values.password })
-        if (result?.error) {
+        // signUp() never throws by design (it returns a typed { error? }
+        // result) — this try/catch is only for a genuine transport failure
+        // (network drop, server exception) that rejects the promise
+        // instead, which otherwise produced an unhandled rejection with no
+        // visible feedback: the button just re-enabled with no explanation.
+        let result
+        try {
+          // Only the fields signUp needs — confirmPassword was already
+          // enforced client-side by zodResolver and has no reason to be
+          // sent to the server a second time.
+          result = await signUp({ name: values.name, email: values.email, password: values.password })
+        } catch {
+          setFormError(GENERIC_ERROR)
+          return
+        }
+        if (result.error) {
           setFormError(result.error)
           return
         }

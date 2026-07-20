@@ -11,6 +11,7 @@ import { loginSchema, type LoginValues } from '@/features/account/schema'
 import { signIn } from '@/features/auth/actions'
 
 const DEFAULT_VALUES: LoginValues = { email: '', password: '' }
+const GENERIC_ERROR = 'Something went wrong. Please try again.'
 
 /** Sign-in form. Validates with `loginSchema`; the password is never read past validation. */
 export function LoginForm() {
@@ -32,8 +33,19 @@ export function LoginForm() {
       noValidate
       onSubmit={handleSubmit(async (values) => {
         setFormError(undefined)
-        const result = await signIn(values)
-        if (result?.error) {
+        // signIn() never throws by design (it returns a typed { error? }
+        // result) — this try/catch is only for a genuine transport failure
+        // (network drop, server exception) that rejects the promise
+        // instead, which otherwise produced an unhandled rejection with no
+        // visible feedback: the button just re-enabled with no explanation.
+        let result
+        try {
+          result = await signIn(values)
+        } catch {
+          setFormError(GENERIC_ERROR)
+          return
+        }
+        if (result.error) {
           setFormError(result.error)
           return
         }

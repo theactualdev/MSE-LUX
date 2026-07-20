@@ -62,4 +62,19 @@ describe('LoginForm', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/invalid login credentials/i)
     expect(push).not.toHaveBeenCalled()
   })
+
+  it('shows a generic error and does not redirect when signIn rejects (transport failure)', async () => {
+    // Fix 4: previously an unhandled rejection here — the button just
+    // re-enabled with no feedback and no role="alert".
+    signInMock.mockRejectedValue(new Error('Failed to fetch'))
+    const user = userEvent.setup()
+    render(<LoginForm />)
+
+    await user.type(screen.getByLabelText(/email/i), 'ada@example.com')
+    await user.type(screen.getByLabelText(/password/i), 'wrongpass1')
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
+    expect(push).not.toHaveBeenCalled()
+  })
 })
