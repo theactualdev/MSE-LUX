@@ -7,14 +7,19 @@
 //
 // --- Hand-maintained SQL constraints ---
 //
-// Two constraints below cannot be expressed in Prisma's schema language and only exist
-// as hand-edited SQL in `prisma/migrations/20260719013937_init/migration.sql`. Prisma is
-// blind to both, so a future `prisma migrate dev` will diff them away and emit a
-// `DROP INDEX` for each — that generated migration must be inspected and stripped of the
-// drop before being applied. See the comments on the fields below for details:
-//   1. `Address_one_default_per_profile` — partial unique index, above `Address.isDefault`.
+// Three constraints below cannot be expressed in Prisma's schema language and only exist
+// as hand-edited SQL in the migrations named. Prisma is blind to all three, so a future
+// `prisma migrate dev` will diff them away and emit a `DROP` for each — that generated
+// migration must be inspected and stripped of the drop before being applied. See the
+// comments on the fields below for details:
+//   1. `Address_one_default_per_profile` — partial unique index, above `Address.isDefault`,
+//      hand-added in `prisma/migrations/20260719013937_init/migration.sql`.
 //   2. `CartItem_cartId_productId_variantId_key` with `NULLS NOT DISTINCT` — above
-//      `CartItem`'s `@@unique([cartId, productId, variantId])`.
+//      `CartItem`'s `@@unique([cartId, productId, variantId])`, hand-added in
+//      `prisma/migrations/20260719013937_init/migration.sql`.
+//   3. `Profile_id_fkey` — cross-schema cascade FK from `Profile.id` to `auth.users(id)`,
+//      above `Profile.id`, hand-added in
+//      `prisma/migrations/20260721215213_fix_profile_provisioning/migration.sql`.
 
 generator client {
   provider = "prisma-client"
@@ -205,8 +210,22 @@ model Profile {
   // This id is the Supabase `auth.users.id` (UUID) — it is supplied by Supabase Auth,
   // never generated here. Do NOT add a password/credential column to this model;
   // all credential handling is owned by Supabase Auth.
+  //
+  // HAND-ADDED CONSTRAINT — invisible to Prisma, lives only in SQL:
+  // `prisma/migrations/20260721215213_fix_profile_provisioning/migration.sql` hand-adds a foreign
+  // key, `Profile_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id) ON DELETE CASCADE`, so
+  // deleting a Supabase auth user cascades to delete its Profile row instead of orphaning it.
+  // Prisma cannot model a cross-schema FK into the unmanaged `auth` schema (Supabase's GoTrue
+  // owns it, not these migrations), so it has no representation here and will never appear in
+  // a Prisma-generated migration diff. Before applying any future `prisma migrate dev` output,
+  // inspect it for a DROP of this constraint and remove that line — Prisma will otherwise
+  // conclude the FK is unmanaged/extraneous and drop it.
   id    String  @id @db.Uuid
-  email String  @unique
+  // Not unique: it mirrors `auth.users.email`, which Supabase Auth already keeps unique, and
+  // a Profile-level unique index is what caused re-signup with a stale email to silently fail
+  // to provision a row (see the fix-profile-provisioning migration). Email is read-only in the
+  // app — always set by the `auth_hooks.handle_new_user()` trigger, never by client writes.
+  email String
   name  String?
   phone String?
   role  Role    @default(CUSTOMER)

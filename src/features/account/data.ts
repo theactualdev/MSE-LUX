@@ -149,15 +149,16 @@ export async function getProfile(): Promise<AccountProfile | null> {
 /**
  * Patches the signed-in user's profile.
  *
- * `email` is deliberately not a parameter: `Profile.email` is `@unique` and
- * the `auth.users` provisioning trigger (`handle_new_user()`) inserts new
- * profiles with an untargeted `ON CONFLICT DO NOTHING`, which absorbs a
- * conflict on that unique email exactly as silently as one on `id`. A caller
- * able to point `Profile.email` at another address could permanently starve
- * that address's future signup of a `Profile` row. Changing the address a
+ * `email` is deliberately not a parameter: `Profile.email` mirrors
+ * `auth.users.email`, which Supabase Auth owns and already keeps unique — the
+ * `Profile` row is provisioned/kept in sync by the `auth.users` trigger
+ * (`handle_new_user()`), which now writes with `ON CONFLICT (id) DO NOTHING`
+ * and is backed by a cascade FK from `Profile.id` to `auth.users.id`. A
+ * caller able to point `Profile.email` at another address would let it drift
+ * from the address the user actually signs in with. Changing the address a
  * user signs in with is a separate, out-of-scope flow
  * (`updateUser({ email })` plus a confirmation round-trip to both the old and
- * new address) — this column is now read-only from the application. See
+ * new address) — this column is read-only from the application. See
  * `getProfile` for what the dashboard displays instead.
  *
  * Catches `P2025` (row missing — reachable if the trigger never ran, or the
