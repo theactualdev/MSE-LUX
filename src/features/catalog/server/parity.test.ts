@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 
 // Order-sensitive deep-equality between the DB-backed server layer and the authored
 // mock catalog. Requires a live DATABASE_URL and the id-aligned seed (Task 2).
@@ -7,6 +7,15 @@ import { describe, expect, it } from 'vitest'
 const enabled = process.env.CATALOG_PARITY === '1'
 
 describe.runIf(enabled)('catalog parity: server layer vs authored mock', () => {
+  // Vitest does not auto-load .env (unlike `tsx`, which is why verify-catalog-ids.ts sees
+  // DATABASE_URL for free). `@/lib/db` only reads DATABASE_URL lazily, on first property access
+  // inside the `it` callbacks below (via the dynamic `import('./selectors')`), so loading dotenv
+  // here — scoped to this gated describe block only — is enough to make it visible in time
+  // without affecting the normal (gate-off) suite, which never reaches this beforeAll.
+  beforeAll(async () => {
+    await import('dotenv/config')
+  })
+
   it('products: deep-equal and order-sensitive (ids, prices, tags, option order, variants)', async () => {
     const server = await import('./selectors')
     const mock = await import('@/features/catalog/lib/selectors')
