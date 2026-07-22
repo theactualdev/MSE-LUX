@@ -145,7 +145,7 @@ function byNullablePosition<T extends { position: number | null }>(a: T, b: T): 
  * than first: `indexOf` returns `-1` for "not found", which would otherwise sort before every
  * real index (0, 1, 2, ...), so `-1` is remapped to `+Infinity` here.
  */
-function bySuppliedOrder<T>(order: readonly string[], keyOf: (item: T) => string): (a: T, b: T) => number {
+export function bySuppliedOrder<T>(order: readonly string[], keyOf: (item: T) => string): (a: T, b: T) => number {
   const rank = (item: T): number => {
     const index = order.indexOf(keyOf(item))
     return index === -1 ? Number.POSITIVE_INFINITY : index
