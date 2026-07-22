@@ -45,7 +45,10 @@ function simulateProductRow(product: ReturnType<typeof getAllProducts>[number]):
     subcategory: product.subcategorySlug ? { slug: product.subcategorySlug } : null,
     images: create.images.create,
     optionTypes: create.optionTypes.create.map((t) => ({ name: t.name, position: t.position, values: t.values.create })),
-    variants: product.variants.map((v) => ({ ...toVariantCreate(v), options: toVariantCreate(v).options.create })),
+    variants: product.variants.map((v) => {
+      const created = toVariantCreate(v)
+      return { ...created, options: created.options.create }
+    }),
     collections: product.collectionSlugs.map((slug, position) => ({ position, collection: { slug } })),
   }
 }
@@ -222,6 +225,43 @@ describe('toDomainProduct — variant option ordering', () => {
       { id: 'VAR-1', sku: 'SKU-VAR-1', options: [{ name: 'Size', value: 'M' }, { name: 'Color', value: 'Gold' }], inventory: 2 },
     ])
   })
+
+  it('sorts an option whose name is not in optionTypes last, not first', () => {
+    // `Material` isn't in this product's optionTypes at all (drift between VariantOption rows and
+    // the product's authored optionTypes) — a raw `indexOf`-based comparator would sort it first
+    // (`-1` < every real index), which is backwards; it must sort last, and known names must still
+    // order correctly around it.
+    const row: ProductRowForMapping = {
+      ...baseProductRow,
+      optionTypes: [
+        { name: 'Size', position: 0, values: [{ value: 'M', position: 0 }] },
+        { name: 'Color', position: 1, values: [{ value: 'Gold', position: 0 }] },
+      ],
+      variants: [
+        {
+          id: 'VAR-1',
+          sku: 'SKU-VAR-1',
+          inventory: 2,
+          priceNgnMinor: null,
+          priceUsdMinor: null,
+          image: null,
+          options: [
+            { name: 'Material', value: 'Vermeil' },
+            { name: 'Color', value: 'Gold' },
+            { name: 'Size', value: 'M' },
+          ],
+        },
+      ],
+    }
+
+    const result = toDomainProduct(row)
+
+    expect(result.variants[0].options).toEqual([
+      { name: 'Size', value: 'M' },
+      { name: 'Color', value: 'Gold' },
+      { name: 'Material', value: 'Vermeil' },
+    ])
+  })
 })
 
 describe('toDomainProduct — nullable-to-optional fields', () => {
@@ -282,6 +322,29 @@ describe('toDomainCategory — nullable-to-optional fields', () => {
     expect(result.description).toBeUndefined()
     expect(result.image).toBeUndefined()
     expect(result.subcategories).toEqual([{ slug: 'necklaces', name: 'Necklaces', categorySlug: 'jewelry' }])
+  })
+})
+
+describe('toDomainCategory — subcategory ordering', () => {
+  it('sorts a subcategory whose slug is not in subcategoryOrder last, not first', () => {
+    // `pendants` isn't in the supplied order (e.g. a new Subcategory row added to the DB before
+    // the static order array is updated) — it must sort last, and known slugs must still order
+    // correctly around it.
+    const row: CategoryRowForMapping = {
+      slug: 'jewelry',
+      name: 'Jewelry',
+      description: null,
+      image: null,
+      subcategories: [
+        { slug: 'pendants', name: 'Pendants' },
+        { slug: 'bracelets', name: 'Bracelets' },
+        { slug: 'necklaces', name: 'Necklaces' },
+      ],
+    }
+
+    const result = toDomainCategory(row, ['necklaces', 'bracelets'])
+
+    expect(result.subcategories.map((s) => s.slug)).toEqual(['necklaces', 'bracelets', 'pendants'])
   })
 })
 

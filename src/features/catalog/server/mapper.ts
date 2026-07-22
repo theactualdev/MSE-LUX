@@ -140,13 +140,25 @@ function byNullablePosition<T extends { position: number | null }>(a: T, b: T): 
 }
 
 /**
+ * Sorts by index in a caller-supplied order list (e.g. authored slug/name order). An entry whose
+ * key isn't in `order` — drift between the row and the order list — sorts last, stably, rather
+ * than first: `indexOf` returns `-1` for "not found", which would otherwise sort before every
+ * real index (0, 1, 2, ...), so `-1` is remapped to `+Infinity` here.
+ */
+function bySuppliedOrder<T>(order: readonly string[], keyOf: (item: T) => string): (a: T, b: T) => number {
+  const rank = (item: T): number => {
+    const index = order.indexOf(keyOf(item))
+    return index === -1 ? Number.POSITIVE_INFINITY : index
+  }
+  return (a, b) => rank(a) - rank(b)
+}
+
+/**
  * `VariantOption` rows carry no position column, so a variant's options are re-ordered to match
  * the product's authored `optionTypes` name order (the source of truth for option ordering).
  */
-function toDomainVariant(row: ProductVariantRowForMapping, optionTypeNameOrder: string[]): CatalogVariant {
-  const orderedOptions = [...row.options].sort(
-    (a, b) => optionTypeNameOrder.indexOf(a.name) - optionTypeNameOrder.indexOf(b.name),
-  )
+function toDomainVariant(row: ProductVariantRowForMapping, optionTypeNameOrder: readonly string[]): CatalogVariant {
+  const orderedOptions = [...row.options].sort(bySuppliedOrder(optionTypeNameOrder, (option) => option.name))
 
   return {
     id: row.id,
@@ -202,9 +214,7 @@ export function toDomainProduct(row: ProductRowForMapping): Product {
  * of subcategory slugs) rather than derived from the row itself.
  */
 export function toDomainCategory(row: CategoryRowForMapping, subcategoryOrder: readonly string[]): Category {
-  const orderedSubcategories = [...row.subcategories].sort(
-    (a, b) => subcategoryOrder.indexOf(a.slug) - subcategoryOrder.indexOf(b.slug),
-  )
+  const orderedSubcategories = [...row.subcategories].sort(bySuppliedOrder(subcategoryOrder, (s) => s.slug))
 
   return {
     slug: row.slug,
