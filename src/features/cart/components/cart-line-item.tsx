@@ -33,7 +33,7 @@ export function CartLineItem({ line, editable = false, onQtyChange, onRemove, cl
         <Image src={image.src} alt={image.alt} fill sizes="96px" className="object-cover" />
       </div>
 
-      <div className="flex flex-1 flex-col gap-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex items-start justify-between gap-2">
           <Link
             href={`/products/${product.slug}`}

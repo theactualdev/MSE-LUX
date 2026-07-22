@@ -22,8 +22,6 @@ export function MiniCartDrawer() {
   const open = useUiStore((s) => s.cartDrawerOpen)
   const closeCartDrawer = useUiStore((s) => s.closeCartDrawer)
   const items = useCartStore((s) => s.items)
-  const updateQuantity = useCartStore((s) => s.updateQuantity)
-  const removeItem = useCartStore((s) => s.removeItem)
   const hydrated = useHydrated()
 
   const lines = hydrated ? getCartLines(items, 'NGN') : []
@@ -45,13 +43,10 @@ export function MiniCartDrawer() {
         {!hydrated ? null : hasItems ? (
           <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-4">
             {lines.map((line) => (
-              <CartLineItem
-                key={`${line.product.id}::${line.variant?.id ?? ''}`}
-                line={line}
-                editable
-                onQtyChange={(qty) => updateQuantity(line.product.id, line.variant?.id, qty)}
-                onRemove={() => removeItem(line.product.id, line.variant?.id)}
-              />
+              // Compact summary rows (thumbnail, name, qty × price, line total) — no
+              // stepper/remove: those don't fit a narrow mobile drawer and the full
+              // editable controls live on the /cart page ("View cart" below).
+              <CartLineItem key={`${line.product.id}::${line.variant?.id ?? ''}`} line={line} />
             ))}
           </div>
         ) : (
