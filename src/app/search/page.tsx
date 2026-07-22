@@ -6,7 +6,7 @@ import { ProductGrid } from '@/features/catalog/components/product-grid'
 import { FacetPanel, type FacetVocab } from '@/features/catalog/components/facet-panel'
 import { ActiveFilterChips } from '@/features/catalog/components/active-filter-chips'
 import { FilterDrawer } from '@/features/catalog/components/filter-drawer'
-import { getAllCategories, getAllProducts } from '@/features/catalog/lib/selectors'
+import { getAllCategories, getAllProducts } from '@/features/catalog/server/selectors'
 import { parseSearchCriteria } from '@/features/catalog/lib/search-params'
 import { computeFacetCounts, searchAndFilterProducts } from '@/features/catalog/lib/search'
 import { allColors, allMaterialTags } from '@/features/catalog/lib/facets'
@@ -22,7 +22,7 @@ interface SearchPageProps {
 export default async function SearchPage({ searchParams }: SearchPageProps) {
   const sp = await searchParams
 
-  const all = getAllProducts()
+  const all = await getAllProducts()
   const criteria = parseSearchCriteria(sp)
   const products = searchAndFilterProducts(all, criteria)
   const counts = computeFacetCounts(all, criteria)
@@ -30,7 +30,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const vocab: FacetVocab = {
     materials: allMaterialTags(all),
     colors: allColors(all),
-    categories: getAllCategories().map((c) => ({ slug: c.slug, name: c.name })),
+    categories: (await getAllCategories()).map((c) => ({ slug: c.slug, name: c.name })),
   }
 
   const heading = criteria.query ? `Results for “${criteria.query}”` : 'All products'

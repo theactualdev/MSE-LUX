@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import Image from 'next/image'
 import { cn } from '@/lib/utils'
-import { getProductsInCollection } from '@/features/catalog/lib/selectors'
+import { getProductsInCollection } from '@/features/catalog/server/selectors'
 import type { Collection } from '@/types/catalog'
 
 interface CollectionCardProps {
@@ -14,9 +14,9 @@ interface CollectionCardProps {
  * name, and product count, linking to the collection detail page. Falls
  * back to a representative product image when the collection has none.
  */
-export function CollectionCard({ collection, className }: CollectionCardProps) {
+export async function CollectionCard({ collection, className }: CollectionCardProps) {
   const count = collection.productSlugs.length
-  const fallbackImage = getProductsInCollection(collection.slug)[0]?.images[0]
+  const fallbackImage = (await getProductsInCollection(collection.slug))[0]?.images[0]
   const image = collection.image
     ? { src: collection.image, alt: collection.name }
     : fallbackImage

@@ -7,7 +7,7 @@ import { ProductGrid } from '@/features/catalog/components/product-grid'
 import { FacetPanel, type FacetVocab } from '@/features/catalog/components/facet-panel'
 import { ActiveFilterChips } from '@/features/catalog/components/active-filter-chips'
 import { FilterDrawer } from '@/features/catalog/components/filter-drawer'
-import { getAllCategories, getCategoryBySlug, getProductsByCategory } from '@/features/catalog/lib/selectors'
+import { getAllCategories, getCategoryBySlug, getProductsByCategory } from '@/features/catalog/server/selectors'
 import { parseSearchCriteria } from '@/features/catalog/lib/search-params'
 import { computeFacetCounts, searchAndFilterProducts } from '@/features/catalog/lib/search'
 import { allColors, allMaterialTags } from '@/features/catalog/lib/facets'
@@ -18,12 +18,12 @@ interface CategoryPageProps {
 }
 
 export async function generateStaticParams() {
-  return getAllCategories().map((category) => ({ category: category.slug }))
+  return (await getAllCategories()).map((category) => ({ category: category.slug }))
 }
 
 export async function generateMetadata({ params }: CategoryPageProps): Promise<Metadata> {
   const { category: categorySlug } = await params
-  const category = getCategoryBySlug(categorySlug)
+  const category = await getCategoryBySlug(categorySlug)
   if (!category) return {}
 
   return {
@@ -36,11 +36,11 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
   const { category: categorySlug } = await params
   const sp = await searchParams
 
-  const category = getCategoryBySlug(categorySlug)
+  const category = await getCategoryBySlug(categorySlug)
   if (!category) notFound()
 
   const criteria = { ...parseSearchCriteria(sp), categories: [category.slug] }
-  const scoped = getProductsByCategory(category.slug)
+  const scoped = await getProductsByCategory(category.slug)
   const products = searchAndFilterProducts(scoped, criteria)
   const counts = computeFacetCounts(scoped, criteria)
 

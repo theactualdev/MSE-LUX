@@ -12,7 +12,7 @@ import {
   getCategoryBySlug,
   getProductsBySubcategory,
   getSubcategory,
-} from '@/features/catalog/lib/selectors'
+} from '@/features/catalog/server/selectors'
 import { parseSearchCriteria } from '@/features/catalog/lib/search-params'
 import { computeFacetCounts, searchAndFilterProducts } from '@/features/catalog/lib/search'
 import { allColors, allMaterialTags } from '@/features/catalog/lib/facets'
@@ -23,17 +23,17 @@ interface SubcategoryPageProps {
 }
 
 export async function generateStaticParams() {
-  return getAllCategories().flatMap((category) =>
+  return (await getAllCategories()).flatMap((category) =>
     category.subcategories.map((sub) => ({ category: category.slug, subcategory: sub.slug })),
   )
 }
 
 export async function generateMetadata({ params }: SubcategoryPageProps): Promise<Metadata> {
   const { category: categorySlug, subcategory: subcategorySlug } = await params
-  const subcategory = getSubcategory(categorySlug, subcategorySlug)
+  const subcategory = await getSubcategory(categorySlug, subcategorySlug)
   if (!subcategory) return {}
 
-  const category = getCategoryBySlug(categorySlug)
+  const category = await getCategoryBySlug(categorySlug)
   return {
     title: `${subcategory.name} · ${category?.name ?? ''}`.trim(),
     description: `Shop ${subcategory.name} at MSE Lux.`,
@@ -44,8 +44,8 @@ export default async function SubcategoryPage({ params, searchParams }: Subcateg
   const { category: categorySlug, subcategory: subcategorySlug } = await params
   const sp = await searchParams
 
-  const category = getCategoryBySlug(categorySlug)
-  const subcategory = getSubcategory(categorySlug, subcategorySlug)
+  const category = await getCategoryBySlug(categorySlug)
+  const subcategory = await getSubcategory(categorySlug, subcategorySlug)
   if (!category || !subcategory) notFound()
 
   const criteria = {
@@ -53,7 +53,7 @@ export default async function SubcategoryPage({ params, searchParams }: Subcateg
     categories: [category.slug],
     subcategory: subcategory.slug,
   }
-  const scoped = getProductsBySubcategory(category.slug, subcategory.slug)
+  const scoped = await getProductsBySubcategory(category.slug, subcategory.slug)
   const products = searchAndFilterProducts(scoped, criteria)
   const counts = computeFacetCounts(scoped, criteria)
 
