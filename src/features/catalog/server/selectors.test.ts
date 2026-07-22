@@ -113,16 +113,15 @@ const CATEGORY_ROWS: CategoryRowForMapping[] = [
   },
 ]
 
+// `productSlugs` is no longer part of the row — `loadCatalog` derives it from the mapped
+// products' own `collectionSlugs` (P1 and P4 both declare `{ collection: { slug: 'bridal' } }`
+// above), in product order. See `mapper.ts`'s `CollectionRowForMapping` doc comment.
 const COLLECTION_ROWS: CollectionRowForMapping[] = [
   {
     slug: 'bridal',
     name: 'Bridal',
     description: null,
     image: null,
-    products: [
-      { position: 0, product: { slug: 'p1' } },
-      { position: 1, product: { slug: 'p4' } },
-    ],
   },
 ]
 

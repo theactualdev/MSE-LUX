@@ -77,22 +77,23 @@ describe('toDomainCategory is the inverse of the seed mappers (given the authore
   })
 })
 
-/** Simulates a collection row, deliberately reversed relative to `position` to force the mapper to re-sort. */
+/**
+ * Simulates a collection row. `productSlugs` is no longer part of the row itself (see the
+ * `CollectionRowForMapping` doc comment in `mapper.ts`) — the caller (the cached loader) supplies
+ * it separately, already in global product order, so this only builds the row's own columns.
+ */
 function simulateCollectionRow(collection: Collection): CollectionRowForMapping {
-  const reversed = [...collection.productSlugs].reverse()
-  const lastIndex = collection.productSlugs.length - 1
   return {
     slug: collection.slug,
     name: collection.name,
     description: collection.description ?? null,
     image: collection.image ?? null,
-    products: reversed.map((slug, i) => ({ position: lastIndex - i, product: { slug } })),
   }
 }
 
 describe('toDomainCollection is the inverse of the seed mappers', () => {
   it.each(getAllCollections().map((c) => [c.slug, c] as const))('round-trips %s losslessly', (_slug, collection) => {
-    expect(toDomainCollection(simulateCollectionRow(collection))).toEqual(collection)
+    expect(toDomainCollection(simulateCollectionRow(collection), collection.productSlugs)).toEqual(collection)
   })
 })
 
@@ -355,11 +356,25 @@ describe('toDomainCollection — nullable-to-optional fields', () => {
       name: 'Bridal',
       description: null,
       image: null,
-      products: [],
     }
-    const result = toDomainCollection(row)
+    const result = toDomainCollection(row, [])
     expect(result.description).toBeUndefined()
     expect(result.image).toBeUndefined()
     expect(result.productSlugs).toEqual([])
+  })
+})
+
+describe('toDomainCollection — productSlugs', () => {
+  it('passes the caller-supplied productSlugs through verbatim (no re-derivation or re-sorting)', () => {
+    const row: CollectionRowForMapping = {
+      slug: 'bridal',
+      name: 'Bridal',
+      description: null,
+      image: null,
+    }
+    // Deliberately not alphabetical/sorted — this must come through exactly as given, since the
+    // caller (the cached loader) is the one responsible for ordering it (by global product order).
+    const productSlugs = ['zzz-product', 'aaa-product']
+    expect(toDomainCollection(row, productSlugs).productSlugs).toEqual(productSlugs)
   })
 })

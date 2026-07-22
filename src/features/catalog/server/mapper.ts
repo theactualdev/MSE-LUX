@@ -98,19 +98,19 @@ export interface CategoryRowForMapping {
   subcategories: SubcategoryRowForMapping[]
 }
 
-export interface CollectionProductRowForMapping {
-  /** `ProductCollection.position` is nullable in the schema; nulls sort last. */
-  position: number | null
-  product: { slug: string }
-}
-
-/** Structural mirror of the Prisma `Collection` query shape, including its `products` join relation. */
+/**
+ * Structural mirror of the Prisma `Collection` query shape. Deliberately has no `products` join
+ * relation: `ProductCollection.position` is the collection's index within each *product's*
+ * `collectionSlugs` (correct for the product→collections direction — see `toDomainProduct`), not
+ * a meaningful order for a collection's product list. A collection's `productSlugs` instead comes
+ * from the caller in global product order (see `toDomainCollection`), mirroring how the authored
+ * mock derives it (`productSlugsFor` in `src/features/catalog/data/collections.ts`).
+ */
 export interface CollectionRowForMapping {
   slug: string
   name: string
   description: string | null
   image: string | null
-  products: CollectionProductRowForMapping[]
 }
 
 /** Maps the Prisma `Badge` enum back to the catalog's string-literal badges. */
@@ -231,15 +231,17 @@ export function toDomainCategory(row: CategoryRowForMapping, subcategoryOrder: r
   }
 }
 
-/** Maps a Prisma collection row (with its `products` join rows included) to the domain `Collection`. */
-export function toDomainCollection(row: CollectionRowForMapping): Collection {
-  const sortedProducts = [...row.products].sort(byNullablePosition)
-
+/**
+ * Maps a Prisma collection row to the domain `Collection`. `productSlugs` is supplied by the
+ * caller, already in global product order (see the `CollectionRowForMapping` doc comment for
+ * why) — this function does not derive it from the row itself.
+ */
+export function toDomainCollection(row: CollectionRowForMapping, productSlugs: string[]): Collection {
   return {
     slug: row.slug,
     name: row.name,
     description: row.description ?? undefined,
     image: row.image ?? undefined,
-    productSlugs: sortedProducts.map((p) => p.product.slug),
+    productSlugs,
   }
 }

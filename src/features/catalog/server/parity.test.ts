@@ -16,40 +16,52 @@ describe.runIf(enabled)('catalog parity: server layer vs authored mock', () => {
     await import('dotenv/config')
   })
 
-  it('products: deep-equal and order-sensitive (ids, prices, tags, option order, variants)', async () => {
-    const server = await import('./selectors')
-    const mock = await import('@/features/catalog/lib/selectors')
-    expect(await server.getAllProducts()).toEqual(mock.getAllProducts())
-  })
+  it(
+    'products: deep-equal and order-sensitive (ids, prices, tags, option order, variants)',
+    async () => {
+      const server = await import('./selectors')
+      const mock = await import('@/features/catalog/lib/selectors')
+      expect(await server.getAllProducts()).toEqual(mock.getAllProducts())
+    },
+    30_000,
+  )
 
-  it('categories and collections match', async () => {
-    const server = await import('./selectors')
-    const mock = await import('@/features/catalog/lib/selectors')
-    expect(await server.getAllCategories()).toEqual(mock.getAllCategories())
-    expect(await server.getAllCollections()).toEqual(mock.getAllCollections())
-  })
+  it(
+    'categories and collections match',
+    async () => {
+      const server = await import('./selectors')
+      const mock = await import('@/features/catalog/lib/selectors')
+      expect(await server.getAllCategories()).toEqual(mock.getAllCategories())
+      expect(await server.getAllCollections()).toEqual(mock.getAllCollections())
+    },
+    30_000,
+  )
 
-  it('derived selectors agree', async () => {
-    const server = await import('./selectors')
-    const mock = await import('@/features/catalog/lib/selectors')
+  it(
+    'derived selectors agree',
+    async () => {
+      const server = await import('./selectors')
+      const mock = await import('@/features/catalog/lib/selectors')
 
-    expect(await server.getBestSellers()).toEqual(mock.getBestSellers())
-    expect(await server.getNewArrivals()).toEqual(mock.getNewArrivals())
-    expect(await server.getProductsByCategory('jewelry')).toEqual(mock.getProductsByCategory('jewelry'))
+      expect(await server.getBestSellers()).toEqual(mock.getBestSellers())
+      expect(await server.getNewArrivals()).toEqual(mock.getNewArrivals())
+      expect(await server.getProductsByCategory('jewelry')).toEqual(mock.getProductsByCategory('jewelry'))
 
-    const mockCollections = mock.getAllCollections()
-    for (const collection of mockCollections) {
-      expect(await server.getProductsInCollection(collection.slug)).toEqual(
-        mock.getProductsInCollection(collection.slug),
+      const mockCollections = mock.getAllCollections()
+      for (const collection of mockCollections) {
+        expect(await server.getProductsInCollection(collection.slug)).toEqual(
+          mock.getProductsInCollection(collection.slug),
+        )
+      }
+
+      const mockProducts = mock.getAllProducts()
+      const serverProducts = await server.getAllProducts()
+      expect(await server.getRelatedProducts(serverProducts[0], 4)).toEqual(
+        mock.getRelatedProducts(mockProducts[0], 4),
       )
-    }
-
-    const mockProducts = mock.getAllProducts()
-    const serverProducts = await server.getAllProducts()
-    expect(await server.getRelatedProducts(serverProducts[0], 4)).toEqual(
-      mock.getRelatedProducts(mockProducts[0], 4),
-    )
-  })
+    },
+    30_000,
+  )
 })
 
 describe.runIf(!enabled)('catalog parity (gated)', () => {

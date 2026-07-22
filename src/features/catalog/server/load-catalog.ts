@@ -55,18 +55,27 @@ export const loadCatalog = cache(async (): Promise<CatalogSnapshot> => {
       },
     }),
     db.category.findMany({ include: { subcategories: true } }),
-    db.collection.findMany({
-      include: { products: { orderBy: { position: 'asc' }, include: { product: { select: { slug: true } } } } },
-    }),
+    db.collection.findMany(),
   ])
 
+  const products = productRows.map(toDomainProduct)
+
   return {
-    products: productRows.map(toDomainProduct),
+    products,
     categories: [...categoryRows]
       .sort(bySuppliedOrder(CATEGORY_ORDER, (c) => c.slug))
       .map((row) => toDomainCategory(row, SUBCATEGORY_ORDER)),
+    // `productSlugs` is derived from the already-globally-ordered `products` array, not from the
+    // collection↔product join's `position` column — see the `CollectionRowForMapping` doc comment
+    // in `mapper.ts` for why, and `src/features/catalog/data/collections.ts`'s `productSlugsFor`
+    // for the mock-side derivation this mirrors.
     collections: [...collectionRows]
       .sort(bySuppliedOrder(COLLECTION_ORDER, (c) => c.slug))
-      .map(toDomainCollection),
+      .map((row) =>
+        toDomainCollection(
+          row,
+          products.filter((p) => p.collectionSlugs.includes(row.slug)).map((p) => p.slug),
+        ),
+      ),
   }
 })

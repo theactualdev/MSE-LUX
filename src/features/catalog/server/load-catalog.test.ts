@@ -58,7 +58,7 @@ function categoryRow(slug: string, subcategorySlugs: string[] = []): CategoryRow
 }
 
 function collectionRow(slug: string): CollectionRowForMapping {
-  return { slug, name: slug, description: null, image: null, products: [] }
+  return { slug, name: slug, description: null, image: null }
 }
 
 beforeEach(() => {
@@ -92,12 +92,10 @@ describe('loadCatalog — Prisma query shape', () => {
     expect(category.findMany).toHaveBeenCalledWith({ include: { subcategories: true } })
   })
 
-  it('queries collections with their product join rows ordered by position', async () => {
+  it('queries collections with no include — productSlugs is derived from the products array, not a join', async () => {
     await loadCatalog()
 
-    expect(collection.findMany).toHaveBeenCalledWith({
-      include: { products: { orderBy: { position: 'asc' }, include: { product: { select: { slug: true } } } } },
-    })
+    expect(collection.findMany).toHaveBeenCalledWith()
   })
 })
 
@@ -150,5 +148,40 @@ describe('loadCatalog — product mapping', () => {
     expect(products).toEqual([
       expect.objectContaining({ id: 'PROD-1', slug: 'product-one', categorySlug: 'jewelry' }),
     ])
+  })
+})
+
+describe('loadCatalog — collection productSlugs order (regression: must be global product order, not join position)', () => {
+  it("derives a collection's productSlugs from the products array's order, ignoring ProductCollection.position", async () => {
+    // Product A is returned by the DB before product B (global product order), but A's own
+    // per-product join `position` for this collection (5) is numerically *after* B's (0). If
+    // `toDomainCollection` still sorted by that join position, 'bridal' would come out
+    // ['b', 'a'] — the fix requires it to come out in product order, ['a', 'b'], instead.
+    const productA: ProductRowForMapping = {
+      ...baseProductRow,
+      id: 'PROD-A',
+      slug: 'a',
+      collections: [{ position: 5, collection: { slug: 'bridal' } }],
+    }
+    const productB: ProductRowForMapping = {
+      ...baseProductRow,
+      id: 'PROD-B',
+      slug: 'b',
+      collections: [{ position: 0, collection: { slug: 'bridal' } }],
+    }
+    const productC: ProductRowForMapping = {
+      ...baseProductRow,
+      id: 'PROD-C',
+      slug: 'c',
+      collections: [],
+    }
+
+    product.findMany.mockResolvedValue([productA, productB, productC])
+    collection.findMany.mockResolvedValue([collectionRow('bridal')])
+
+    const { collections } = await loadCatalog()
+
+    const bridal = collections.find((c) => c.slug === 'bridal')
+    expect(bridal?.productSlugs).toEqual(['a', 'b'])
   })
 })
