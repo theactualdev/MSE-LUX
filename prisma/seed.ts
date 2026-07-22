@@ -129,6 +129,11 @@ async function seedProducts(
         where: { slug: mapped.slug },
         create: mapped,
         update: {
+          // Converge the id to the authored PROD-* id on re-seed too, not just on first
+          // insert. Safe because every catalog child FK is ON UPDATE CASCADE (see the init
+          // migration) and Cart/CartItem/Wishlist/WishlistItem/Order are empty (Phase 4) —
+          // nothing yet references the generated cuid this row may currently have.
+          id: mapped.id,
           name: mapped.name,
           shortDescription: mapped.shortDescription,
           description: mapped.description,
@@ -164,9 +169,14 @@ async function seedProducts(
       // (kept as upsert-and-prune, not delete-and-recreate: unlike option types, variants are
       // referenced by CartItem/OrderLine, so unrelated/unchanged variants must keep their id.)
       for (const variantRow of mapped.variants.create) {
+        // id convergence (both create and update): variants are referenced by
+        // CartItem/OrderLine via FK (ON UPDATE CASCADE, see the init migration), and those
+        // tables are empty as of Phase 4, so realigning an existing variant's id to its
+        // authored PROD-*-V* id here is safe and won't orphan any row.
         const dbVariant = await tx.productVariant.upsert({
           where: { sku: variantRow.sku },
           create: {
+            id: variantRow.id,
             sku: variantRow.sku,
             inventory: variantRow.inventory,
             priceNgnMinor: variantRow.priceNgnMinor,
@@ -175,6 +185,7 @@ async function seedProducts(
             productId: dbProduct.id,
           },
           update: {
+            id: variantRow.id,
             inventory: variantRow.inventory,
             priceNgnMinor: variantRow.priceNgnMinor,
             priceUsdMinor: variantRow.priceUsdMinor,

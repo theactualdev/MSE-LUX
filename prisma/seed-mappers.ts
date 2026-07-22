@@ -37,6 +37,7 @@ export interface ProductOptionTypeCreateRow {
 }
 
 export interface ProductVariantCreateRow {
+  id: string
   sku: string
   inventory: number
   priceNgnMinor: number | null
@@ -46,6 +47,7 @@ export interface ProductVariantCreateRow {
 }
 
 export interface ProductCreateRow {
+  id: string
   slug: string
   sku: string
   name: string
@@ -87,6 +89,7 @@ export function toVariantOptionCreate(options: OptionValue[]): VariantOptionCrea
 /** A variant's own `priceSet` is an optional override; absent means "inherit the product's price". */
 export function toVariantCreate(variant: CatalogVariant): ProductVariantCreateRow {
   return {
+    id: variant.id,
     sku: variant.sku,
     inventory: variant.inventory,
     priceNgnMinor: variant.priceSet?.ngn.amountMinor ?? null,
@@ -150,6 +153,7 @@ export function toProductCreate(
   }
 
   return {
+    id: product.id,
     slug: product.slug,
     sku: product.sku,
     name: product.name,

@@ -251,6 +251,20 @@ describe('toProductCreate — subcategory connection', () => {
   })
 })
 
+describe('toProductCreate / toVariantCreate — authored id parity (Phase 5a)', () => {
+  it('carries the authored product id through — identity parity for Phase 5a', () => {
+    const real = getAllProducts()[0]
+    const row = toProductCreate(real, categoryIdBySlug, subcategoryIdByKey)
+    expect(row.id).toBe(real.id)
+  })
+
+  it('carries the authored variant id through — identity parity for Phase 5a', () => {
+    const variantProduct = getAllProducts().find((p) => p.variants.length > 0)!
+    const row = toVariantCreate(variantProduct.variants[0])
+    expect(row.id).toBe(variantProduct.variants[0].id)
+  })
+})
+
 describe('toProductCreate — SEO fields', () => {
   it('maps seo.title/seo.description to seoTitle/seoDescription', () => {
     expect(seoProduct.seo.title).toBeTruthy()
