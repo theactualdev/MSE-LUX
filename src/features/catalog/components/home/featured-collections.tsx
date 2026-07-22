@@ -2,11 +2,11 @@ import Link from 'next/link'
 import { Container } from '@/components/brand/container'
 import { SectionHeading } from '@/components/brand/section-heading'
 import { CollectionCard } from '@/features/catalog/components/collection-card'
-import { getAllCollections } from '@/features/catalog/lib/selectors'
+import { getAllCollections } from '@/features/catalog/server/selectors'
 
 /** Row of curated collections (bridal, everyday, statement) linking into `/collections/[slug]`. */
-export function FeaturedCollections() {
-  const collections = getAllCollections()
+export async function FeaturedCollections() {
+  const collections = await getAllCollections()
   if (collections.length === 0) return null
 
   return (

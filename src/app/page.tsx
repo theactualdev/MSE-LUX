@@ -9,6 +9,11 @@ import { FeaturedCollections } from '@/features/catalog/components/home/featured
 import { InstagramGallery } from '@/features/catalog/components/home/instagram-gallery'
 import { Testimonials } from '@/features/catalog/components/home/testimonials'
 
+// ISR: catalog is effectively static until the Phase 8 admin exists; hourly
+// revalidation propagates seed edits without a rebuild. (Route-segment revalidate
+// per node_modules/next/dist/docs/01-app/02-guides/caching-without-cache-components.md)
+export const revalidate = 3600
+
 export const metadata: Metadata = {
   title: 'Handmade Jewelry, Beads & Accessories',
   description:

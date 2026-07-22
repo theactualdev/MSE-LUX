@@ -2,14 +2,14 @@ import Link from 'next/link'
 import { Container } from '@/components/brand/container'
 import { SectionHeading } from '@/components/brand/section-heading'
 import { ProductGrid } from '@/features/catalog/components/product-grid'
-import { getBestSellers } from '@/features/catalog/lib/selectors'
+import { getBestSellers } from '@/features/catalog/server/selectors'
 
 /** Tasteful cap on how many best-sellers ever render in this row, however many the catalog has. */
 const BEST_SELLERS_COUNT = 8
 
 /** Section heading + "view all" link + a grid of the shop's best-selling products. */
-export function BestSellers() {
-  const products = getBestSellers().slice(0, BEST_SELLERS_COUNT)
+export async function BestSellers() {
+  const products = (await getBestSellers()).slice(0, BEST_SELLERS_COUNT)
   if (products.length === 0) return null
 
   return (

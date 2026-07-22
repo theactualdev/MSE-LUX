@@ -2,14 +2,14 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Container } from '@/components/brand/container'
 import { SectionHeading } from '@/components/brand/section-heading'
-import { getAllCategories } from '@/features/catalog/lib/selectors'
+import { getAllCategories } from '@/features/catalog/server/selectors'
 
 /**
  * The three top-level categories (jewelry, beads, accessories), each a
  * photography-forward tile linking into its `/[category]` listing.
  */
-export function FeaturedCategories() {
-  const categories = getAllCategories()
+export async function FeaturedCategories() {
+  const categories = await getAllCategories()
 
   return (
     <Container className="flex flex-col gap-8 py-12 sm:py-16">

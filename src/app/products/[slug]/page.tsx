@@ -5,22 +5,27 @@ import { SectionHeading } from '@/components/brand/section-heading'
 import { Pdp } from '@/features/catalog/components/pdp'
 import { ProductGrid } from '@/features/catalog/components/product-grid'
 import { RecentlyViewedShelf } from '@/features/catalog/components/recently-viewed-shelf'
-import { getAllProducts, getProductBySlug, getRelatedProducts } from '@/features/catalog/lib/selectors'
+import { getAllProducts, getProductBySlug, getRelatedProducts } from '@/features/catalog/server/selectors'
 
 /** Number of related products shown below the PDP. */
 const RELATED_PRODUCTS_LIMIT = 4
+
+// ISR: catalog is effectively static until the Phase 8 admin exists; hourly
+// revalidation propagates seed edits without a rebuild. (Route-segment revalidate
+// per node_modules/next/dist/docs/01-app/02-guides/caching-without-cache-components.md)
+export const revalidate = 3600
 
 interface ProductPageProps {
   params: Promise<{ slug: string }>
 }
 
 export async function generateStaticParams() {
-  return getAllProducts().map((product) => ({ slug: product.slug }))
+  return (await getAllProducts()).map((product) => ({ slug: product.slug }))
 }
 
 export async function generateMetadata({ params }: ProductPageProps): Promise<Metadata> {
   const { slug } = await params
-  const product = getProductBySlug(slug)
+  const product = await getProductBySlug(slug)
   if (!product) return {}
 
   return {
@@ -31,10 +36,10 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
 
 export default async function ProductPage({ params }: ProductPageProps) {
   const { slug } = await params
-  const product = getProductBySlug(slug)
+  const product = await getProductBySlug(slug)
   if (!product) notFound()
 
-  const related = getRelatedProducts(product, RELATED_PRODUCTS_LIMIT)
+  const related = await getRelatedProducts(product, RELATED_PRODUCTS_LIMIT)
 
   return (
     <Container className="flex flex-col gap-16 py-12 sm:py-16">

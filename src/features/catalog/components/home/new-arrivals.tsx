@@ -2,14 +2,14 @@ import Link from 'next/link'
 import { Container } from '@/components/brand/container'
 import { SectionHeading } from '@/components/brand/section-heading'
 import { ProductGrid } from '@/features/catalog/components/product-grid'
-import { getNewArrivals } from '@/features/catalog/lib/selectors'
+import { getNewArrivals } from '@/features/catalog/server/selectors'
 
 /** Tasteful cap on how many new arrivals ever render in this row, however many the catalog has. */
 const NEW_ARRIVALS_COUNT = 6
 
 /** Section heading + "view all" link + a grid of the shop's newest products. */
-export function NewArrivals() {
-  const products = getNewArrivals().slice(0, NEW_ARRIVALS_COUNT)
+export async function NewArrivals() {
+  const products = (await getNewArrivals()).slice(0, NEW_ARRIVALS_COUNT)
   if (products.length === 0) return null
 
   return (
