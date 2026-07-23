@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { StrictMode } from 'react'
 import { render } from '@testing-library/react'
 import { waitFor } from '@testing-library/react'
 import { useCartStore } from '@/features/cart/store'
@@ -150,5 +151,25 @@ describe('CartSync — guest -> authed merge', () => {
     // The now-abandoned merge must not have written into the server store.
     expect(useServerCartStore.getState().items).toEqual([])
     expect(useServerCartStore.getState().status).toBe('idle')
+  })
+
+  it('React Strict Mode regression: a fresh OAuth mount (signedIn:true) under StrictMode still clears the guest stores despite the synthetic setup->cleanup->setup double-invoke', async () => {
+    useCartStore.getState().addItem('P1', undefined, 2)
+    useWishlistStore.getState().toggle('W1')
+
+    mergeGuestCartMock.mockResolvedValue({ ok: true, items: [{ productId: 'P1', quantity: 2 }] })
+    mergeGuestWishlistMock.mockResolvedValue({ ok: true, ids: ['W1'] })
+
+    useSessionMock.mockReturnValue({ signedIn: true, loading: false })
+    render(<CartSync />, { wrapper: StrictMode })
+
+    await waitFor(() => expect(useCartStore.getState().items).toEqual([]))
+    await waitFor(() => expect(useWishlistStore.getState().ids).toEqual([]))
+    await waitFor(() => expect(useServerCartStore.getState().items).toEqual([{ productId: 'P1', quantity: 2 }]))
+    await waitFor(() => expect(useServerWishlistStore.getState().ids).toEqual(['W1']))
+
+    // Strict Mode's double-invoke must not cause a second dispatch either.
+    expect(mergeGuestCartMock).toHaveBeenCalledTimes(1)
+    expect(mergeGuestWishlistMock).toHaveBeenCalledTimes(1)
   })
 })
