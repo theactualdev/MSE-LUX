@@ -22,7 +22,9 @@ export function getCartLines(items: CartItem[], currency: Currency): CartLine[] 
 
     const variant = product.variants.find((v) => v.id === item.variantId)
     const image = variant?.image ? { src: variant.image, alt: product.name } : product.images[0]
-    const { price: unitPrice } = resolveProductPrice(product, variant, currency)
+    // Cart lines are NGN-only today (Task 8 threads viewer currency + FX rates through
+    // checkout); rates are unused for the authored NGN/USD path resolveDisplayPrice takes here.
+    const { price: unitPrice } = resolveProductPrice(product, variant, currency, {})
     const lineTotal: Money = {
       amountMinor: unitPrice.amountMinor * item.quantity,
       currency: unitPrice.currency,
