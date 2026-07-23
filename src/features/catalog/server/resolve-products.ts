@@ -1,4 +1,4 @@
-import 'server-only'
+'use server'
 import type { Product } from '@/types/catalog'
 import { loadCatalog } from './load-catalog'
 
