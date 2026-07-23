@@ -58,6 +58,9 @@ export const useServerWishlistStore = create<ServerWishlistStore>()((set, get) =
       .then((ids) => {
         if (myEpoch === epoch) set({ ids, status: 'ready' })
       })
+      .catch(() => {
+        if (myEpoch === epoch) set({ status: 'idle' })
+      })
       .finally(() => {
         inflight = null
       })
@@ -74,12 +77,16 @@ export const useServerWishlistStore = create<ServerWishlistStore>()((set, get) =
     const snapshot = get().ids
     const isRemoving = snapshot.includes(id)
     set({ ids: isRemoving ? snapshot.filter((i) => i !== id) : [...snapshot, id] })
-    const result = isRemoving ? await removeWishlistItem(id) : await addWishlistItem(id)
-    if (myEpoch !== epoch) return
-    if ('ok' in result) {
-      set({ ids: result.ids })
-    } else {
-      set({ ids: snapshot })
+    try {
+      const result = isRemoving ? await removeWishlistItem(id) : await addWishlistItem(id)
+      if (myEpoch !== epoch) return
+      if ('ok' in result) {
+        set({ ids: result.ids })
+      } else {
+        set({ ids: snapshot })
+      }
+    } catch {
+      if (myEpoch === epoch) set({ ids: snapshot })
     }
   },
 

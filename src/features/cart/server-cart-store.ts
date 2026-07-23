@@ -88,6 +88,9 @@ export const useServerCartStore = create<ServerCartStore>()((set, get) => ({
       .then((items) => {
         if (myEpoch === epoch) set({ items, status: 'ready' })
       })
+      .catch(() => {
+        if (myEpoch === epoch) set({ status: 'idle' })
+      })
       .finally(() => {
         inflight = null
       })
@@ -103,12 +106,16 @@ export const useServerCartStore = create<ServerCartStore>()((set, get) => ({
     const myEpoch = epoch
     const snapshot = get().items
     set({ items: optimisticAdd(snapshot, productId, variantId, qty) })
-    const result = await addCartItem(productId, variantId, qty)
-    if (myEpoch !== epoch) return
-    if ('ok' in result) {
-      set({ items: result.items })
-    } else {
-      set({ items: snapshot })
+    try {
+      const result = await addCartItem(productId, variantId, qty)
+      if (myEpoch !== epoch) return
+      if ('ok' in result) {
+        set({ items: result.items })
+      } else {
+        set({ items: snapshot })
+      }
+    } catch {
+      if (myEpoch === epoch) set({ items: snapshot })
     }
   },
 
@@ -116,12 +123,16 @@ export const useServerCartStore = create<ServerCartStore>()((set, get) => ({
     const myEpoch = epoch
     const snapshot = get().items
     set({ items: optimisticSetQty(snapshot, productId, variantId, qty) })
-    const result = await setCartItemQty(productId, variantId, qty)
-    if (myEpoch !== epoch) return
-    if ('ok' in result) {
-      set({ items: result.items })
-    } else {
-      set({ items: snapshot })
+    try {
+      const result = await setCartItemQty(productId, variantId, qty)
+      if (myEpoch !== epoch) return
+      if ('ok' in result) {
+        set({ items: result.items })
+      } else {
+        set({ items: snapshot })
+      }
+    } catch {
+      if (myEpoch === epoch) set({ items: snapshot })
     }
   },
 
@@ -129,12 +140,16 @@ export const useServerCartStore = create<ServerCartStore>()((set, get) => ({
     const myEpoch = epoch
     const snapshot = get().items
     set({ items: optimisticRemove(snapshot, productId, variantId) })
-    const result = await removeCartItem(productId, variantId)
-    if (myEpoch !== epoch) return
-    if ('ok' in result) {
-      set({ items: result.items })
-    } else {
-      set({ items: snapshot })
+    try {
+      const result = await removeCartItem(productId, variantId)
+      if (myEpoch !== epoch) return
+      if ('ok' in result) {
+        set({ items: result.items })
+      } else {
+        set({ items: snapshot })
+      }
+    } catch {
+      if (myEpoch === epoch) set({ items: snapshot })
     }
   },
 
@@ -142,12 +157,16 @@ export const useServerCartStore = create<ServerCartStore>()((set, get) => ({
     const myEpoch = epoch
     const snapshot = get().items
     set({ items: [] })
-    const result = await clearServerCart()
-    if (myEpoch !== epoch) return
-    if ('ok' in result) {
-      set({ items: result.items })
-    } else {
-      set({ items: snapshot })
+    try {
+      const result = await clearServerCart()
+      if (myEpoch !== epoch) return
+      if ('ok' in result) {
+        set({ items: result.items })
+      } else {
+        set({ items: snapshot })
+      }
+    } catch {
+      if (myEpoch === epoch) set({ items: snapshot })
     }
   },
 

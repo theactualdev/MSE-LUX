@@ -179,6 +179,32 @@ describe('useWishlist — signed-in mode', () => {
     await waitFor(() => expect(result.current.ids).toEqual(['P1']))
   })
 
+  it('toggle() whose server action rejects rolls back to the pre-mutation snapshot with no unhandled rejection', async () => {
+    useServerWishlistStore.getState().setIds(['P1'])
+    addWishlistItemMock.mockRejectedValueOnce(new Error('db connectivity blip'))
+
+    await useServerWishlistStore.getState().toggle('P2')
+
+    expect(useServerWishlistStore.getState().ids).toEqual(['P1'])
+  })
+
+  it('ensureLoaded() whose fetch rejects resets status to idle, and a subsequent ensureLoaded() retries with a second fetch', async () => {
+    getServerWishlistIdsMock.mockRejectedValueOnce(new Error('db connectivity blip'))
+
+    useServerWishlistStore.getState().ensureLoaded()
+    expect(useServerWishlistStore.getState().status).toBe('loading')
+
+    await waitFor(() => expect(useServerWishlistStore.getState().status).toBe('idle'))
+    expect(getServerWishlistIdsMock).toHaveBeenCalledTimes(1)
+
+    getServerWishlistIdsMock.mockResolvedValueOnce(['P1'])
+    useServerWishlistStore.getState().ensureLoaded()
+
+    await waitFor(() => expect(getServerWishlistIdsMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(useServerWishlistStore.getState().ids).toEqual(['P1']))
+    expect(useServerWishlistStore.getState().status).toBe('ready')
+  })
+
   it('shares state across concurrently-mounted instances: one fetch, and a toggle on one instance is observed by the other', async () => {
     getServerWishlistIdsMock.mockResolvedValue([])
     addWishlistItemMock.mockResolvedValue({ ok: true, ids: ['P1'] })

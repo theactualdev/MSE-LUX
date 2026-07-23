@@ -217,6 +217,32 @@ describe('useCart — signed-in mode', () => {
     await waitFor(() => expect(result.current.items).toEqual([{ productId: 'P1', quantity: 1 }]))
   })
 
+  it('a mutation whose server action rejects rolls back to the pre-mutation snapshot with no unhandled rejection', async () => {
+    useServerCartStore.getState().setItems([{ productId: 'P1', quantity: 1 }])
+    addCartItemMock.mockRejectedValueOnce(new Error('db connectivity blip'))
+
+    await useServerCartStore.getState().add('P1', undefined, 2)
+
+    expect(useServerCartStore.getState().items).toEqual([{ productId: 'P1', quantity: 1 }])
+  })
+
+  it('ensureLoaded() whose fetch rejects resets status to idle, and a subsequent ensureLoaded() retries with a second fetch', async () => {
+    getServerCartItemsMock.mockRejectedValueOnce(new Error('db connectivity blip'))
+
+    useServerCartStore.getState().ensureLoaded()
+    expect(useServerCartStore.getState().status).toBe('loading')
+
+    await waitFor(() => expect(useServerCartStore.getState().status).toBe('idle'))
+    expect(getServerCartItemsMock).toHaveBeenCalledTimes(1)
+
+    getServerCartItemsMock.mockResolvedValueOnce([{ productId: 'P1', quantity: 1 }])
+    useServerCartStore.getState().ensureLoaded()
+
+    await waitFor(() => expect(getServerCartItemsMock).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(useServerCartStore.getState().items).toEqual([{ productId: 'P1', quantity: 1 }]))
+    expect(useServerCartStore.getState().status).toBe('ready')
+  })
+
   it('shares state across concurrently-mounted instances: one fetch, and a mutation on one instance is observed by the other', async () => {
     getServerCartItemsMock.mockResolvedValue([])
     addCartItemMock.mockResolvedValue({ ok: true, items: [{ productId: 'P1', quantity: 2 }] })
