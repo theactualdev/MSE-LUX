@@ -1,5 +1,6 @@
 import type { NextRequest } from 'next/server'
 import { updateSession } from '@/lib/supabase/proxy'
+import { applyCurrencyCookie } from '@/features/currency/lib/geo-cookie'
 
 /**
  * Next 16 renamed Middleware to Proxy — this file must be `proxy.ts` (see
@@ -12,8 +13,10 @@ import { updateSession } from '@/lib/supabase/proxy'
  * every route including prefetches, so it does no database work and is NOT the
  * authorization boundary — routes enforce access themselves via `getClaims()`.
  */
-export default function proxy(request: NextRequest) {
-  return updateSession(request)
+export default async function proxy(request: NextRequest) {
+  const response = await updateSession(request)
+  applyCurrencyCookie(request, response)
+  return response
 }
 
 export const config = {
