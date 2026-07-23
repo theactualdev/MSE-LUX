@@ -12,7 +12,7 @@ import { AccountMenu } from '@/features/account/components/account-menu'
 import { useCart } from '@/features/cart/use-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { CurrencySwitcher } from '@/features/currency/components/currency-switcher'
-import { useWishlistStore } from '@/features/wishlist/store'
+import { useWishlist } from '@/features/wishlist/use-wishlist'
 import { siteConfig } from '@/lib/config'
 import { useUiStore } from '@/stores/ui'
 import { cn } from '@/lib/utils'
@@ -28,7 +28,7 @@ export function Header() {
   const toggleSearch = useUiStore((s) => s.toggleSearch)
   const openCartDrawer = useUiStore((s) => s.openCartDrawer)
   const { itemCount: cartCount } = useCart()
-  const wishlistCount = useWishlistStore((s) => s.count())
+  const { count: wishlistCount } = useWishlist()
   const hydrated = useHydrated()
   const showCartBadge = hydrated && cartCount > 0
   const showWishlistBadge = hydrated && wishlistCount > 0

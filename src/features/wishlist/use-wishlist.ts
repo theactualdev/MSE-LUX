@@ -11,6 +11,7 @@ export interface UseWishlistResult {
   toggle: (id: string) => void
   count: number
   isPending: boolean
+  isLoading: boolean
 }
 
 /**
@@ -54,6 +55,7 @@ export function useWishlist(): UseWishlistResult {
 
   // ---- signed-in backend: shared server-wishlist store (see module doc) ----
   const serverIds = useServerWishlistStore((s) => s.ids)
+  const serverStatus = useServerWishlistStore((s) => s.status)
   const ensureLoaded = useServerWishlistStore((s) => s.ensureLoaded)
   const resetServerWishlist = useServerWishlistStore((s) => s.reset)
   const serverToggle = useServerWishlistStore((s) => s.toggle)
@@ -85,11 +87,17 @@ export function useWishlist(): UseWishlistResult {
 
   const has = useCallback((id: string) => ids.includes(id), [ids])
 
+  // Guests read `ids` synchronously from localStorage; signed-in `ids` load
+  // async from the server store. Mirrors `useCart`'s `itemsReady` half (no
+  // product resolution here — a wishlist line is just an id).
+  const isLoading = signedIn ? serverStatus !== 'ready' : false
+
   return {
     ids,
     has,
     toggle,
     count: ids.length,
     isPending: signedIn ? isPending : false,
+    isLoading,
   }
 }

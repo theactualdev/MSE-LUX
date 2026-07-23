@@ -17,7 +17,7 @@ import {
   type OptionState,
   type VariantSelectorChange,
 } from '@/features/catalog/components/variant-selector'
-import { useWishlistStore } from '@/features/wishlist/store'
+import { useWishlist } from '@/features/wishlist/use-wishlist'
 import { cn } from '@/lib/utils'
 import type { Product, ProductVariant } from '@/types/catalog'
 
@@ -39,10 +39,9 @@ export function Pdp({ product, className }: PdpProps) {
   const [qty, setQty] = useState(1)
 
   const displayCurrency = useDisplayCurrency()
-  const wishlisted = useWishlistStore((state) => state.has(product.id))
+  const { has, toggle } = useWishlist()
   const hydrated = useHydrated()
-  const isWishlisted = hydrated && wishlisted
-  const toggleWishlist = useWishlistStore((state) => state.toggle)
+  const isWishlisted = hydrated && has(product.id)
 
   const requiresVariant = product.optionTypes.length > 0
   const maxQty = requiresVariant ? selectedVariant?.inventory : product.inventory
@@ -104,7 +103,7 @@ export function Pdp({ product, className }: PdpProps) {
               size="icon-xl"
               aria-pressed={isWishlisted}
               aria-label={wishlistLabel}
-              onClick={() => toggleWishlist(product.id)}
+              onClick={() => toggle(product.id)}
             >
               <Heart aria-hidden="true" className={cn('size-5', isWishlisted && 'fill-accent text-accent')} />
             </Button>

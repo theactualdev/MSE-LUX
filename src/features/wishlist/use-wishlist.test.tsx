@@ -47,6 +47,7 @@ describe('useWishlist — guest mode', () => {
     expect(result.current.ids).toEqual([])
     expect(result.current.count).toBe(0)
     expect(result.current.has('P1')).toBe(false)
+    expect(result.current.isLoading).toBe(false)
 
     act(() => {
       result.current.toggle('P1')
@@ -93,6 +94,20 @@ describe('useWishlist — signed-in mode', () => {
 
     await waitFor(() => expect(result.current.ids).toEqual(['P1', 'P2']))
     expect(getServerWishlistIdsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('isLoading is true until getServerWishlistIds resolves, then false', async () => {
+    const { promise, resolve } = deferred<string[]>()
+    getServerWishlistIdsMock.mockReturnValue(promise)
+
+    const { result } = renderHook(() => useWishlist())
+
+    expect(result.current.isLoading).toBe(true)
+
+    resolve(['P1'])
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+    expect(result.current.ids).toEqual(['P1'])
   })
 
   it('toggle() of a new id optimistically adds it, calls addWishlistItem, then reconciles with its returned ids', async () => {

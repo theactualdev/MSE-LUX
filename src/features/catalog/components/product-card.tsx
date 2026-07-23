@@ -7,7 +7,7 @@ import { Heart } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { PriceDisplay } from '@/features/catalog/components/price-display'
 import { useHydrated } from '@/features/cart/use-hydrated'
-import { useWishlistStore } from '@/features/wishlist/store'
+import { useWishlist } from '@/features/wishlist/use-wishlist'
 import { usePrefersReducedMotion } from '@/hooks/use-reduced-motion'
 import { cn } from '@/lib/utils'
 import type { Product } from '@/types/catalog'
@@ -32,10 +32,9 @@ const imageVariants = {
  */
 export function ProductCard({ product, className }: ProductCardProps) {
   const prefersReducedMotion = usePrefersReducedMotion()
-  const wishlisted = useWishlistStore((s) => s.has(product.id))
+  const { has, toggle } = useWishlist()
   const hydrated = useHydrated()
-  const isWishlisted = hydrated && wishlisted
-  const toggleWishlist = useWishlistStore((s) => s.toggle)
+  const isWishlisted = hydrated && has(product.id)
 
   const hero = product.images[0]
   const wishlistLabel = `${isWishlisted ? 'Remove' : 'Add'} ${product.name} ${isWishlisted ? 'from' : 'to'} wishlist`
@@ -89,7 +88,7 @@ export function ProductCard({ product, className }: ProductCardProps) {
         type="button"
         onClick={(event) => {
           event.stopPropagation()
-          toggleWishlist(product.id)
+          toggle(product.id)
         }}
         aria-pressed={isWishlisted}
         aria-label={wishlistLabel}
