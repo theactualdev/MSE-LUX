@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { AnnouncementBar } from '@/components/brand/announcement-bar'
+import { CurrencyProvider } from '@/features/currency/context'
 import { Toaster } from '@/components/providers/toaster'
 import { Footer } from '@/components/layout/footer'
 import { Header } from '@/components/layout/header'
@@ -14,16 +15,18 @@ interface AppShellProps {
 /** Global chrome wrapping every page: announcement bar, header, mobile drawer, mini-cart drawer, search overlay, footer, toast host. */
 export function AppShell({ children }: AppShellProps) {
   return (
-    <Toaster>
-      <div className="flex min-h-dvh flex-col">
-        <AnnouncementBar />
-        <Header />
-        <MobileDrawer />
-        <MiniCartDrawer />
-        <SearchOverlay />
-        <main className="flex-1">{children}</main>
-        <Footer />
-      </div>
-    </Toaster>
+    <CurrencyProvider>
+      <Toaster>
+        <div className="flex min-h-dvh flex-col">
+          <AnnouncementBar />
+          <Header />
+          <MobileDrawer />
+          <MiniCartDrawer />
+          <SearchOverlay />
+          <main className="flex-1">{children}</main>
+          <Footer />
+        </div>
+      </Toaster>
+    </CurrencyProvider>
   )
 }

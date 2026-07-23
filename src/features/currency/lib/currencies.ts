@@ -5,6 +5,8 @@ export type SupportedCurrency = (typeof SUPPORTED_CURRENCIES)[number]
 export const DEFAULT_CURRENCY: Currency = 'NGN'
 const AUTHORED = new Set<Currency>(['NGN', 'USD'])
 
+// Eurozone (EUR-adopting) countries — NOT all EU members. Do not add EU-but-non-Euro
+// codes (SE/PL/CZ/DK/HU/RO/BG) here, or their currencies would be mis-mapped to EUR.
 const EU_EUR = ['AT', 'BE', 'CY', 'DE', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'IE', 'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PT', 'SI', 'SK']
 const COUNTRY_TO_CURRENCY: Record<string, Currency> = {
   NG: 'NGN', US: 'USD', GB: 'GBP', CA: 'CAD', GH: 'GHS', ZA: 'ZAR', KE: 'KES',

@@ -7,6 +7,8 @@ import { Button } from '@/components/ui/button'
 import { AddToCart } from '@/features/cart/components/add-to-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { PriceDisplay } from '@/features/catalog/components/price-display'
+import { ChargeCurrencyNote } from '@/features/currency/components/charge-currency-note'
+import { useDisplayCurrency } from '@/features/currency/context'
 import { ProductGallery } from '@/features/catalog/components/product-gallery'
 import { QuantityStepper } from '@/features/catalog/components/quantity-stepper'
 import { RecentlyViewedTracker } from '@/features/catalog/components/recently-viewed-tracker'
@@ -36,6 +38,7 @@ export function Pdp({ product, className }: PdpProps) {
   const [selectedVariant, setSelectedVariant] = useState<ProductVariant | undefined>(undefined)
   const [qty, setQty] = useState(1)
 
+  const displayCurrency = useDisplayCurrency()
   const wishlisted = useWishlistStore((state) => state.has(product.id))
   const hydrated = useHydrated()
   const isWishlisted = hydrated && wishlisted
@@ -83,6 +86,7 @@ export function Pdp({ product, className }: PdpProps) {
         <div className="flex flex-col gap-2">
           <h1 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">{product.name}</h1>
           <PriceDisplay product={product} variant={selectedVariant} className="text-lg" />
+          <ChargeCurrencyNote currency={displayCurrency} />
         </div>
 
         <p className="text-sm text-muted-foreground sm:text-base">{product.shortDescription}</p>

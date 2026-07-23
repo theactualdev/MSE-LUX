@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { applyCurrencyCookie, CURRENCY_COOKIE } from './geo-cookie'
 
 function fakeReq(country: string | null, existing?: string) {

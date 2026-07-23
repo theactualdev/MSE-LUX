@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest'
+import { expect, it, vi } from 'vitest'
 vi.mock('@/services/fx/provider', () => ({
   openErApiFxProvider: { getUsdRates: vi.fn() },
   pickFxRates: (f: unknown) => (f ? { rates: f, source: 'live' } : { rates: { GBP: 0.79 }, source: 'backstop' }),

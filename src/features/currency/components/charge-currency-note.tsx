@@ -11,7 +11,7 @@ export function ChargeCurrencyNote({ currency }: ChargeCurrencyNoteProps) {
 
   return (
     <p className="text-xs text-muted-foreground">
-      Prices shown in {currency} are estimates — you&apos;ll be charged in US$.
+      {`Prices shown in ${currency} are estimates — you'll be charged in US$.`}
     </p>
   )
 }
