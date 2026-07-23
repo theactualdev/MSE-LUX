@@ -11,6 +11,7 @@ import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuL
 import { AccountMenu } from '@/features/account/components/account-menu'
 import { useCartStore } from '@/features/cart/store'
 import { useHydrated } from '@/features/cart/use-hydrated'
+import { CurrencySwitcher } from '@/features/currency/components/currency-switcher'
 import { useWishlistStore } from '@/features/wishlist/store'
 import { siteConfig } from '@/lib/config'
 import { useUiStore } from '@/stores/ui'
@@ -63,6 +64,7 @@ export function Header() {
         </NavigationMenu>
 
         <div className="flex items-center gap-1">
+          <CurrencySwitcher />
           <Button type="button" variant="ghost" size="icon-xl" aria-label="Search" onClick={() => toggleSearch()}>
             <Search aria-hidden="true" />
           </Button>
