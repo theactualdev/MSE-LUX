@@ -32,7 +32,12 @@ export function CurrencyProvider({ children }: { children: ReactNode }) {
     })
     fetch('/api/fx-rates')
       .then((r) => (r.ok ? r.json() : null))
-      .then((body) => { if (alive && body?.rates) setRates(body.rates) })
+      .then((body) => {
+        // An empty rate map (upstream 200 with all rates bad) must NOT wipe
+        // the backstop — that would leave FX currencies with no rate and
+        // throw in resolveDisplayPrice. Only a non-empty map replaces it.
+        if (alive && body?.rates && Object.keys(body.rates).length > 0) setRates(body.rates)
+      })
       .catch(() => {}) // keep backstop
     return () => { alive = false }
   }, [])

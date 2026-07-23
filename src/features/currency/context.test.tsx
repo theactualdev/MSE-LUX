@@ -1,6 +1,7 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest'
+import { expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, act } from '@testing-library/react'
 import { CurrencyProvider, useDisplayCurrency, useFxRates, useSetCurrency } from './context'
+import { BACKSTOP_USD_RATES } from '@/services/fx/backstop'
 
 function Probe() {
   const c = useDisplayCurrency(); const rates = useFxRates(); const set = useSetCurrency()
@@ -29,4 +30,13 @@ it('useSetCurrency updates the currency and writes the cookie', async () => {
   act(() => { screen.getByText('usd').click() })
   await waitFor(() => expect(screen.getByTestId('c').textContent).toBe('USD'))
   expect(document.cookie).toContain('mse-currency=USD')
+})
+it('keeps the backstop rates when the API returns an empty rate map', async () => {
+  Object.defineProperty(document, 'cookie', { writable: true, value: 'mse-currency=GBP' })
+  vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ rates: {} }) }))
+  render(<CurrencyProvider><Probe /></CurrencyProvider>)
+  await waitFor(() => expect(screen.getByTestId('c').textContent).toBe('GBP'))
+  // Give the (empty, no-op) rates update a chance to land, then confirm the
+  // backstop is still in place rather than having been wiped to {}.
+  await waitFor(() => expect(screen.getByTestId('gbp').textContent).toBe(String(BACKSTOP_USD_RATES.GBP)))
 })
