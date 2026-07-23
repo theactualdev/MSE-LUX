@@ -263,6 +263,25 @@ describe('useCart — signed-in mode', () => {
     // It must not have clobbered the reset — still idle/empty, not the stale items.
     expect(useServerCartStore.getState()).toMatchObject({ items: [], status: 'idle' })
   })
+
+  it('setItems supersedes a stale in-flight load: a slow ensureLoaded() fetch resolving after setItems does not clobber it', async () => {
+    const { promise, resolve } = deferred<{ productId: string; variantId?: string; quantity: number }[]>()
+    getServerCartItemsMock.mockReturnValue(promise)
+
+    useServerCartStore.getState().ensureLoaded()
+    expect(useServerCartStore.getState().status).toBe('loading')
+
+    // e.g. cart-sync.tsx pushing a guest-cart merge result mid-flight.
+    const merged = [{ productId: 'MERGED', quantity: 3 }]
+    useServerCartStore.getState().setItems(merged)
+    expect(useServerCartStore.getState()).toMatchObject({ items: merged, status: 'ready' })
+
+    // The stale, now-superseded load resolves afterward.
+    resolve([{ productId: 'STALE', quantity: 1 }])
+    await promise
+
+    expect(useServerCartStore.getState()).toMatchObject({ items: merged, status: 'ready' })
+  })
 })
 
 describe('useCart — lines', () => {

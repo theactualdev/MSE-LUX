@@ -226,4 +226,23 @@ describe('useWishlist — signed-in mode', () => {
     // It must not have clobbered the reset — still idle/empty, not the stale ids.
     expect(useServerWishlistStore.getState()).toMatchObject({ ids: [], status: 'idle' })
   })
+
+  it('setIds supersedes a stale in-flight load: a slow ensureLoaded() fetch resolving after setIds does not clobber it', async () => {
+    const { promise, resolve } = deferred<string[]>()
+    getServerWishlistIdsMock.mockReturnValue(promise)
+
+    useServerWishlistStore.getState().ensureLoaded()
+    expect(useServerWishlistStore.getState().status).toBe('loading')
+
+    // e.g. cart-sync.tsx pushing a guest-wishlist merge result mid-flight.
+    const merged = ['MERGED']
+    useServerWishlistStore.getState().setIds(merged)
+    expect(useServerWishlistStore.getState()).toMatchObject({ ids: merged, status: 'ready' })
+
+    // The stale, now-superseded load resolves afterward.
+    resolve(['STALE'])
+    await promise
+
+    expect(useServerWishlistStore.getState()).toMatchObject({ ids: merged, status: 'ready' })
+  })
 })

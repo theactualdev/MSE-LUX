@@ -83,5 +83,18 @@ export const useServerWishlistStore = create<ServerWishlistStore>()((set, get) =
     }
   },
 
-  setIds: (ids) => set({ ids, status: 'ready' }),
+  /**
+   * Pushes a result computed outside the normal mutation flow (currently:
+   * `cart-sync.tsx`'s guest->account merge) straight into the store. Bumps
+   * `epoch` and clears `inflight` exactly like `reset()` does, so a
+   * concurrent `ensureLoaded()` fetch that was already in flight (kicked off
+   * by the same sign-in that triggered the merge) is discarded instead of
+   * landing afterward and clobbering the merged result with stale
+   * pre-merge server ids.
+   */
+  setIds: (ids) => {
+    epoch++
+    inflight = null
+    set({ ids, status: 'ready' })
+  },
 }))
