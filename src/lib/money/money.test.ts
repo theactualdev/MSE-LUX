@@ -54,4 +54,11 @@ describe('formatMoney', () => {
   it('still honours an explicit locale override', () => {
     expect(formatMoney({ amountMinor: 3_000, currency: 'USD' }, 'en-US')).toContain('$')
   })
+  it('derives a currency-appropriate locale distinct from a fixed en-NG', () => {
+    const derived = formatMoney({ amountMinor: 3_000, currency: 'USD' })      // en-US, derived
+    const fixedEnNG = formatMoney({ amountMinor: 3_000, currency: 'USD' }, 'en-NG')
+    expect(derived).not.toBe(fixedEnNG)   // en-US "$30.00" ≠ en-NG "US$30.00" — proves the locale is derived
+    expect(derived).toContain('$')
+    expect(fixedEnNG).toContain('US$')    // pins the old behavior we moved away from
+  })
 })
