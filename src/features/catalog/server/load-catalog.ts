@@ -2,8 +2,26 @@ import 'server-only'
 
 import { cache } from 'react'
 import { db } from '@/lib/db'
+import { Prisma } from '@/generated/prisma/client'
 import type { Category, Collection, Product } from '@/types/catalog'
 import { bySuppliedOrder, toDomainCategory, toDomainCollection, toDomainProduct } from './mapper'
+
+/**
+ * The relation graph a product row needs to become a domain `Product` via
+ * `toDomainProduct`. Shared between the full-catalog `loadCatalog` below and
+ * the targeted `resolveProductsByIds` (`./resolve-products`) so the two can
+ * never drift — both feed the same mapper, so they must include the same
+ * relations. Resolving a handful of ids therefore issues one `WHERE id IN (…)`
+ * lookup with this include, not a full-catalog read.
+ */
+export const PRODUCT_INCLUDE = {
+  category: { select: { slug: true } },
+  subcategory: { select: { slug: true } },
+  images: { orderBy: { position: 'asc' } },
+  optionTypes: { orderBy: { position: 'asc' }, include: { values: { orderBy: { position: 'asc' } } } },
+  variants: { orderBy: { id: 'asc' }, include: { options: true } },
+  collections: { orderBy: { position: 'asc' }, include: { collection: { select: { slug: true } } } },
+} satisfies Prisma.ProductInclude
 
 // Authored taxonomy order. Category/Subcategory/Collection have no `position` (or `createdAt`)
 // column — only Product does — and cuid primary keys are not sortable into authoring order, so
@@ -45,14 +63,7 @@ export const loadCatalog = cache(async (): Promise<CatalogSnapshot> => {
     db.product.findMany({
       where: { status: 'ACTIVE' },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-      include: {
-        category: { select: { slug: true } },
-        subcategory: { select: { slug: true } },
-        images: { orderBy: { position: 'asc' } },
-        optionTypes: { orderBy: { position: 'asc' }, include: { values: { orderBy: { position: 'asc' } } } },
-        variants: { orderBy: { id: 'asc' }, include: { options: true } },
-        collections: { orderBy: { position: 'asc' }, include: { collection: { select: { slug: true } } } },
-      },
+      include: PRODUCT_INCLUDE,
     }),
     db.category.findMany({ include: { subcategories: true } }),
     db.collection.findMany(),
