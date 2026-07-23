@@ -44,4 +44,14 @@ describe('formatMoney', () => {
     const out = formatMoney({ amountMinor: 1_500_000, currency: 'NGN' }, 'en-NG')
     expect(out).toContain('15,000.00')
   })
+  it('derives locale from currency when none is passed', () => {
+    expect(formatMoney({ amountMinor: 1_500_000, currency: 'NGN' })).toContain('₦')
+    const gbp = formatMoney({ amountMinor: 3_000, currency: 'GBP' })
+    expect(gbp).toContain('£'); expect(gbp).toContain('30')
+    const usd = formatMoney({ amountMinor: 3_000, currency: 'USD' })
+    expect(usd).toContain('$'); expect(usd).toContain('30')
+  })
+  it('still honours an explicit locale override', () => {
+    expect(formatMoney({ amountMinor: 3_000, currency: 'USD' }, 'en-US')).toContain('$')
+  })
 })

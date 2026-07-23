@@ -19,11 +19,11 @@ export function PriceDisplay({ product, variant, className }: PriceDisplayProps)
   if (sale) {
     return (
       <span className={cn('flex items-baseline gap-2', className)}>
-        <span className="font-medium text-accent">{formatMoney(sale, 'en-NG')}</span>
-        <span className="text-sm text-muted-foreground line-through">{formatMoney(price, 'en-NG')}</span>
+        <span className="font-medium text-accent">{formatMoney(sale)}</span>
+        <span className="text-sm text-muted-foreground line-through">{formatMoney(price)}</span>
       </span>
     )
   }
 
-  return <span className={cn('font-medium text-foreground', className)}>{formatMoney(price, 'en-NG')}</span>
+  return <span className={cn('font-medium text-foreground', className)}>{formatMoney(price)}</span>
 }

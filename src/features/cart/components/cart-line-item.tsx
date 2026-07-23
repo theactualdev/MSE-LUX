@@ -68,11 +68,11 @@ export function CartLineItem({ line, editable = false, onQtyChange, onRemove, cl
             />
           ) : (
             <span className="text-xs text-muted-foreground">
-              {quantity} × {formatMoney(unitPrice, 'en-NG')}
+              {quantity} × {formatMoney(unitPrice)}
             </span>
           )}
 
-          <span className="text-sm font-medium text-foreground">{formatMoney(lineTotal, 'en-NG')}</span>
+          <span className="text-sm font-medium text-foreground">{formatMoney(lineTotal)}</span>
         </div>
       </div>
     </div>

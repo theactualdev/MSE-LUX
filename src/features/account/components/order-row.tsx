@@ -34,7 +34,7 @@ export function OrderRow({ order }: OrderRowProps) {
 
       <div className="flex items-center gap-3">
         <Badge variant="secondary">{order.status}</Badge>
-        <span className="text-sm font-medium text-foreground">{formatMoney(order.summary.total, 'en-NG')}</span>
+        <span className="text-sm font-medium text-foreground">{formatMoney(order.summary.total)}</span>
       </div>
     </Link>
   )

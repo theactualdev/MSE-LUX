@@ -46,7 +46,7 @@ export function ShippingStep({ methods, defaultValue, onSelect }: ShippingStepPr
               </span>
             </span>
             <span className="text-sm font-medium text-foreground">
-              {formatMoney(method.amount, 'en-NG')}
+              {formatMoney(method.amount)}
             </span>
           </label>
         ))}

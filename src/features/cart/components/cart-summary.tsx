@@ -13,19 +13,19 @@ export function CartSummary({ summary, className }: CartSummaryProps) {
     <div className={cn('flex flex-col gap-2', className)}>
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>Subtotal</span>
-        <span>{formatMoney(summary.subtotal, 'en-NG')}</span>
+        <span>{formatMoney(summary.subtotal)}</span>
       </div>
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>Shipping</span>
-        <span>{formatMoney(summary.shipping, 'en-NG')}</span>
+        <span>{formatMoney(summary.shipping)}</span>
       </div>
       <div className="flex items-center justify-between text-sm text-muted-foreground">
         <span>Tax</span>
-        <span>{formatMoney(summary.tax, 'en-NG')}</span>
+        <span>{formatMoney(summary.tax)}</span>
       </div>
       <div className="mt-2 flex items-center justify-between border-t border-border pt-2 text-base font-medium text-foreground">
         <span>Total</span>
-        <span>{formatMoney(summary.total, 'en-NG')}</span>
+        <span>{formatMoney(summary.total)}</span>
       </div>
     </div>
   )

@@ -61,7 +61,7 @@ export function MiniCartDrawer() {
           <SheetFooter>
             <div className="flex items-center justify-between text-base font-medium text-foreground">
               <span>Subtotal</span>
-              <span>{formatMoney({ amountMinor: subtotalAmountMinor, currency: 'NGN' }, 'en-NG')}</span>
+              <span>{formatMoney({ amountMinor: subtotalAmountMinor, currency: 'NGN' })}</span>
             </div>
             <Link
               href="/cart"

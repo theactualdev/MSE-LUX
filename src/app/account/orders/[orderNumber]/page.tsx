@@ -96,10 +96,10 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
 
                     <div className="mt-auto flex items-center justify-between gap-2">
                       <span className="text-xs text-muted-foreground">
-                        {line.quantity} × {formatMoney(line.unitPrice, 'en-NG')}
+                        {line.quantity} × {formatMoney(line.unitPrice)}
                       </span>
                       <span className="text-sm font-medium text-foreground">
-                        {formatMoney(line.lineTotal, 'en-NG')}
+                        {formatMoney(line.lineTotal)}
                       </span>
                     </div>
                   </div>
