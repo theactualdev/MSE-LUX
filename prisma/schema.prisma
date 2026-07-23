@@ -274,15 +274,20 @@ model Address {
 
 model Cart {
   id        String   @id @default(cuid())
-  profileId String?  @db.Uuid
+  // One cart per profile. `@unique` (not just `@@index`) is the DB-level
+  // enforcement of the "one Cart row per profile, created lazily on first
+  // write" invariant the app relies on — without it, two concurrent first
+  // writes by the same user (READ COMMITTED: both findFirst -> null, both
+  // create) could create two rows. Nullable, but the data layer never writes
+  // a null profileId (guests never create rows); Postgres treats NULLs as
+  // distinct, so orphaned carts (profile deleted -> SetNull) don't collide.
+  profileId String?  @unique @db.Uuid
   profile   Profile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
 
   items CartItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([profileId])
 }
 
 model CartItem {
@@ -312,15 +317,14 @@ model CartItem {
 
 model Wishlist {
   id        String   @id @default(cuid())
-  profileId String?  @db.Uuid
+  // One wishlist per profile — same rationale as Cart.profileId above.
+  profileId String?  @unique @db.Uuid
   profile   Profile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
 
   items WishlistItem[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  @@index([profileId])
 }
 
 model WishlistItem {
