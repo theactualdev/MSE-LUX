@@ -1,9 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState, useTransition } from 'react'
+import { useCallback, useEffect, useTransition } from 'react'
 import { useSession } from '@/features/auth/use-session'
 import { useWishlistStore } from '@/features/wishlist/store'
-import { addWishlistItem, getServerWishlistIds, removeWishlistItem } from '@/features/wishlist/data'
+import { useServerWishlistStore } from '@/features/wishlist/server-wishlist-store'
 
 export interface UseWishlistResult {
   ids: string[]
@@ -27,18 +27,23 @@ export interface UseWishlistResult {
  *   before this hook existed — `isPending` is always `false`, nothing async
  *   happens, no server action is called.
  * - **Signed-in**: source of truth is the server (`src/features/wishlist/data.ts`
- *   Server Actions), mirrored into local React state. `ids` is seeded from
- *   `getServerWishlistIds()` on mount/sign-in, guarded against unmount and
- *   against a stale response landing after a newer effect run has superseded
- *   it (the `active` flag pattern `useCart`/`useSession` use). `toggle`
- *   applies an optimistic add-or-remove to that state immediately — using
- *   the same `ids.includes(id)` check the server performs, so the optimistic
- *   shape matches what the server will return — then runs `addWishlistItem`
- *   or `removeWishlistItem` inside `startTransition` and reconciles from its
- *   returned `ids`, or rolls back to the pre-mutation snapshot on `{error}`.
- *   A ref tracks the latest snapshot alongside state so two toggles fired in
- *   quick succession (before a re-render lands) don't optimistically diverge
- *   from each other.
+ *   Server Actions), mirrored into a **shared, module-level** zustand store
+ *   (`server-wishlist-store.ts`) rather than per-instance React state —
+ *   every `useWishlist()` instance (every product-card heart, the PDP, the
+ *   header, the wishlist page, …) reads and mutates the *same* `ids`, so a
+ *   toggle in one is immediately visible in every other. That store also
+ *   owns the mount-load: `ensureLoaded()` dedupes concurrent instances
+ *   mounting at once down to a single `getServerWishlistIds()` call, and
+ *   `reset()` (called here when `signedIn` flips to `false`) clears it back
+ *   to `idle` so a different user signing in on the same browser re-fetches
+ *   instead of inheriting a stale wishlist. The store applies `toggle`'s
+ *   optimistic add-or-remove immediately — using the same `ids.includes(id)`
+ *   check the server performs, so the optimistic shape matches what the
+ *   server will return — then runs `addWishlistItem`/`removeWishlistItem`
+ *   and reconciles from its returned `ids`, or rolls back to the
+ *   pre-mutation snapshot on `{error}`. This hook wraps that store mutation
+ *   in its own `useTransition` so `isPending` still reflects on the acting
+ *   instance only, exactly as before.
  */
 export function useWishlist(): UseWishlistResult {
   const { signedIn } = useSession()
@@ -47,24 +52,21 @@ export function useWishlist(): UseWishlistResult {
   const guestIds = useWishlistStore((s) => s.ids)
   const guestToggle = useWishlistStore((s) => s.toggle)
 
-  // ---- signed-in backend: server state mirrored into local React state ----
-  const [serverIds, setServerIds] = useState<string[]>([])
-  const serverIdsRef = useRef<string[]>([])
-  useEffect(() => {
-    serverIdsRef.current = serverIds
-  }, [serverIds])
+  // ---- signed-in backend: shared server-wishlist store (see module doc) ----
+  const serverIds = useServerWishlistStore((s) => s.ids)
+  const ensureLoaded = useServerWishlistStore((s) => s.ensureLoaded)
+  const resetServerWishlist = useServerWishlistStore((s) => s.reset)
+  const serverToggle = useServerWishlistStore((s) => s.toggle)
+
   const [isPending, startTransition] = useTransition()
 
   useEffect(() => {
-    if (!signedIn) return
-    let active = true
-    getServerWishlistIds().then((loaded) => {
-      if (active) setServerIds(loaded)
-    })
-    return () => {
-      active = false
+    if (signedIn) {
+      ensureLoaded()
+    } else {
+      resetServerWishlist()
     }
-  }, [signedIn])
+  }, [signedIn, ensureLoaded, resetServerWishlist])
 
   const ids = signedIn ? serverIds : guestIds
 
@@ -74,23 +76,11 @@ export function useWishlist(): UseWishlistResult {
         guestToggle(id)
         return
       }
-      const snapshot = serverIdsRef.current
-      const isRemoving = snapshot.includes(id)
-      const optimistic = isRemoving ? snapshot.filter((i) => i !== id) : [...snapshot, id]
-      serverIdsRef.current = optimistic
-      setServerIds(optimistic)
       startTransition(async () => {
-        const result = isRemoving ? await removeWishlistItem(id) : await addWishlistItem(id)
-        if ('ok' in result) {
-          serverIdsRef.current = result.ids
-          setServerIds(result.ids)
-        } else {
-          serverIdsRef.current = snapshot
-          setServerIds(snapshot)
-        }
+        await serverToggle(id)
       })
     },
-    [signedIn, guestToggle],
+    [signedIn, guestToggle, serverToggle],
   )
 
   const has = useCallback((id: string) => ids.includes(id), [ids])

@@ -1,12 +1,12 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
+import { useCallback, useEffect, useMemo, useState, useTransition } from 'react'
 import type { Product } from '@/types/catalog'
 import { useSession } from '@/features/auth/use-session'
 import { useCartStore } from '@/features/cart/store'
+import { useServerCartStore } from '@/features/cart/server-cart-store'
 import { buildCartLines, type CartLine } from '@/features/cart/lib/lines'
 import { resolveProductsByIds } from '@/features/catalog/server/resolve-products'
-import { addCartItem, clearServerCart, getServerCartItems, removeCartItem, setCartItemQty } from '@/features/cart/data'
 import type { GuestCartItem } from '@/features/cart/types'
 
 export interface UseCartResult {
@@ -21,31 +21,6 @@ export interface UseCartResult {
   isLoading: boolean
 }
 
-/** Matches `key()` in `store.ts` — kept in sync there so an optimistic write here lands on the same line the server upsert would. */
-const lineKey = (i: { productId: string; variantId?: string }) => `${i.productId}::${i.variantId ?? ''}`
-
-function optimisticAdd(items: GuestCartItem[], productId: string, variantId: string | undefined, qty: number): GuestCartItem[] {
-  const k = lineKey({ productId, variantId })
-  const existing = items.find((i) => lineKey(i) === k)
-  if (existing) {
-    return items.map((i) => (lineKey(i) === k ? { ...i, quantity: i.quantity + qty } : i))
-  }
-  return [...items, { productId, variantId, quantity: qty }]
-}
-
-function optimisticSetQty(items: GuestCartItem[], productId: string, variantId: string | undefined, qty: number): GuestCartItem[] {
-  const k = lineKey({ productId, variantId })
-  if (qty <= 0) return items.filter((i) => lineKey(i) !== k)
-  const existing = items.find((i) => lineKey(i) === k)
-  if (existing) return items.map((i) => (lineKey(i) === k ? { ...i, quantity: qty } : i))
-  return [...items, { productId, variantId, quantity: qty }]
-}
-
-function optimisticRemove(items: GuestCartItem[], productId: string, variantId: string | undefined): GuestCartItem[] {
-  const k = lineKey({ productId, variantId })
-  return items.filter((i) => lineKey(i) !== k)
-}
-
 /**
  * Unified cart hook that hides the guest-vs-signed-in storage split from
  * every consumer (mini-cart drawer, full cart page, add-to-cart button, …).
@@ -54,15 +29,23 @@ function optimisticRemove(items: GuestCartItem[], productId: string, variantId: 
  *   `useCartStore` (localStorage). Behaves exactly like the store did before
  *   this hook existed — `isPending` is always `false`, nothing async happens.
  * - **Signed-in**: source of truth is the server (`src/features/cart/data.ts`
- *   Server Actions), mirrored into local React state. `items` is seeded from
- *   `getServerCartItems()` on mount/sign-in. Every mutation applies an
- *   optimistic update to that state immediately (mirroring the store's own
- *   merge-by-key logic so the optimistic shape matches what the server will
- *   return), then runs the server action inside `startTransition` and
- *   reconciles from its returned `items` — or rolls back to the pre-mutation
- *   snapshot on `{error}`. A ref tracks the latest snapshot alongside state
- *   so two mutations fired in quick succession (before a re-render lands)
- *   don't optimistically diverge from each other.
+ *   Server Actions), mirrored into a **shared, module-level** zustand store
+ *   (`server-cart-store.ts`) rather than per-instance React state — every
+ *   `useCart()` instance reads and mutates the *same* `items`, so a mutation
+ *   in one (e.g. the add-to-cart button) is immediately visible in every
+ *   other (the header badge, the always-mounted mini-cart drawer). That
+ *   store also owns the mount-load: `ensureLoaded()` dedupes concurrent
+ *   instances mounting at once down to a single `getServerCartItems()` call,
+ *   and `reset()` (called here when `signedIn` flips to `false`) clears it
+ *   back to `idle` so a different user signing in on the same browser
+ *   re-fetches instead of inheriting a stale cart. The store applies each
+ *   mutation's optimistic update immediately (mirroring the guest store's
+ *   own merge-by-key logic so the optimistic shape matches what the server
+ *   will return), then runs the server action and reconciles from its
+ *   returned `items` — or rolls back to the pre-mutation snapshot on
+ *   `{error}`. This hook wraps those store mutations in its own
+ *   `useTransition` so `isPending` still reflects on the acting instance
+ *   only, exactly as before.
  *
  * Both modes only ever store `{productId,variantId,quantity}` lines, never
  * full products (see `types.ts` / `store.ts`), so `lines` is derived by
@@ -74,7 +57,9 @@ function optimisticRemove(items: GuestCartItem[], productId: string, variantId: 
  * products, only re-derives lines from the already-resolved set. The effect
  * guards against unmount and against a stale resolution landing after a
  * newer id-set has superseded it, the same `active` flag pattern
- * `useSession` uses.
+ * `useSession` uses. This resolution stays per-hook-instance (unlike
+ * `items`): only 1–2 line-rendering consumers are ever mounted at once, so
+ * there's no redundant-fetch problem worth sharing it for.
  *
  * Cart currency is hardcoded to `'NGN'` (Phase 5b decision A: cart stays
  * NGN-only until 5d threads viewer currency through checkout).
@@ -89,28 +74,25 @@ export function useCart(): UseCartResult {
   const guestUpdateQuantity = useCartStore((s) => s.updateQuantity)
   const guestClear = useCartStore((s) => s.clear)
 
-  // ---- signed-in backend: server state mirrored into local React state ----
-  const [serverItems, setServerItems] = useState<GuestCartItem[]>([])
-  const serverItemsRef = useRef<GuestCartItem[]>([])
-  useEffect(() => {
-    serverItemsRef.current = serverItems
-  }, [serverItems])
+  // ---- signed-in backend: shared server-cart store (see module doc) ----
+  const serverItems = useServerCartStore((s) => s.items)
+  const serverStatus = useServerCartStore((s) => s.status)
+  const ensureLoaded = useServerCartStore((s) => s.ensureLoaded)
+  const resetServerCart = useServerCartStore((s) => s.reset)
+  const serverAdd = useServerCartStore((s) => s.add)
+  const serverSetQty = useServerCartStore((s) => s.setQty)
+  const serverRemove = useServerCartStore((s) => s.remove)
+  const serverClear = useServerCartStore((s) => s.clear)
+
   const [isPending, startTransition] = useTransition()
-  const [serverLoaded, setServerLoaded] = useState(false)
 
   useEffect(() => {
-    if (!signedIn) return
-    let active = true
-    getServerCartItems().then((loaded) => {
-      if (active) {
-        setServerItems(loaded)
-        setServerLoaded(true)
-      }
-    })
-    return () => {
-      active = false
+    if (signedIn) {
+      ensureLoaded()
+    } else {
+      resetServerCart()
     }
-  }, [signedIn])
+  }, [signedIn, ensureLoaded, resetServerCart])
 
   const items = signedIn ? serverItems : guestItems
 
@@ -151,7 +133,7 @@ export function useCart(): UseCartResult {
   // product set matches the current id set (or there was nothing to
   // resolve). See module doc for the flash/stuck-skeleton failure modes
   // this guards against.
-  const itemsReady = signedIn ? serverLoaded : true
+  const itemsReady = signedIn ? serverStatus === 'ready' : true
   const linesResolved = idsKey === '' || resolvedKey === idsKey
   const isLoading = !itemsReady || !linesResolved
 
@@ -161,22 +143,11 @@ export function useCart(): UseCartResult {
         guestAddItem(productId, variantId, qty)
         return
       }
-      const snapshot = serverItemsRef.current
-      const optimistic = optimisticAdd(snapshot, productId, variantId, qty)
-      serverItemsRef.current = optimistic
-      setServerItems(optimistic)
       startTransition(async () => {
-        const result = await addCartItem(productId, variantId, qty)
-        if ('ok' in result) {
-          serverItemsRef.current = result.items
-          setServerItems(result.items)
-        } else {
-          serverItemsRef.current = snapshot
-          setServerItems(snapshot)
-        }
+        await serverAdd(productId, variantId, qty)
       })
     },
-    [signedIn, guestAddItem],
+    [signedIn, guestAddItem, serverAdd, startTransition],
   )
 
   const setQty = useCallback(
@@ -185,22 +156,11 @@ export function useCart(): UseCartResult {
         guestUpdateQuantity(productId, variantId, qty)
         return
       }
-      const snapshot = serverItemsRef.current
-      const optimistic = optimisticSetQty(snapshot, productId, variantId, qty)
-      serverItemsRef.current = optimistic
-      setServerItems(optimistic)
       startTransition(async () => {
-        const result = await setCartItemQty(productId, variantId, qty)
-        if ('ok' in result) {
-          serverItemsRef.current = result.items
-          setServerItems(result.items)
-        } else {
-          serverItemsRef.current = snapshot
-          setServerItems(snapshot)
-        }
+        await serverSetQty(productId, variantId, qty)
       })
     },
-    [signedIn, guestUpdateQuantity],
+    [signedIn, guestUpdateQuantity, serverSetQty, startTransition],
   )
 
   const remove = useCallback(
@@ -209,22 +169,11 @@ export function useCart(): UseCartResult {
         guestRemoveItem(productId, variantId)
         return
       }
-      const snapshot = serverItemsRef.current
-      const optimistic = optimisticRemove(snapshot, productId, variantId)
-      serverItemsRef.current = optimistic
-      setServerItems(optimistic)
       startTransition(async () => {
-        const result = await removeCartItem(productId, variantId)
-        if ('ok' in result) {
-          serverItemsRef.current = result.items
-          setServerItems(result.items)
-        } else {
-          serverItemsRef.current = snapshot
-          setServerItems(snapshot)
-        }
+        await serverRemove(productId, variantId)
       })
     },
-    [signedIn, guestRemoveItem],
+    [signedIn, guestRemoveItem, serverRemove, startTransition],
   )
 
   const clear = useCallback(() => {
@@ -232,20 +181,10 @@ export function useCart(): UseCartResult {
       guestClear()
       return
     }
-    const snapshot = serverItemsRef.current
-    serverItemsRef.current = []
-    setServerItems([])
     startTransition(async () => {
-      const result = await clearServerCart()
-      if ('ok' in result) {
-        serverItemsRef.current = result.items
-        setServerItems(result.items)
-      } else {
-        serverItemsRef.current = snapshot
-        setServerItems(snapshot)
-      }
+      await serverClear()
     })
-  }, [signedIn, guestClear])
+  }, [signedIn, guestClear, serverClear, startTransition])
 
   return {
     items,

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { useCartStore } from '@/features/cart/store'
+import { useServerCartStore } from '@/features/cart/server-cart-store'
 import type { Product } from '@/types/catalog'
 import type { CartMutationResult } from '@/features/cart/types'
 
@@ -65,6 +66,7 @@ function deferred<T>() {
 beforeEach(() => {
   vi.clearAllMocks()
   useCartStore.getState().clear()
+  useServerCartStore.getState().reset()
   resolveProductsByIdsMock.mockResolvedValue([])
   getServerCartItemsMock.mockResolvedValue([])
 })
@@ -213,6 +215,32 @@ describe('useCart — signed-in mode', () => {
     })
 
     await waitFor(() => expect(result.current.items).toEqual([{ productId: 'P1', quantity: 1 }]))
+  })
+
+  it('shares state across concurrently-mounted instances: one fetch, and a mutation on one instance is observed by the other', async () => {
+    getServerCartItemsMock.mockResolvedValue([])
+    addCartItemMock.mockResolvedValue({ ok: true, items: [{ productId: 'P1', quantity: 2 }] })
+
+    const { result: a } = renderHook(() => useCart())
+    const { result: b } = renderHook(() => useCart())
+
+    await waitFor(() => expect(a.current.items).toEqual([]))
+    await waitFor(() => expect(b.current.items).toEqual([]))
+
+    // Two concurrently-mounted instances dedupe down to a single server fetch.
+    expect(getServerCartItemsMock).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      a.current.add('P1', undefined, 2)
+    })
+
+    // The optimistic update from instance A is immediately visible on instance B too.
+    expect(a.current.items).toEqual([{ productId: 'P1', variantId: undefined, quantity: 2 }])
+    expect(b.current.items).toEqual([{ productId: 'P1', variantId: undefined, quantity: 2 }])
+    expect(b.current.itemCount).toBe(2)
+
+    await waitFor(() => expect(a.current.items).toEqual([{ productId: 'P1', quantity: 2 }]))
+    expect(b.current.items).toEqual([{ productId: 'P1', quantity: 2 }])
   })
 })
 

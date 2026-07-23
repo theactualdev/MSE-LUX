@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, act, waitFor } from '@testing-library/react'
 import { useWishlistStore } from '@/features/wishlist/store'
+import { useServerWishlistStore } from '@/features/wishlist/server-wishlist-store'
 import type { WishlistMutationResult } from '@/features/wishlist/types'
 
 vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn() }))
@@ -31,6 +32,7 @@ function deferred<T>() {
 beforeEach(() => {
   vi.clearAllMocks()
   useWishlistStore.getState().clear()
+  useServerWishlistStore.getState().reset()
   getServerWishlistIdsMock.mockResolvedValue([])
 })
 
@@ -160,5 +162,32 @@ describe('useWishlist — signed-in mode', () => {
     })
 
     await waitFor(() => expect(result.current.ids).toEqual(['P1']))
+  })
+
+  it('shares state across concurrently-mounted instances: one fetch, and a toggle on one instance is observed by the other', async () => {
+    getServerWishlistIdsMock.mockResolvedValue([])
+    addWishlistItemMock.mockResolvedValue({ ok: true, ids: ['P1'] })
+
+    const { result: a } = renderHook(() => useWishlist())
+    const { result: b } = renderHook(() => useWishlist())
+
+    await waitFor(() => expect(a.current.ids).toEqual([]))
+    await waitFor(() => expect(b.current.ids).toEqual([]))
+
+    // Two concurrently-mounted instances dedupe down to a single server fetch.
+    expect(getServerWishlistIdsMock).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      a.current.toggle('P1')
+    })
+
+    // The optimistic toggle from instance A is immediately visible on instance B too.
+    expect(a.current.has('P1')).toBe(true)
+    expect(b.current.has('P1')).toBe(true)
+    expect(b.current.ids).toEqual(['P1'])
+    expect(b.current.count).toBe(1)
+
+    await waitFor(() => expect(a.current.ids).toEqual(['P1']))
+    expect(b.current.ids).toEqual(['P1'])
   })
 })
