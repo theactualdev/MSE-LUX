@@ -54,6 +54,21 @@ export function optimisticRemove(items: GuestCartItem[], productId: string, vari
 let inflight: Promise<void> | null = null
 
 /**
+ * Bumped by every `reset()` (sign-out) and captured by every in-flight read
+ * or mutation before its `await`. A `.then`/reconcile only applies its
+ * result if the epoch it captured still matches the current one — otherwise
+ * a stale response from a fetch or mutation that was still in flight when
+ * `reset()` ran (sign-out) would land *after* the reset (or after a
+ * different user's own fresh load) and clobber the store with the previous
+ * user's cart. Without this, `inflight`/`status` alone aren't enough: they
+ * guard against redundant *concurrent* fetches, not against a slow fetch
+ * outliving the session it belongs to. The direct replacement for the old
+ * per-instance hook's `active` flag, now needed at module scope because the
+ * load itself moved out of the component.
+ */
+let epoch = 0
+
+/**
  * Shared, module-level home for the signed-in user's server cart — the
  * `zustand` analog of `store.ts`'s guest cart, so every `useCart()` instance
  * (header badge, mini-cart drawer, cart page, add-to-cart button, …) reads
@@ -67,10 +82,11 @@ export const useServerCartStore = create<ServerCartStore>()((set, get) => ({
 
   ensureLoaded: () => {
     if (get().status !== 'idle' || inflight) return
+    const myEpoch = ++epoch
     set({ status: 'loading' })
     inflight = getServerCartItems()
       .then((items) => {
-        set({ items, status: 'ready' })
+        if (myEpoch === epoch) set({ items, status: 'ready' })
       })
       .finally(() => {
         inflight = null
@@ -78,14 +94,17 @@ export const useServerCartStore = create<ServerCartStore>()((set, get) => ({
   },
 
   reset: () => {
+    epoch++
     inflight = null
     set({ items: [], status: 'idle' })
   },
 
   add: async (productId, variantId, qty) => {
+    const myEpoch = epoch
     const snapshot = get().items
     set({ items: optimisticAdd(snapshot, productId, variantId, qty) })
     const result = await addCartItem(productId, variantId, qty)
+    if (myEpoch !== epoch) return
     if ('ok' in result) {
       set({ items: result.items })
     } else {
@@ -94,9 +113,11 @@ export const useServerCartStore = create<ServerCartStore>()((set, get) => ({
   },
 
   setQty: async (productId, variantId, qty) => {
+    const myEpoch = epoch
     const snapshot = get().items
     set({ items: optimisticSetQty(snapshot, productId, variantId, qty) })
     const result = await setCartItemQty(productId, variantId, qty)
+    if (myEpoch !== epoch) return
     if ('ok' in result) {
       set({ items: result.items })
     } else {
@@ -105,9 +126,11 @@ export const useServerCartStore = create<ServerCartStore>()((set, get) => ({
   },
 
   remove: async (productId, variantId) => {
+    const myEpoch = epoch
     const snapshot = get().items
     set({ items: optimisticRemove(snapshot, productId, variantId) })
     const result = await removeCartItem(productId, variantId)
+    if (myEpoch !== epoch) return
     if ('ok' in result) {
       set({ items: result.items })
     } else {
@@ -116,9 +139,11 @@ export const useServerCartStore = create<ServerCartStore>()((set, get) => ({
   },
 
   clear: async () => {
+    const myEpoch = epoch
     const snapshot = get().items
     set({ items: [] })
     const result = await clearServerCart()
+    if (myEpoch !== epoch) return
     if ('ok' in result) {
       set({ items: result.items })
     } else {

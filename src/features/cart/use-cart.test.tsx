@@ -242,6 +242,27 @@ describe('useCart — signed-in mode', () => {
     await waitFor(() => expect(a.current.items).toEqual([{ productId: 'P1', quantity: 2 }]))
     expect(b.current.items).toEqual([{ productId: 'P1', quantity: 2 }])
   })
+
+  it('a stale in-flight load from a signed-out user cannot clobber the store after reset()', async () => {
+    const { promise, resolve } = deferred<{ productId: string; variantId?: string; quantity: number }[]>()
+    getServerCartItemsMock.mockReturnValue(promise)
+
+    // Directly against the store: exercises the race without depending on
+    // hook unmount timing.
+    useServerCartStore.getState().ensureLoaded()
+    expect(useServerCartStore.getState().status).toBe('loading')
+
+    // User signs out (or a different user signs in) before the slow fetch lands.
+    useServerCartStore.getState().reset()
+    expect(useServerCartStore.getState()).toMatchObject({ items: [], status: 'idle' })
+
+    // The stale fetch now resolves with the *previous* user's cart.
+    resolve([{ productId: 'STALE', quantity: 99 }])
+    await promise
+
+    // It must not have clobbered the reset — still idle/empty, not the stale items.
+    expect(useServerCartStore.getState()).toMatchObject({ items: [], status: 'idle' })
+  })
 })
 
 describe('useCart — lines', () => {
