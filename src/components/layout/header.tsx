@@ -9,7 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button, buttonVariants } from '@/components/ui/button'
 import { NavigationMenu, NavigationMenuItem, NavigationMenuLink, NavigationMenuList } from '@/components/ui/navigation-menu'
 import { AccountMenu } from '@/features/account/components/account-menu'
-import { useCartStore } from '@/features/cart/store'
+import { useCart } from '@/features/cart/use-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { CurrencySwitcher } from '@/features/currency/components/currency-switcher'
 import { useWishlistStore } from '@/features/wishlist/store'
@@ -27,7 +27,7 @@ export function Header() {
   const openMobileNav = useUiStore((s) => s.openMobileNav)
   const toggleSearch = useUiStore((s) => s.toggleSearch)
   const openCartDrawer = useUiStore((s) => s.openCartDrawer)
-  const cartCount = useCartStore((s) => s.itemCount())
+  const { itemCount: cartCount } = useCart()
   const wishlistCount = useWishlistStore((s) => s.count())
   const hydrated = useHydrated()
   const showCartBadge = hydrated && cartCount > 0

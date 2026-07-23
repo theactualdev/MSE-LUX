@@ -1,7 +1,7 @@
 'use client'
 
 import { Button } from '@/components/ui/button'
-import { useCartStore } from '@/features/cart/store'
+import { useCart } from '@/features/cart/use-cart'
 import { cn } from '@/lib/utils'
 import { useUiStore } from '@/stores/ui'
 import type { Product, ProductVariant } from '@/types/catalog'
@@ -19,7 +19,7 @@ interface AddToCartProps {
  * variant-based products, the product itself otherwise — has no inventory.
  */
 export function AddToCart({ product, selectedVariant, qty = 1, className }: AddToCartProps) {
-  const addItem = useCartStore((s) => s.addItem)
+  const { add } = useCart()
 
   const requiresVariant = product.optionTypes.length > 0
   const variantMissing = requiresVariant && !selectedVariant
@@ -29,7 +29,7 @@ export function AddToCart({ product, selectedVariant, qty = 1, className }: AddT
 
   const handleClick = () => {
     if (disabled) return
-    addItem(product.id, selectedVariant?.id, qty)
+    add(product.id, selectedVariant?.id, qty)
     useUiStore.getState().openCartDrawer()
   }
 

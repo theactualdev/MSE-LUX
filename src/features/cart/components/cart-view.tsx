@@ -6,10 +6,9 @@ import { buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CartLineItem } from '@/features/cart/components/cart-line-item'
 import { CartSummary } from '@/features/cart/components/cart-summary'
-import { getCartLines } from '@/features/cart/lib/lines'
 import { computeCartSummary } from '@/features/cart/lib/summary'
 import { shippingMethods } from '@/features/cart/lib/shipping'
-import { useCartStore } from '@/features/cart/store'
+import { useCart } from '@/features/cart/use-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { cn } from '@/lib/utils'
 
@@ -19,16 +18,17 @@ import { cn } from '@/lib/utils'
  * Gated on `useHydrated` — the server render (and the client's first paint,
  * before `useSyncExternalStore` reports hydration) always shows the neutral
  * skeleton below, matching the server markup exactly. Only once hydrated do
- * we read the persisted `useCartStore` state, so there is never a
- * server/client mismatch for the (always empty, on the server) cart.
+ * we read cart state via `useCart()`, so there is never a server/client
+ * mismatch for the (always empty, on the server) cart. Also holds the
+ * skeleton while `useCart().isLoading` — the hook's `lines` resolve
+ * asynchronously, so gating on hydration alone would flash the empty state
+ * first.
  */
 export function CartView() {
   const hydrated = useHydrated()
-  const items = useCartStore((s) => s.items)
-  const updateQuantity = useCartStore((s) => s.updateQuantity)
-  const removeItem = useCartStore((s) => s.removeItem)
+  const { lines, setQty, remove, isLoading } = useCart()
 
-  if (!hydrated) {
+  if (!hydrated || isLoading) {
     return (
       <div className="flex flex-col gap-10 lg:flex-row lg:items-start" aria-hidden="true">
         <div className="flex flex-1 flex-col divide-y divide-border">
@@ -49,7 +49,6 @@ export function CartView() {
     )
   }
 
-  const lines = getCartLines(items, 'NGN')
   const hasItems = lines.length > 0
 
   if (!hasItems) {
@@ -78,8 +77,8 @@ export function CartView() {
             line={line}
             editable
             className="py-6 first:pt-0"
-            onQtyChange={(qty) => updateQuantity(line.product.id, line.variant?.id, qty)}
-            onRemove={() => removeItem(line.product.id, line.variant?.id)}
+            onQtyChange={(qty) => setQty(line.product.id, line.variant?.id, qty)}
+            onRemove={() => remove(line.product.id, line.variant?.id)}
           />
         ))}
       </div>

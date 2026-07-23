@@ -91,6 +91,27 @@ describe('useCart — guest mode', () => {
     expect(addCartItemMock).not.toHaveBeenCalled()
   })
 
+  it('isLoading starts true for a non-empty guest cart and settles to false once resolveProductsByIds resolves', async () => {
+    useCartStore.getState().addItem('P1', undefined, 1)
+    const { promise, resolve } = deferred<Product[]>()
+    resolveProductsByIdsMock.mockReturnValue(promise)
+
+    const { result } = renderHook(() => useCart())
+
+    expect(result.current.isLoading).toBe(true)
+
+    act(() => {
+      resolve([])
+    })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+  })
+
+  it('isLoading is false for an empty guest cart (nothing to resolve)', () => {
+    const { result } = renderHook(() => useCart())
+    expect(result.current.isLoading).toBe(false)
+  })
+
   it('setQty/remove/clear delegate to the store', () => {
     const { result } = renderHook(() => useCart())
 
@@ -132,6 +153,21 @@ describe('useCart — signed-in mode', () => {
 
     await waitFor(() => expect(result.current.items).toEqual([{ productId: 'P1', quantity: 1 }]))
     expect(getServerCartItemsMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('isLoading is true until getServerCartItems resolves, even for an eventually-empty cart', async () => {
+    const { promise, resolve } = deferred<{ productId: string; variantId?: string; quantity: number }[]>()
+    getServerCartItemsMock.mockReturnValue(promise)
+
+    const { result } = renderHook(() => useCart())
+
+    expect(result.current.isLoading).toBe(true)
+
+    act(() => {
+      resolve([])
+    })
+
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
   })
 
   it('add() optimistically updates items, calls addCartItem, then reconciles with its returned items', async () => {

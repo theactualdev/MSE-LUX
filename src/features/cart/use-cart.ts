@@ -18,6 +18,7 @@ export interface UseCartResult {
   remove: (productId: string, variantId?: string) => void
   clear: () => void
   isPending: boolean
+  isLoading: boolean
 }
 
 /** Matches `key()` in `store.ts` — kept in sync there so an optimistic write here lands on the same line the server upsert would. */
@@ -95,12 +96,16 @@ export function useCart(): UseCartResult {
     serverItemsRef.current = serverItems
   }, [serverItems])
   const [isPending, startTransition] = useTransition()
+  const [serverLoaded, setServerLoaded] = useState(false)
 
   useEffect(() => {
     if (!signedIn) return
     let active = true
     getServerCartItems().then((loaded) => {
-      if (active) setServerItems(loaded)
+      if (active) {
+        setServerItems(loaded)
+        setServerLoaded(true)
+      }
     })
     return () => {
       active = false
@@ -116,6 +121,7 @@ export function useCart(): UseCartResult {
   }, [items])
 
   const [products, setProducts] = useState<Product[]>([])
+  const [resolvedKey, setResolvedKey] = useState('')
 
   useEffect(() => {
     // No ids to resolve: nothing to fetch. `products` is left as-is rather
@@ -127,7 +133,10 @@ export function useCart(): UseCartResult {
     const ids = idsKey.split(',')
     let active = true
     resolveProductsByIds(ids).then((resolved) => {
-      if (active) setProducts(resolved)
+      if (active) {
+        setProducts(resolved)
+        setResolvedKey(idsKey)
+      }
     })
     return () => {
       active = false
@@ -136,6 +145,15 @@ export function useCart(): UseCartResult {
 
   const lines = useMemo(() => buildCartLines(items, products, 'NGN'), [items, products])
   const itemCount = items.reduce((n, i) => n + i.quantity, 0)
+
+  // Cart contents are "definitively known" once (a) signed-in items have
+  // loaded from the server (guests are synchronous) and (b) the resolved
+  // product set matches the current id set (or there was nothing to
+  // resolve). See module doc for the flash/stuck-skeleton failure modes
+  // this guards against.
+  const itemsReady = signedIn ? serverLoaded : true
+  const linesResolved = idsKey === '' || resolvedKey === idsKey
+  const isLoading = !itemsReady || !linesResolved
 
   const add = useCallback(
     (productId: string, variantId?: string, qty = 1) => {
@@ -238,5 +256,6 @@ export function useCart(): UseCartResult {
     remove,
     clear,
     isPending: signedIn ? isPending : false,
+    isLoading,
   }
 }

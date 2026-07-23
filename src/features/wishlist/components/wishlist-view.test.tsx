@@ -1,9 +1,17 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { WishlistView } from '@/features/wishlist/components/wishlist-view'
 import { useWishlistStore } from '@/features/wishlist/store'
 import { getAllProducts } from '@/features/catalog/lib/selectors'
+
+// A variantless saved product renders `<AddToCart>`, which now reads
+// `useCart()` — pulling in `useSession()` (the real Supabase browser client,
+// which throws when `NEXT_PUBLIC_SUPABASE_*` is unset under test) and the
+// `resolveProductsByIds` server action (irrelevant here: this suite only
+// asserts on `AddToCart`'s presence/disabled state, never on cart lines).
+vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, loading: false })) }))
+vi.mock('@/features/catalog/server/resolve-products', () => ({ resolveProductsByIds: vi.fn(async () => []) }))
 
 describe('WishlistView', () => {
   beforeEach(() => {

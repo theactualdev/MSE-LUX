@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest'
+import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Toaster } from '@/components/providers/toaster'
@@ -6,6 +6,9 @@ import { AddToCart } from '@/features/cart/components/add-to-cart'
 import { useCartStore } from '@/features/cart/store'
 import { useUiStore } from '@/stores/ui'
 import type { Product } from '@/types/catalog'
+
+vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, loading: false })) }))
+vi.mock('@/features/catalog/server/resolve-products', () => ({ resolveProductsByIds: vi.fn(async () => []) }))
 
 const priceSet = {
   ngn: { amountMinor: 2_400_000, currency: 'NGN' as const },

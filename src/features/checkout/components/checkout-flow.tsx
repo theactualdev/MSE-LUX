@@ -14,9 +14,8 @@ import { ReviewStep } from '@/features/checkout/components/review-step'
 import { OrderSummaryPanel } from '@/features/checkout/components/order-summary-panel'
 import { useLastOrderStore } from '@/features/checkout/store'
 import { buildMockOrder } from '@/features/checkout/lib/place-order'
-import { useCartStore } from '@/features/cart/store'
+import { useCart } from '@/features/cart/use-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
-import { getCartLines } from '@/features/cart/lib/lines'
 import { computeCartSummary } from '@/features/cart/lib/summary'
 import { shippingMethods } from '@/features/cart/lib/shipping'
 import type { Contact, Address } from '@/features/checkout/schema'
@@ -42,8 +41,10 @@ const STEP_LABELS: Record<Step, string> = {
  * to the first).
  *
  * Gated on `useHydrated` so the persisted cart is never read before the
- * client has hydrated (avoids a server/client mismatch). If the cart is
- * empty, shows an empty state linking back to `/` instead of the flow.
+ * client has hydrated (avoids a server/client mismatch), and on
+ * `useCart().isLoading` so the async server-backed `lines` resolution
+ * doesn't flash the empty state first. If the cart is empty, shows an empty
+ * state linking back to `/` instead of the flow.
  *
  * On `Place order`, `orderNumber` and `placedAt` are generated here, inside
  * the event handler (never during render), before building and persisting
@@ -52,7 +53,7 @@ const STEP_LABELS: Record<Step, string> = {
 export function CheckoutFlow() {
   const router = useRouter()
   const hydrated = useHydrated()
-  const items = useCartStore((s) => s.items)
+  const { lines, clear, isLoading } = useCart()
 
   const [step, setStep] = useState<Step>('contact')
   const [contact, setContact] = useState<Contact>()
@@ -60,7 +61,7 @@ export function CheckoutFlow() {
   const [shippingMethod, setShippingMethod] = useState(shippingMethods[0])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card')
 
-  if (!hydrated) {
+  if (!hydrated || isLoading) {
     return (
       <div className="flex flex-col gap-10 lg:flex-row lg:items-start" aria-hidden="true">
         <Skeleton className="h-96 flex-1 rounded-xl" />
@@ -68,8 +69,6 @@ export function CheckoutFlow() {
       </div>
     )
   }
-
-  const lines = getCartLines(items, 'NGN')
 
   if (lines.length === 0) {
     return (
@@ -105,7 +104,7 @@ export function CheckoutFlow() {
     })
 
     useLastOrderStore.getState().setOrder(order)
-    useCartStore.getState().clear()
+    clear()
     router.push(`/order/${order.orderNumber}`)
   }
 

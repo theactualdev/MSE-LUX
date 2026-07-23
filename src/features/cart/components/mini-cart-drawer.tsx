@@ -5,8 +5,7 @@ import { ShoppingBag } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { CartLineItem } from '@/features/cart/components/cart-line-item'
-import { getCartLines } from '@/features/cart/lib/lines'
-import { useCartStore } from '@/features/cart/store'
+import { useCart } from '@/features/cart/use-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { formatMoney } from '@/lib/money'
 import { cn } from '@/lib/utils'
@@ -21,10 +20,14 @@ import { useUiStore } from '@/stores/ui'
 export function MiniCartDrawer() {
   const open = useUiStore((s) => s.cartDrawerOpen)
   const closeCartDrawer = useUiStore((s) => s.closeCartDrawer)
-  const items = useCartStore((s) => s.items)
+  const { lines, isLoading } = useCart()
   const hydrated = useHydrated()
 
-  const lines = hydrated ? getCartLines(items, 'NGN') : []
+  // Cart contents aren't known yet either before hydration (SSR/first-paint
+  // gate, matches the server markup) or while `isLoading` (server items
+  // and/or line resolution still in flight) — render nothing in either case
+  // rather than flash the empty state.
+  const showContent = hydrated && !isLoading
   const hasItems = lines.length > 0
   const subtotalAmountMinor = lines.reduce((sum, line) => sum + line.lineTotal.amountMinor, 0)
 
@@ -40,7 +43,7 @@ export function MiniCartDrawer() {
           <SheetTitle>Your bag</SheetTitle>
         </SheetHeader>
 
-        {!hydrated ? null : hasItems ? (
+        {!showContent ? null : hasItems ? (
           <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-4">
             {lines.map((line) => (
               // Compact summary rows (thumbnail, name, qty × price, line total) — no
@@ -57,7 +60,7 @@ export function MiniCartDrawer() {
           </div>
         )}
 
-        {hydrated && hasItems ? (
+        {showContent && hasItems ? (
           <SheetFooter>
             <div className="flex items-center justify-between text-base font-medium text-foreground">
               <span>Subtotal</span>
