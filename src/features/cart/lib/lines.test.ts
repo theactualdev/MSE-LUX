@@ -1,16 +1,19 @@
 import { describe, it, expect } from 'vitest'
-import { getCartLines } from '@/features/cart/lib/lines'
+import { buildCartLines } from '@/features/cart/lib/lines'
 import { getAllProducts } from '@/features/catalog/lib/selectors'
 
-describe('getCartLines', () => {
+describe('buildCartLines', () => {
   it('resolves a cart item to a line with unit + line totals', () => {
     const product = getAllProducts()[0]
-    const lines = getCartLines([{ productId: product.id, quantity: 2 }], 'NGN')
+    const lines = buildCartLines([{ productId: product.id, quantity: 2 }], [product], 'NGN')
     expect(lines).toHaveLength(1)
     expect(lines[0].product.id).toBe(product.id)
     expect(lines[0].lineTotal.amountMinor).toBe(lines[0].unitPrice.amountMinor * 2)
   })
-  it('drops items whose product no longer exists', () => {
-    expect(getCartLines([{ productId: 'nope', quantity: 1 }], 'NGN')).toEqual([])
+
+  it('drops items whose product does not resolve from the given products array', () => {
+    const product = getAllProducts()[0]
+    const lines = buildCartLines([{ productId: 'nope', quantity: 1 }], [product], 'NGN')
+    expect(lines).toEqual([])
   })
 })
