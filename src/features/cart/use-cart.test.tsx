@@ -14,10 +14,12 @@ vi.mock('@/features/cart/data', () => ({
   clearServerCart: vi.fn(),
 }))
 vi.mock('@/features/catalog/server/resolve-products', () => ({ resolveProductsByIds: vi.fn() }))
+vi.mock('@/features/currency/context', () => ({ useDisplayCurrency: vi.fn() }))
 
 import { useSession } from '@/features/auth/use-session'
 import { getServerCartItems, addCartItem, setCartItemQty, removeCartItem, clearServerCart } from '@/features/cart/data'
 import { resolveProductsByIds } from '@/features/catalog/server/resolve-products'
+import { useDisplayCurrency } from '@/features/currency/context'
 import { useCart } from '@/features/cart/use-cart'
 
 const useSessionMock = vi.mocked(useSession)
@@ -27,6 +29,7 @@ const setCartItemQtyMock = vi.mocked(setCartItemQty)
 const removeCartItemMock = vi.mocked(removeCartItem)
 const clearServerCartMock = vi.mocked(clearServerCart)
 const resolveProductsByIdsMock = vi.mocked(resolveProductsByIds)
+const useDisplayCurrencyMock = vi.mocked(useDisplayCurrency)
 
 const priceSet = {
   ngn: { amountMinor: 2_400_000, currency: 'NGN' as const },
@@ -69,6 +72,9 @@ beforeEach(() => {
   useServerCartStore.getState().reset()
   resolveProductsByIdsMock.mockResolvedValue([])
   getServerCartItemsMock.mockResolvedValue([])
+  // Matches the real hook's safe out-of-provider fallback, so existing
+  // tests (which don't care about currency) keep behaving as before.
+  useDisplayCurrencyMock.mockReturnValue('NGN')
 })
 
 describe('useCart — guest mode', () => {
@@ -326,5 +332,35 @@ describe('useCart — lines', () => {
     expect(result.current.lines[0].product.id).toBe('FIX-1')
     expect(result.current.lines[0].quantity).toBe(2)
     expect(result.current.lines[0].lineTotal.amountMinor).toBe(result.current.lines[0].unitPrice.amountMinor * 2)
+  })
+})
+
+describe('useCart — chargeCurrency', () => {
+  beforeEach(() => {
+    useSessionMock.mockReturnValue({ signedIn: false, loading: false })
+  })
+
+  it('derives chargeCurrency as USD from a non-NGN display currency, and builds lines in USD', async () => {
+    useDisplayCurrencyMock.mockReturnValue('GBP')
+    useCartStore.getState().addItem('FIX-1', undefined, 1)
+    resolveProductsByIdsMock.mockResolvedValue([fixtureProduct])
+
+    const { result } = renderHook(() => useCart())
+
+    expect(result.current.chargeCurrency).toBe('USD')
+    await waitFor(() => expect(result.current.lines).toHaveLength(1))
+    expect(result.current.lines[0].unitPrice.currency).toBe('USD')
+  })
+
+  it('derives chargeCurrency as NGN from an NGN display currency, and builds lines in NGN', async () => {
+    useDisplayCurrencyMock.mockReturnValue('NGN')
+    useCartStore.getState().addItem('FIX-1', undefined, 1)
+    resolveProductsByIdsMock.mockResolvedValue([fixtureProduct])
+
+    const { result } = renderHook(() => useCart())
+
+    expect(result.current.chargeCurrency).toBe('NGN')
+    await waitFor(() => expect(result.current.lines).toHaveLength(1))
+    expect(result.current.lines[0].unitPrice.currency).toBe('NGN')
   })
 })

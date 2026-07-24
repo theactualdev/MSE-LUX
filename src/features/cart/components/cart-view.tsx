@@ -7,7 +7,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CartLineItem } from '@/features/cart/components/cart-line-item'
 import { CartSummary } from '@/features/cart/components/cart-summary'
 import { computeCartSummary } from '@/features/cart/lib/summary'
-import { shippingMethods } from '@/features/cart/lib/shipping'
+import { shippingAmountFor, shippingMethods } from '@/features/cart/lib/shipping'
 import { useCart } from '@/features/cart/use-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { cn } from '@/lib/utils'
@@ -26,7 +26,7 @@ import { cn } from '@/lib/utils'
  */
 export function CartView() {
   const hydrated = useHydrated()
-  const { lines, setQty, remove, isLoading } = useCart()
+  const { lines, setQty, remove, isLoading, chargeCurrency } = useCart()
 
   if (!hydrated || isLoading) {
     return (
@@ -66,7 +66,7 @@ export function CartView() {
     )
   }
 
-  const summary = computeCartSummary(lines, shippingMethods[0].amount, 'NGN')
+  const summary = computeCartSummary(lines, shippingAmountFor(shippingMethods[0], chargeCurrency), chargeCurrency)
 
   return (
     <div className="flex flex-col gap-10 lg:flex-row lg:items-start">

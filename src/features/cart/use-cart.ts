@@ -8,6 +8,8 @@ import { useServerCartStore } from '@/features/cart/server-cart-store'
 import { buildCartLines, type CartLine } from '@/features/cart/lib/lines'
 import { resolveProductsByIds } from '@/features/catalog/server/resolve-products'
 import type { GuestCartItem } from '@/features/cart/types'
+import { useDisplayCurrency } from '@/features/currency/context'
+import { chargeCurrencyFor } from '@/features/currency/lib/currencies'
 
 export interface UseCartResult {
   items: GuestCartItem[]
@@ -19,6 +21,7 @@ export interface UseCartResult {
   clear: () => void
   isPending: boolean
   isLoading: boolean
+  chargeCurrency: 'NGN' | 'USD'
 }
 
 /**
@@ -61,11 +64,15 @@ export interface UseCartResult {
  * `items`): only 1–2 line-rendering consumers are ever mounted at once, so
  * there's no redundant-fetch problem worth sharing it for.
  *
- * Cart currency is hardcoded to `'NGN'` (Phase 5b decision A: cart stays
- * NGN-only until 5d threads viewer currency through checkout).
+ * Lines are built in the customer's charge currency — NGN for Nigeria, USD
+ * for the rest of the world — derived from the viewer's display currency via
+ * `chargeCurrencyFor` (Phase 5d; previously hardcoded to `'NGN'` per 5b
+ * decision A).
  */
 export function useCart(): UseCartResult {
   const { signedIn, loading: authLoading } = useSession()
+  const displayCurrency = useDisplayCurrency()
+  const chargeCurrency = chargeCurrencyFor(displayCurrency)
 
   // ---- guest backend: proxy the existing zustand store verbatim ----
   const guestItems = useCartStore((s) => s.items)
@@ -140,7 +147,10 @@ export function useCart(): UseCartResult {
     }
   }, [idsKey])
 
-  const lines = useMemo(() => buildCartLines(items, products, 'NGN'), [items, products])
+  const lines = useMemo(
+    () => buildCartLines(items, products, chargeCurrency),
+    [items, products, chargeCurrency],
+  )
   const itemCount = items.reduce((n, i) => n + i.quantity, 0)
 
   // Cart contents are "definitively known" once (a) signed-in items have
@@ -214,5 +224,6 @@ export function useCart(): UseCartResult {
     clear,
     isPending: signedIn ? isPending : false,
     isLoading,
+    chargeCurrency,
   }
 }

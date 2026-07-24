@@ -21,7 +21,7 @@ import { useUiStore } from '@/stores/ui'
 export function MiniCartDrawer() {
   const open = useUiStore((s) => s.cartDrawerOpen)
   const closeCartDrawer = useUiStore((s) => s.closeCartDrawer)
-  const { lines, isLoading } = useCart()
+  const { lines, isLoading, chargeCurrency } = useCart()
   const hydrated = useHydrated()
 
   // Before hydration: render nothing (SSR/first-paint gate, matches the server
@@ -77,7 +77,7 @@ export function MiniCartDrawer() {
           <SheetFooter>
             <div className="flex items-center justify-between text-base font-medium text-foreground">
               <span>Subtotal</span>
-              <span>{formatMoney({ amountMinor: subtotalAmountMinor, currency: 'NGN' })}</span>
+              <span>{formatMoney({ amountMinor: subtotalAmountMinor, currency: chargeCurrency })}</span>
             </div>
             <Link
               href="/cart"
