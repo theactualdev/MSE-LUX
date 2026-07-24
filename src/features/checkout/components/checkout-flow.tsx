@@ -60,12 +60,27 @@ export function CheckoutFlow() {
   const [address, setAddress] = useState<Address>()
   const [shippingMethod, setShippingMethod] = useState(shippingMethods[0])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card')
+  const [placing, setPlacing] = useState(false)
 
   if (!hydrated || isLoading) {
     return (
       <div className="flex flex-col gap-10 lg:flex-row lg:items-start" aria-hidden="true">
         <Skeleton className="h-96 flex-1 rounded-xl" />
         <Skeleton className="h-56 w-full rounded-xl lg:w-80 lg:shrink-0" />
+      </div>
+    )
+  }
+
+  // Once the order is being placed we clear the cart (which empties `lines`)
+  // and navigate to the confirmation page. Show a placing state until the
+  // navigation lands, so the now-empty cart doesn't flash "your bag is empty"
+  // between `clear()` and the route change.
+  if (placing) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-16 text-center" role="status" aria-live="polite">
+        <ShoppingBag aria-hidden="true" className="size-10 animate-pulse text-muted-foreground" />
+        <h2 className="font-display text-xl font-medium text-foreground">Placing your order…</h2>
+        <p className="max-w-sm text-sm text-muted-foreground">Hang tight while we confirm your order.</p>
       </div>
     )
   }
@@ -103,6 +118,9 @@ export function CheckoutFlow() {
       placedAt,
     })
 
+    // Flip to the placing state BEFORE clearing the cart, so the empty-bag
+    // state can't render in the gap before the navigation completes.
+    setPlacing(true)
     useLastOrderStore.getState().setOrder(order)
     clear()
     router.push(`/order/${order.orderNumber}`)
