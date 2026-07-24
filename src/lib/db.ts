@@ -33,7 +33,18 @@ function createPrismaClient(): PrismaClient {
   if (!connectionString) {
     throw new Error('DATABASE_URL is not set — add it to .env (see docs/phases/phase-3-database/spec.md).')
   }
-  return new PrismaClient({ adapter: new PrismaPg(connectionString) })
+  return new PrismaClient({
+    adapter: new PrismaPg({
+      connectionString,
+      // Never wait forever for a pooled connection. pg's default
+      // `connectionTimeoutMillis` is 0 (no timeout), so if the pool is
+      // momentarily exhausted a query queues indefinitely — which surfaced as a
+      // request that never resolves and a UI stuck on a loading skeleton with
+      // nothing logged. Failing fast turns that into a visible, catchable error
+      // the data layer / stores already handle.
+      connectionTimeoutMillis: 8_000,
+    }),
+  })
 }
 
 function getPrismaClient(): PrismaClient {
