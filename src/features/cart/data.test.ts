@@ -8,6 +8,12 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
  * that returned the right data while forgetting to scope by the session
  * user's cart would be a cross-tenant read/write, and only an argument
  * assertion catches that.
+ *
+ * The line read-modify-write goes through `findFirst` → `update`-by-id /
+ * `create` (never `findUnique`/`upsert` on the `(cartId, productId,
+ * variantId)` compound key): Prisma rejects `null` in a compound-unique
+ * `where` at runtime, which broke variantless adds. These mocks therefore
+ * spy on `findFirst`/`update`/`create`/`delete`.
  */
 
 const cart = {
@@ -16,9 +22,11 @@ const cart = {
 }
 
 const cartItem = {
-  findUnique: vi.fn(),
+  findFirst: vi.fn(),
   findMany: vi.fn(),
-  upsert: vi.fn(),
+  create: vi.fn(),
+  update: vi.fn(),
+  delete: vi.fn(),
   deleteMany: vi.fn(),
 }
 
@@ -72,6 +80,7 @@ const {
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
 const CART_ID = 'cart-1'
+const ITEM_ID = 'item-1'
 const PRODUCT_ID = 'prod-1'
 const VARIANT_ID = 'variant-1'
 
@@ -112,9 +121,9 @@ describe('getServerCartItems', () => {
 })
 
 describe('addCartItem', () => {
-  it('fetches-or-creates the cart, then upserts on (cartId, productId, variantId) incrementing quantity', async () => {
+  it('fetches-or-creates the cart, then updates the existing line incrementing quantity', async () => {
     cart.findFirst.mockResolvedValue({ id: CART_ID })
-    cartItem.findUnique.mockResolvedValue({ quantity: 1 })
+    cartItem.findFirst.mockResolvedValue({ id: ITEM_ID, quantity: 1 })
     productVariant.findUnique.mockResolvedValue({ inventory: 10, productId: PRODUCT_ID })
     cartItem.findMany.mockResolvedValue([{ productId: PRODUCT_ID, variantId: VARIANT_ID, quantity: 3 }])
 
@@ -124,66 +133,59 @@ describe('addCartItem', () => {
     })
 
     expect(cart.create).not.toHaveBeenCalled()
-    expect(cartItem.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { cartId_productId_variantId: { cartId: CART_ID, productId: PRODUCT_ID, variantId: VARIANT_ID } },
-      }),
+    expect(cartItem.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { cartId: CART_ID, productId: PRODUCT_ID, variantId: VARIANT_ID } }),
     )
-    expect(cartItem.upsert).toHaveBeenCalledWith({
-      where: { cartId_productId_variantId: { cartId: CART_ID, productId: PRODUCT_ID, variantId: VARIANT_ID } },
-      create: { cartId: CART_ID, productId: PRODUCT_ID, variantId: VARIANT_ID, quantity: 3 },
-      update: { quantity: 3 },
-    })
+    expect(cartItem.update).toHaveBeenCalledWith({ where: { id: ITEM_ID }, data: { quantity: 3 } })
+    expect(cartItem.create).not.toHaveBeenCalled()
   })
 
   it('creates the cart lazily when the profile has none yet', async () => {
     cart.findFirst.mockResolvedValue(null)
     cart.create.mockResolvedValue({ id: CART_ID })
-    cartItem.findUnique.mockResolvedValue(null)
+    cartItem.findFirst.mockResolvedValue(null)
     productVariant.findUnique.mockResolvedValue({ inventory: 10, productId: PRODUCT_ID })
     cartItem.findMany.mockResolvedValue([])
 
     await addCartItem(PRODUCT_ID, VARIANT_ID, 1)
 
     expect(cart.create).toHaveBeenCalledWith(expect.objectContaining({ data: { profileId: USER_ID } }))
+    expect(cartItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { cartId: CART_ID, productId: PRODUCT_ID, variantId: VARIANT_ID, quantity: 1 },
+      }),
+    )
   })
 
-  it('targets the null-variant key for a variantless add instead of duplicating a row', async () => {
+  it('uses a plain null-variant filter (never a compound-unique key) for a variantless add', async () => {
     cart.findFirst.mockResolvedValue({ id: CART_ID })
-    cartItem.findUnique.mockResolvedValue(null)
+    cartItem.findFirst.mockResolvedValue(null)
     product.findUnique.mockResolvedValue({ inventory: 10 })
     cartItem.findMany.mockResolvedValue([])
 
     await addCartItem(PRODUCT_ID, undefined, 1)
 
     expect(productVariant.findUnique).not.toHaveBeenCalled()
-    expect(product.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { id: PRODUCT_ID } }),
+    expect(product.findUnique).toHaveBeenCalledWith(expect.objectContaining({ where: { id: PRODUCT_ID } }))
+    // The regression this guards: a compound-unique `findUnique`/`upsert` here
+    // would carry `variantId: null`, which Prisma rejects at runtime.
+    expect(cartItem.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { cartId: CART_ID, productId: PRODUCT_ID, variantId: null } }),
     )
-    expect(cartItem.findUnique).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { cartId_productId_variantId: { cartId: CART_ID, productId: PRODUCT_ID, variantId: null } },
-      }),
-    )
-    expect(cartItem.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { cartId_productId_variantId: { cartId: CART_ID, productId: PRODUCT_ID, variantId: null } },
-        create: expect.objectContaining({ variantId: null }),
-      }),
+    expect(cartItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ variantId: null, quantity: 1 }) }),
     )
   })
 
   it('clamps the stored quantity to the resolved inventory', async () => {
     cart.findFirst.mockResolvedValue({ id: CART_ID })
-    cartItem.findUnique.mockResolvedValue({ quantity: 8 })
+    cartItem.findFirst.mockResolvedValue({ id: ITEM_ID, quantity: 8 })
     productVariant.findUnique.mockResolvedValue({ inventory: 10, productId: PRODUCT_ID })
     cartItem.findMany.mockResolvedValue([])
 
     await addCartItem(PRODUCT_ID, VARIANT_ID, 5) // 8 + 5 = 13, clamp to 10
 
-    expect(cartItem.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ update: { quantity: 10 }, create: expect.objectContaining({ quantity: 10 }) }),
-    )
+    expect(cartItem.update).toHaveBeenCalledWith({ where: { id: ITEM_ID }, data: { quantity: 10 } })
   })
 
   it('removes the line instead of writing it when the item has no inventory', async () => {
@@ -193,8 +195,12 @@ describe('addCartItem', () => {
 
     await addCartItem(PRODUCT_ID, VARIANT_ID, 1)
 
-    expect(cartItem.upsert).not.toHaveBeenCalled()
-    expect(cartItem.findUnique).not.toHaveBeenCalled()
+    expect(cartItem.deleteMany).toHaveBeenCalledWith({
+      where: { cartId: CART_ID, productId: PRODUCT_ID, variantId: VARIANT_ID },
+    })
+    expect(cartItem.create).not.toHaveBeenCalled()
+    expect(cartItem.update).not.toHaveBeenCalled()
+    expect(cartItem.findFirst).not.toHaveBeenCalled()
   })
 
   it('rejects an invalid quantity without touching the database', async () => {
@@ -213,7 +219,7 @@ describe('addCartItem', () => {
 
     await expect(addCartItem(PRODUCT_ID, VARIANT_ID, 1)).resolves.toEqual({ error: expect.any(String) })
     expect(cart.findFirst).not.toHaveBeenCalled()
-    expect(cartItem.upsert).not.toHaveBeenCalled()
+    expect(cartItem.create).not.toHaveBeenCalled()
     expect($transaction).not.toHaveBeenCalled()
   })
 })
@@ -221,7 +227,7 @@ describe('addCartItem', () => {
 describe('mergeGuestCart', () => {
   it('sums the guest quantity onto the existing server quantity for the same key, clamped to inventory', async () => {
     cart.findFirst.mockResolvedValue({ id: CART_ID })
-    cartItem.findUnique.mockResolvedValue({ quantity: 1 })
+    cartItem.findFirst.mockResolvedValue({ id: ITEM_ID, quantity: 1 })
     productVariant.findUnique.mockResolvedValue({ inventory: 10, productId: PRODUCT_ID })
     cartItem.findMany.mockResolvedValue([{ productId: PRODUCT_ID, variantId: VARIANT_ID, quantity: 3 }])
 
@@ -229,29 +235,23 @@ describe('mergeGuestCart', () => {
       mergeGuestCart([{ productId: PRODUCT_ID, variantId: VARIANT_ID, quantity: 2 }]),
     ).resolves.toEqual({ ok: true, items: [{ productId: PRODUCT_ID, variantId: VARIANT_ID, quantity: 3 }] })
 
-    expect(cartItem.upsert).toHaveBeenCalledWith({
-      where: { cartId_productId_variantId: { cartId: CART_ID, productId: PRODUCT_ID, variantId: VARIANT_ID } },
-      create: { cartId: CART_ID, productId: PRODUCT_ID, variantId: VARIANT_ID, quantity: 3 },
-      update: { quantity: 3 },
-    })
+    expect(cartItem.update).toHaveBeenCalledWith({ where: { id: ITEM_ID }, data: { quantity: 3 } })
   })
 
   it('clamps the merged sum to inventory', async () => {
     cart.findFirst.mockResolvedValue({ id: CART_ID })
-    cartItem.findUnique.mockResolvedValue({ quantity: 8 })
+    cartItem.findFirst.mockResolvedValue({ id: ITEM_ID, quantity: 8 })
     productVariant.findUnique.mockResolvedValue({ inventory: 10, productId: PRODUCT_ID })
     cartItem.findMany.mockResolvedValue([])
 
     await mergeGuestCart([{ productId: PRODUCT_ID, variantId: VARIANT_ID, quantity: 9 }]) // 8 + 9 = 17, clamp 10
 
-    expect(cartItem.upsert).toHaveBeenCalledWith(
-      expect.objectContaining({ update: { quantity: 10 } }),
-    )
+    expect(cartItem.update).toHaveBeenCalledWith({ where: { id: ITEM_ID }, data: { quantity: 10 } })
   })
 
   it('processes every guest item inside one transaction', async () => {
     cart.findFirst.mockResolvedValue({ id: CART_ID })
-    cartItem.findUnique.mockResolvedValue(null)
+    cartItem.findFirst.mockResolvedValue(null)
     productVariant.findUnique.mockResolvedValue({ inventory: 10, productId: PRODUCT_ID })
     product.findUnique.mockResolvedValue({ inventory: 10 })
     cartItem.findMany.mockResolvedValue([])
@@ -262,7 +262,7 @@ describe('mergeGuestCart', () => {
     ])
 
     expect($transaction).toHaveBeenCalledTimes(1)
-    expect(cartItem.upsert).toHaveBeenCalledTimes(2)
+    expect(cartItem.create).toHaveBeenCalledTimes(2)
   })
 
   it('rejects a malformed guest payload without touching the database', async () => {
@@ -285,7 +285,7 @@ describe('mergeGuestCart', () => {
 describe('setCartItemQty', () => {
   it('sets an absolute quantity, clamped to inventory, scoped to the existing cart', async () => {
     cart.findFirst.mockResolvedValue({ id: CART_ID })
-    cartItem.findUnique.mockResolvedValue({ quantity: 1 })
+    cartItem.findFirst.mockResolvedValue({ id: ITEM_ID, quantity: 1 })
     productVariant.findUnique.mockResolvedValue({ inventory: 4, productId: PRODUCT_ID })
     cartItem.findMany.mockResolvedValue([{ productId: PRODUCT_ID, variantId: VARIANT_ID, quantity: 4 }])
 
@@ -294,11 +294,7 @@ describe('setCartItemQty', () => {
       items: [{ productId: PRODUCT_ID, variantId: VARIANT_ID, quantity: 4 }],
     })
 
-    expect(cartItem.upsert).toHaveBeenCalledWith({
-      where: { cartId_productId_variantId: { cartId: CART_ID, productId: PRODUCT_ID, variantId: VARIANT_ID } },
-      create: { cartId: CART_ID, productId: PRODUCT_ID, variantId: VARIANT_ID, quantity: 4 },
-      update: { quantity: 4 },
-    })
+    expect(cartItem.update).toHaveBeenCalledWith({ where: { id: ITEM_ID }, data: { quantity: 4 } })
   })
 
   it('removes the line when qty is zero or negative, scoped by the cart id', async () => {
@@ -310,7 +306,7 @@ describe('setCartItemQty', () => {
     expect(cartItem.deleteMany).toHaveBeenCalledWith({
       where: { cartId: CART_ID, productId: PRODUCT_ID, variantId: VARIANT_ID },
     })
-    expect(cartItem.upsert).not.toHaveBeenCalled()
+    expect(cartItem.update).not.toHaveBeenCalled()
   })
 
   it('no-ops when the user has no cart yet and qty is zero or negative', async () => {

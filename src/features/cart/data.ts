@@ -104,28 +104,6 @@ function toVariantKey(variantId: string | undefined): string | null {
   return variantId ?? null
 }
 
-/**
- * Builds the `(cartId, productId, variantId)` compound-unique key used by
- * every `findUnique`/`upsert` below.
- *
- * The cast is required, not stylistic: Prisma generates
- * `CartItemCartIdProductIdVariantIdCompoundUniqueInput.variantId` as a
- * non-null `string` even though the underlying column is nullable — a known
- * gap in how Prisma types compound-unique inputs on a nullable field. The
- * hand-added `NULLS NOT DISTINCT` index (see the `CartItem` model's own
- * comment in `prisma/schema.prisma`) is exactly what makes passing `null`
- * here valid and necessary at runtime; this is the single place that fact
- * gets asserted past the generated type, instead of an `as string` at every
- * call site.
- */
-function cartItemKey(
-  cartId: string,
-  productId: string,
-  variantId: string | null,
-): Prisma.CartItemCartIdProductIdVariantIdCompoundUniqueInput {
-  return { cartId, productId, variantId } as Prisma.CartItemCartIdProductIdVariantIdCompoundUniqueInput
-}
-
 function toDomainItem(row: { productId: string; variantId: string | null; quantity: number }): GuestCartItem {
   return { productId: row.productId, variantId: row.variantId ?? undefined, quantity: row.quantity }
 }
@@ -227,24 +205,33 @@ async function writeLineQuantity(
     return
   }
 
-  const existing = await client.cartItem.findUnique({
-    where: { cartId_productId_variantId: cartItemKey(cartId, productId, variantKey) },
-    select: { quantity: true },
+  // `findFirst` (a plain filter), NOT `findUnique`/`upsert` on the compound
+  // key: Prisma rejects `null` in a compound-unique `where` at runtime
+  // ("Argument `variantId` must not be null") — it models a unique over a
+  // nullable column as NULLs-distinct, so a null key part can't identify one
+  // row, and this holds regardless of the hand-added `NULLS NOT DISTINCT` index
+  // (which Prisma has no knowledge of). A plain `where` accepts `null` fine, so
+  // the read-modify-write is done as findFirst → update-by-id / create instead.
+  // The DB index still prevents duplicate variantless rows: a racing concurrent
+  // `create` loses with `P2002`, caught by the mutation's own handler.
+  const existing = await client.cartItem.findFirst({
+    where: { cartId, productId, variantId: variantKey },
+    select: { id: true, quantity: true },
   })
 
   const requested = nextQuantity(existing?.quantity ?? 0)
   const clamped = Math.min(Math.max(requested, 0), inventory)
 
   if (clamped <= 0) {
-    await client.cartItem.deleteMany({ where: { cartId, productId, variantId: variantKey } })
+    if (existing) await client.cartItem.delete({ where: { id: existing.id } })
     return
   }
 
-  await client.cartItem.upsert({
-    where: { cartId_productId_variantId: cartItemKey(cartId, productId, variantKey) },
-    create: { cartId, productId, variantId: variantKey, quantity: clamped },
-    update: { quantity: clamped },
-  })
+  if (existing) {
+    await client.cartItem.update({ where: { id: existing.id }, data: { quantity: clamped } })
+  } else {
+    await client.cartItem.create({ data: { cartId, productId, variantId: variantKey, quantity: clamped } })
+  }
 }
 
 /** The signed-in user's cart items, mapped to the domain shape. Empty when unauthenticated or the user has no cart yet. */
