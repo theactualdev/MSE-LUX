@@ -1,10 +1,15 @@
 import Link from 'next/link'
 import { Badge } from '@/components/ui/badge'
 import { formatMoney } from '@/lib/money'
-import type { MockOrder } from '@/features/account/data/orders'
+import type { OrderView } from '@/features/checkout/lib/order-view'
 
 interface OrderRowProps {
-  order: MockOrder
+  order: OrderView
+}
+
+/** Title-cases the Prisma `OrderStatus` enum value for display, e.g. `PENDING` → `Pending`. */
+function statusLabel(status: string): string {
+  return status.charAt(0) + status.slice(1).toLowerCase()
 }
 
 /**
@@ -33,7 +38,7 @@ export function OrderRow({ order }: OrderRowProps) {
       </div>
 
       <div className="flex items-center gap-3">
-        <Badge variant="secondary">{order.status}</Badge>
+        <Badge variant="secondary">{statusLabel(order.status)}</Badge>
         <span className="text-sm font-medium text-foreground">{formatMoney(order.summary.total)}</span>
       </div>
     </Link>

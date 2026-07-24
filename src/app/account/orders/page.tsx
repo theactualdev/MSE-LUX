@@ -3,7 +3,7 @@ import { AccountShell } from '@/features/account/components/account-shell'
 import { OrderHistory } from '@/features/account/components/order-history'
 import { requireUser } from '@/features/auth/guards'
 import { getProfile } from '@/features/account/data'
-import { MOCK_ORDERS } from '@/features/account/data/orders'
+import { listOrders } from '@/features/account/data/orders'
 
 export const metadata: Metadata = {
   title: 'Your orders',
@@ -11,20 +11,17 @@ export const metadata: Metadata = {
 }
 
 /**
- * Server-guarded by `requireUser()`. Orders themselves stay mock until Phase 5
- * builds the real order pipeline — `MOCK_ORDERS` is static seed data that is
- * NOT scoped to the signed-in user (Phase 2d already flagged that it carries
- * three different customers' names). The guard here means only *some*
- * authenticated user can reach it, not that the data belongs to them; that
- * gap closes when this read becomes a real per-user query.
+ * Server-guarded by `requireUser()`. `listOrders()` reads the signed-in
+ * session user's real orders from the DB (scoped by `getCurrentUserId()`),
+ * so this page only ever shows orders that belong to the current user.
  */
 export default async function OrdersPage() {
   await requireUser()
-  const profile = await getProfile()
+  const [profile, orders] = await Promise.all([getProfile(), listOrders()])
 
   return (
     <AccountShell user={profile}>
-      <OrderHistory orders={MOCK_ORDERS} />
+      <OrderHistory orders={orders} />
     </AccountShell>
   )
 }

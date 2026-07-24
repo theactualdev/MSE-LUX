@@ -7,7 +7,7 @@ import { AccountShell } from '@/features/account/components/account-shell'
 import { requireUser } from '@/features/auth/guards'
 import { getProfile } from '@/features/account/data'
 import { CartSummary } from '@/features/cart/components/cart-summary'
-import { getMockOrder } from '@/features/account/data/orders'
+import { getOrder } from '@/features/account/data/orders'
 import { formatMoney } from '@/lib/money'
 import { cn } from '@/lib/utils'
 
@@ -32,15 +32,15 @@ export async function generateMetadata({ params }: OrderDetailPageProps): Promis
  * number.
  *
  * Server-guarded by `requireUser()`, which runs before the order is looked up
- * so an unauthenticated request never reaches the data read at all. As on the
- * orders index, the order itself is still Phase 5's static mock and is not
- * scoped to the signed-in user.
+ * so an unauthenticated request never reaches the data read at all.
+ * `getOrder()` itself is scoped by `getCurrentUserId()`, so the order shown
+ * here is the signed-in user's own, real order — looking up another
+ * customer's order number returns `null`, same as a nonexistent one.
  */
 export default async function OrderDetailPage({ params }: OrderDetailPageProps) {
   await requireUser()
   const { orderNumber } = await params
-  const order = getMockOrder(orderNumber)
-  const profile = await getProfile()
+  const [order, profile] = await Promise.all([getOrder(orderNumber), getProfile()])
 
   return (
     <AccountShell user={profile}>

@@ -1,8 +1,8 @@
 import { OrderRow } from '@/features/account/components/order-row'
-import type { MockOrder } from '@/features/account/data/orders'
+import type { OrderView } from '@/features/checkout/lib/order-view'
 
 interface OrderHistoryProps {
-  orders: MockOrder[]
+  orders: OrderView[]
 }
 
 /** Lists the signed-in customer's past orders, most recent first, or a strong empty state. */
