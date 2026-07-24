@@ -1,117 +1,50 @@
-import type { Order } from '@/features/checkout/lib/place-order'
+import 'server-only'
 
-export type OrderStatus = 'Processing' | 'Shipped' | 'Delivered'
-
-export type MockOrder = Order & { status: OrderStatus }
+import { db } from '@/lib/db'
+import { getCurrentUserId } from '@/features/auth/claims'
+import { mapOrderRow, type OrderView } from '@/features/checkout/lib/order-view'
 
 /**
- * Seeded mock orders for the customer dashboard. `placedAt` values are
- * hard-coded ISO string literals (not generated) so the data is deterministic.
+ * Per-user order reads for the customer dashboard.
+ *
+ * Same authorization model as `src/features/account/data.ts`: Prisma
+ * connects through the pooler as a privileged role and bypasses RLS
+ * entirely, so every query here derives its scope from
+ * `getCurrentUserId()` (verified JWT `sub`) and takes no caller-supplied
+ * user id — there is deliberately no `userId` parameter to get wrong.
  */
-export const MOCK_ORDERS: MockOrder[] = [
-  {
-    orderNumber: 'MSE-100001',
-    email: 'ada.buyer@example.com',
-    address: {
-      fullName: 'Ada Buyer',
-      phone: '0801 234 5678',
-      line1: '12 Marina Road',
-      city: 'Lagos',
-      state: 'Lagos',
-      country: 'Nigeria',
-      postalCode: '101241',
-    },
-    shippingLabel: 'Lagos delivery',
-    lines: [
-      {
-        name: 'Aurora Tennis Bracelet',
-        image: { src: '/aurora.jpg', alt: 'Aurora Tennis Bracelet' },
-        quantity: 1,
-        unitPrice: { amountMinor: 2_400_000, currency: 'NGN' },
-        lineTotal: { amountMinor: 2_400_000, currency: 'NGN' },
-      },
-    ],
-    summary: {
-      subtotal: { amountMinor: 2_400_000, currency: 'NGN' },
-      shipping: { amountMinor: 250_000, currency: 'NGN' },
-      tax: { amountMinor: 180_000, currency: 'NGN' },
-      total: { amountMinor: 2_830_000, currency: 'NGN' },
-    },
-    placedAt: '2026-05-14T10:30:00.000Z',
-    status: 'Delivered',
-  },
-  {
-    orderNumber: 'MSE-100002',
-    email: 'chidinma.okafor@example.com',
-    address: {
-      fullName: 'Chidinma Okafor',
-      phone: '0802 345 6789',
-      line1: '45 Ahmadu Bello Way',
-      city: 'Abuja',
-      state: 'FCT',
-      country: 'Nigeria',
-      postalCode: '900211',
-    },
-    shippingLabel: 'Nationwide delivery',
-    lines: [
-      {
-        name: 'Solitaire Ring',
-        variantLabel: 'Size 6',
-        image: { src: '/ring.jpg', alt: 'Solitaire Ring' },
-        quantity: 1,
-        unitPrice: { amountMinor: 1_500_000, currency: 'NGN' },
-        lineTotal: { amountMinor: 1_500_000, currency: 'NGN' },
-      },
-      {
-        name: 'Pearl Drop Earrings',
-        image: { src: '/earrings.jpg', alt: 'Pearl Drop Earrings' },
-        quantity: 2,
-        unitPrice: { amountMinor: 450_000, currency: 'NGN' },
-        lineTotal: { amountMinor: 900_000, currency: 'NGN' },
-      },
-    ],
-    summary: {
-      subtotal: { amountMinor: 2_400_000, currency: 'NGN' },
-      shipping: { amountMinor: 500_000, currency: 'NGN' },
-      tax: { amountMinor: 180_000, currency: 'NGN' },
-      total: { amountMinor: 3_080_000, currency: 'NGN' },
-    },
-    placedAt: '2026-06-02T14:05:00.000Z',
-    status: 'Delivered',
-  },
-  {
-    orderNumber: 'MSE-100003',
-    email: 'grace.adeyemi@example.com',
-    address: {
-      fullName: 'Grace Adeyemi',
-      phone: '+44 7911 123456',
-      line1: '221B Baker Street',
-      city: 'London',
-      state: 'England',
-      country: 'United Kingdom',
-      postalCode: 'NW1 6XE',
-    },
-    shippingLabel: 'International',
-    lines: [
-      {
-        name: 'Diamond Pendant Necklace',
-        image: { src: '/necklace.jpg', alt: 'Diamond Pendant Necklace' },
-        quantity: 1,
-        unitPrice: { amountMinor: 3_200_000, currency: 'NGN' },
-        lineTotal: { amountMinor: 3_200_000, currency: 'NGN' },
-      },
-    ],
-    summary: {
-      subtotal: { amountMinor: 3_200_000, currency: 'NGN' },
-      shipping: { amountMinor: 2_000_000, currency: 'NGN' },
-      tax: { amountMinor: 240_000, currency: 'NGN' },
-      total: { amountMinor: 5_440_000, currency: 'NGN' },
-    },
-    placedAt: '2026-07-01T09:15:00.000Z',
-    status: 'Shipped',
-  },
-]
 
-export function getMockOrder(orderNumber: string): MockOrder | undefined {
-  return MOCK_ORDERS.find((order) => order.orderNumber === orderNumber)
+/** The signed-in user's orders, newest first. Empty when unauthenticated. */
+export async function listOrders(): Promise<OrderView[]> {
+  const userId = await getCurrentUserId()
+  if (!userId) return []
+
+  const rows = await db.order.findMany({
+    where: { profileId: userId },
+    orderBy: { placedAt: 'desc' },
+    include: { lines: true },
+  })
+
+  return rows.map(mapOrderRow)
+}
+
+/**
+ * One of the signed-in user's orders by number.
+ *
+ * `orderNumber` alone is not ownership — the `where` also carries
+ * `profileId: userId` so a signed-in user can only ever read their own
+ * orders, never another customer's by guessing/enumerating order numbers.
+ * Returns `null` for not found, not owned, and unauthenticated alike, so
+ * callers can't distinguish "exists but isn't yours" from "doesn't exist".
+ */
+export async function getOrder(orderNumber: string): Promise<OrderView | null> {
+  const userId = await getCurrentUserId()
+  if (!userId) return null
+
+  const row = await db.order.findFirst({
+    where: { orderNumber, profileId: userId },
+    include: { lines: true },
+  })
+
+  return row ? mapOrderRow(row) : null
 }
