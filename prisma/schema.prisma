@@ -390,6 +390,16 @@ model Order {
 
   lines OrderLine[]
 
+  // Records the latest payment attempt's Paystack reference (for audit + the
+  // `verify` token); unique because a Paystack reference is globally unique.
+  // The fulfilment lookup keys on `metadata.orderNumber`, not this column, so a
+  // retry that overwrites the reference can't strand a late success.
+  paystackReference String?   @unique
+  // Set once, when payment is verified — the fulfilment idempotency guard
+  // (its presence means stock has been decremented and the cart cleared,
+  // exactly once).
+  paidAt            DateTime?
+
   // Row-audit timestamp (when this record was created/last touched), distinct
   // from `placedAt`, the business event timestamp.
   createdAt DateTime @default(now())
