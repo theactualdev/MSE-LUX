@@ -47,7 +47,7 @@ export interface UseWishlistResult {
  *   instance only, exactly as before.
  */
 export function useWishlist(): UseWishlistResult {
-  const { signedIn } = useSession()
+  const { signedIn, loading: authLoading } = useSession()
 
   // ---- guest backend: proxy the existing zustand store verbatim ----
   const guestIds = useWishlistStore((s) => s.ids)
@@ -63,12 +63,20 @@ export function useWishlist(): UseWishlistResult {
   const [isPending, startTransition] = useTransition()
 
   useEffect(() => {
+    // Do NOT touch the shared store while auth is still unsettled. `useSession`
+    // starts every mount at `{ signedIn: false, loading: true }` before it
+    // confirms the session, and many `useWishlist()`/`useCart()` instances mount
+    // per page (view, header badge, each product card). Without this guard, any
+    // instance still in its initial `loading` phase reads `signedIn: false` and
+    // fires `reset()`, wiping the wishlist another instance just loaded — the
+    // "loads for half a second then disappears" flap. Only act once auth settles.
+    if (authLoading) return
     if (signedIn) {
       ensureLoaded()
     } else {
       resetServerWishlist()
     }
-  }, [signedIn, ensureLoaded, resetServerWishlist])
+  }, [authLoading, signedIn, ensureLoaded, resetServerWishlist])
 
   const ids = signedIn ? serverIds : guestIds
 
@@ -94,7 +102,9 @@ export function useWishlist(): UseWishlistResult {
   // pin `isLoading` true forever with no retry (that left the wishlist stuck on
   // a skeleton). Only the not-yet-settled states keep it loading. Failure logged
   // in the store.
-  const isLoading = signedIn ? serverStatus === 'idle' || serverStatus === 'loading' : false
+  // While auth is unsettled, report loading (not guest-empty) so the display
+  // doesn't briefly flip to the guest wishlist before settling.
+  const isLoading = authLoading || (signedIn ? serverStatus === 'idle' || serverStatus === 'loading' : false)
 
   return {
     ids,

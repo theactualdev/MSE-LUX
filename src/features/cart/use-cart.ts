@@ -65,7 +65,7 @@ export interface UseCartResult {
  * NGN-only until 5d threads viewer currency through checkout).
  */
 export function useCart(): UseCartResult {
-  const { signedIn } = useSession()
+  const { signedIn, loading: authLoading } = useSession()
 
   // ---- guest backend: proxy the existing zustand store verbatim ----
   const guestItems = useCartStore((s) => s.items)
@@ -87,12 +87,18 @@ export function useCart(): UseCartResult {
   const [isPending, startTransition] = useTransition()
 
   useEffect(() => {
+    // Do NOT touch the shared store while auth is still unsettled — see the
+    // matching guard in `use-wishlist.ts` for the full rationale. `useSession`
+    // starts each mount at `loading: true`/`signedIn: false`, and with many
+    // instances mounted per page an unguarded `reset()` from a still-loading
+    // instance wipes the cart another instance just loaded.
+    if (authLoading) return
     if (signedIn) {
       ensureLoaded()
     } else {
       resetServerCart()
     }
-  }, [signedIn, ensureLoaded, resetServerCart])
+  }, [authLoading, signedIn, ensureLoaded, resetServerCart])
 
   const items = signedIn ? serverItems : guestItems
 
@@ -145,7 +151,7 @@ export function useCart(): UseCartResult {
   // `error` counts as settled (not loading): a failed initial load must not
   // pin `isLoading` true forever with no retry — better to show the empty/
   // current state than a perpetual skeleton. The failure is logged in the store.
-  const itemsReady = signedIn ? serverStatus === 'ready' || serverStatus === 'error' : true
+  const itemsReady = authLoading ? false : signedIn ? serverStatus === 'ready' || serverStatus === 'error' : true
   const linesResolved = idsKey === '' || resolvedKey === idsKey
   const isLoading = !itemsReady || !linesResolved
 
