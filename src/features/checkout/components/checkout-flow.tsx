@@ -100,7 +100,7 @@ export function CheckoutFlow() {
     )
   }
 
-  const summary = computeCartSummary(lines, shippingMethod.amount)
+  const summary = computeCartSummary(lines, shippingMethod.amount, 'NGN')
 
   function handlePlaceOrder() {
     if (!contact || !address) return

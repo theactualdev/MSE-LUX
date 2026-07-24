@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { computeCartSummary } from '@/features/cart/lib/summary'
+import { TAX_RATE } from '@/features/cart/lib/shipping'
 import type { CartLine } from '@/features/cart/lib/lines'
 
 const line = (amountMinor: number, qty: number): CartLine => ({
@@ -11,14 +12,21 @@ const line = (amountMinor: number, qty: number): CartLine => ({
 describe('computeCartSummary', () => {
   it('sums subtotal, applies 7.5% tax, adds shipping', () => {
     const lines = [line(1_000_000, 2), line(500_000, 1)] // ₦25,000 subtotal
-    const s = computeCartSummary(lines, { amountMinor: 250_000, currency: 'NGN' })
+    const s = computeCartSummary(lines, { amountMinor: 250_000, currency: 'NGN' }, 'NGN')
     expect(s.subtotal.amountMinor).toBe(2_500_000)
     expect(s.tax.amountMinor).toBe(Math.round(2_500_000 * 0.075)) // 187_500
     expect(s.shipping.amountMinor).toBe(250_000)
     expect(s.total.amountMinor).toBe(2_500_000 + 250_000 + 187_500)
   })
   it('keeps all amounts integer', () => {
-    const s = computeCartSummary([line(999, 3)], { amountMinor: 250_000, currency: 'NGN' })
+    const s = computeCartSummary([line(999, 3)], { amountMinor: 250_000, currency: 'NGN' }, 'NGN')
     for (const m of [s.subtotal, s.tax, s.shipping, s.total]) expect(Number.isInteger(m.amountMinor)).toBe(true)
+  })
+  it('computes the summary in the given charge currency', () => {
+    const lines = [{ lineTotal: { amountMinor: 2000, currency: 'USD' } }] as unknown as CartLine[]
+    const s = computeCartSummary(lines, { amountMinor: 500, currency: 'USD' }, 'USD')
+    expect(s.subtotal).toEqual({ amountMinor: 2000, currency: 'USD' })
+    expect(s.total.currency).toBe('USD')
+    expect(s.total.amountMinor).toBe(2000 + 500 + Math.round(2000 * TAX_RATE))
   })
 })

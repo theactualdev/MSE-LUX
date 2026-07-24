@@ -66,7 +66,7 @@ export function CartView() {
     )
   }
 
-  const summary = computeCartSummary(lines, shippingMethods[0].amount)
+  const summary = computeCartSummary(lines, shippingMethods[0].amount, 'NGN')
 
   return (
     <div className="flex flex-col gap-10 lg:flex-row lg:items-start">
