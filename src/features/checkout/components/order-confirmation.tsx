@@ -8,28 +8,48 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CartSummary } from '@/features/cart/components/cart-summary'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { useLastOrderStore } from '@/features/checkout/store'
+import type { Order } from '@/features/checkout/lib/place-order'
 import { formatMoney } from '@/lib/money'
 import { cn } from '@/lib/utils'
 
 interface OrderConfirmationProps {
   orderNumber: string
+  /**
+   * The signed-in owner's order, read from the DB by the server component
+   * (`getOrder`, scoped to the session user). When present it renders
+   * immediately — no hydration gate needed, since it's identical on the
+   * server render and the first client paint. Absent for a guest, an
+   * unauthenticated visitor, or a not-owned order, in which case we fall
+   * back to the session snapshot exactly as before.
+   */
+  initialOrder?: Order
 }
 
 /**
- * `/order/[orderNumber]` body. Reads the last placed order from
- * `useLastOrderStore` (session-persisted), gated on `useHydrated` so the
- * server render and the client's first paint never disagree (avoids a
- * hydration mismatch / flash of the wrong state).
+ * `/order/[orderNumber]` body.
  *
- * Once hydrated: if the persisted order's number matches the routed
- * `orderNumber`, renders a branded thank-you with the shipping address,
- * itemized lines, and totals. Otherwise (direct visit, a stale link, or the
- * session storage having cleared) renders a graceful "not found" state
- * linking home.
+ * A signed-in owner's order comes from `initialOrder` (server-provided DB
+ * read) and renders straight away. Otherwise this falls back to the last
+ * placed order from `useLastOrderStore` (session-persisted), gated on
+ * `useHydrated` so the server render and the client's first paint never
+ * disagree (avoids a hydration mismatch / flash of the wrong state).
+ *
+ * A guest order is deliberately never fetched from the DB by raw order
+ * number here — only ever shown from the session snapshot checkout just
+ * wrote — so guest orders can't be enumerated by guessing a number.
+ *
+ * Once resolved: if the order's number matches the routed `orderNumber`,
+ * renders a branded thank-you with the shipping address, itemized lines,
+ * and totals. Otherwise (direct visit, a stale link, or the session storage
+ * having cleared) renders a graceful "not found" state linking home.
  */
-export function OrderConfirmation({ orderNumber }: OrderConfirmationProps) {
+export function OrderConfirmation({ orderNumber, initialOrder }: OrderConfirmationProps) {
   const hydrated = useHydrated()
-  const order = useLastOrderStore((s) => s.order)
+  const snapshot = useLastOrderStore((s) => s.order)
+
+  if (initialOrder) {
+    return renderConfirmation(initialOrder)
+  }
 
   if (!hydrated) {
     return (
@@ -42,7 +62,7 @@ export function OrderConfirmation({ orderNumber }: OrderConfirmationProps) {
     )
   }
 
-  if (order?.orderNumber !== orderNumber) {
+  if (snapshot?.orderNumber !== orderNumber) {
     return (
       <div className="flex flex-col items-center gap-3 py-16 text-center">
         <h1 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">
@@ -58,6 +78,10 @@ export function OrderConfirmation({ orderNumber }: OrderConfirmationProps) {
     )
   }
 
+  return renderConfirmation(snapshot)
+}
+
+function renderConfirmation(order: Order) {
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
       <div className="flex flex-col items-center gap-3 text-center">
