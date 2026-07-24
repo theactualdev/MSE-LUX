@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { addWishlistItem, getServerWishlistIds, removeWishlistItem } from '@/features/wishlist/data'
 
-type WishlistStatus = 'idle' | 'loading' | 'ready'
+type WishlistStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 interface ServerWishlistStore {
   ids: string[]
@@ -51,15 +51,23 @@ export const useServerWishlistStore = create<ServerWishlistStore>()((set, get) =
   status: 'idle',
 
   ensureLoaded: () => {
-    if (get().status !== 'idle' || inflight) return
+    // Fetch from `idle` (first load) or `error` (retry a previously-failed
+    // load); skip while already `loading`/`ready` or a fetch is in flight.
+    const status = get().status
+    if (status === 'loading' || status === 'ready' || inflight) return
     const myEpoch = ++epoch
     set({ status: 'loading' })
     inflight = getServerWishlistIds()
       .then((ids) => {
         if (myEpoch === epoch) set({ ids, status: 'ready' })
       })
-      .catch(() => {
-        if (myEpoch === epoch) set({ status: 'idle' })
+      .catch((error) => {
+        // Surface the failure (a silent catch left the wishlist stuck on a
+        // skeleton with nothing in the console) and settle to `error` rather
+        // than back to `idle`, so `isLoading` resolves instead of treating the
+        // failed load as a perpetual in-flight load with no retry.
+        console.error('[wishlist] initial server load failed', error)
+        if (myEpoch === epoch) set({ status: 'error' })
       })
       .finally(() => {
         inflight = null

@@ -226,14 +226,16 @@ describe('useCart — signed-in mode', () => {
     expect(useServerCartStore.getState().items).toEqual([{ productId: 'P1', quantity: 1 }])
   })
 
-  it('ensureLoaded() whose fetch rejects resets status to idle, and a subsequent ensureLoaded() retries with a second fetch', async () => {
+  it('ensureLoaded() whose fetch rejects settles status to error (not stuck), and a subsequent ensureLoaded() retries with a second fetch', async () => {
     getServerCartItemsMock.mockRejectedValueOnce(new Error('db connectivity blip'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     useServerCartStore.getState().ensureLoaded()
     expect(useServerCartStore.getState().status).toBe('loading')
 
-    await waitFor(() => expect(useServerCartStore.getState().status).toBe('idle'))
+    await waitFor(() => expect(useServerCartStore.getState().status).toBe('error'))
     expect(getServerCartItemsMock).toHaveBeenCalledTimes(1)
+    errorSpy.mockRestore()
 
     getServerCartItemsMock.mockResolvedValueOnce([{ productId: 'P1', quantity: 1 }])
     useServerCartStore.getState().ensureLoaded()

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { ShoppingBag } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
 import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from '@/components/ui/sheet'
+import { Skeleton } from '@/components/ui/skeleton'
 import { CartLineItem } from '@/features/cart/components/cart-line-item'
 import { useCart } from '@/features/cart/use-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
@@ -23,10 +24,10 @@ export function MiniCartDrawer() {
   const { lines, isLoading } = useCart()
   const hydrated = useHydrated()
 
-  // Cart contents aren't known yet either before hydration (SSR/first-paint
-  // gate, matches the server markup) or while `isLoading` (server items
-  // and/or line resolution still in flight) — render nothing in either case
-  // rather than flash the empty state.
+  // Before hydration: render nothing (SSR/first-paint gate, matches the server
+  // markup). Once hydrated but while `isLoading` (server items and/or line
+  // resolution still in flight): show a skeleton, not a blank drawer (which
+  // reads as "broken") and not the empty state (which would be a false flash).
   const showContent = hydrated && !isLoading
   const hasItems = lines.length > 0
   const subtotalAmountMinor = lines.reduce((sum, line) => sum + line.lineTotal.amountMinor, 0)
@@ -43,7 +44,19 @@ export function MiniCartDrawer() {
           <SheetTitle>Your bag</SheetTitle>
         </SheetHeader>
 
-        {!showContent ? null : hasItems ? (
+        {!hydrated ? null : isLoading ? (
+          <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-4" aria-hidden="true">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="flex gap-4">
+                <Skeleton className="size-16 shrink-0 rounded-lg" />
+                <div className="flex flex-1 flex-col justify-center gap-2">
+                  <Skeleton className="h-4 w-2/3" />
+                  <Skeleton className="h-4 w-1/3" />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : hasItems ? (
           <div className="flex flex-1 flex-col gap-6 overflow-y-auto px-4">
             {lines.map((line) => (
               // Compact summary rows (thumbnail, name, qty × price, line total) — no

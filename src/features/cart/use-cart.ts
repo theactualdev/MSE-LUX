@@ -114,12 +114,21 @@ export function useCart(): UseCartResult {
     if (idsKey === '') return
     const ids = idsKey.split(',')
     let active = true
-    resolveProductsByIds(ids).then((resolved) => {
-      if (active) {
-        setProducts(resolved)
-        setResolvedKey(idsKey)
-      }
-    })
+    resolveProductsByIds(ids)
+      .then((resolved) => {
+        if (active) {
+          setProducts(resolved)
+          setResolvedKey(idsKey)
+        }
+      })
+      .catch((error) => {
+        // Don't leave `linesResolved` false forever (which pins `isLoading`
+        // true and shows a perpetual loading state). Mark this id set resolved
+        // — `products` stays as-is, so `buildCartLines` yields whatever it can
+        // — and surface the cause instead of swallowing it.
+        console.error('[useCart] resolveProductsByIds failed', error)
+        if (active) setResolvedKey(idsKey)
+      })
     return () => {
       active = false
     }
@@ -133,7 +142,10 @@ export function useCart(): UseCartResult {
   // product set matches the current id set (or there was nothing to
   // resolve). See module doc for the flash/stuck-skeleton failure modes
   // this guards against.
-  const itemsReady = signedIn ? serverStatus === 'ready' : true
+  // `error` counts as settled (not loading): a failed initial load must not
+  // pin `isLoading` true forever with no retry — better to show the empty/
+  // current state than a perpetual skeleton. The failure is logged in the store.
+  const itemsReady = signedIn ? serverStatus === 'ready' || serverStatus === 'error' : true
   const linesResolved = idsKey === '' || resolvedKey === idsKey
   const isLoading = !itemsReady || !linesResolved
 

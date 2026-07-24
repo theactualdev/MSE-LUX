@@ -2,7 +2,7 @@ import { create } from 'zustand'
 import { addCartItem, clearServerCart, getServerCartItems, removeCartItem, setCartItemQty } from '@/features/cart/data'
 import type { GuestCartItem } from '@/features/cart/types'
 
-type CartStatus = 'idle' | 'loading' | 'ready'
+type CartStatus = 'idle' | 'loading' | 'ready' | 'error'
 
 interface ServerCartStore {
   items: GuestCartItem[]
@@ -81,15 +81,23 @@ export const useServerCartStore = create<ServerCartStore>()((set, get) => ({
   status: 'idle',
 
   ensureLoaded: () => {
-    if (get().status !== 'idle' || inflight) return
+    // Fetch from `idle` (first load) or `error` (retry a previously-failed
+    // load); skip while already `loading`/`ready` or a fetch is in flight.
+    const status = get().status
+    if (status === 'loading' || status === 'ready' || inflight) return
     const myEpoch = ++epoch
     set({ status: 'loading' })
     inflight = getServerCartItems()
       .then((items) => {
         if (myEpoch === epoch) set({ items, status: 'ready' })
       })
-      .catch(() => {
-        if (myEpoch === epoch) set({ status: 'idle' })
+      .catch((error) => {
+        // Surface the failure (a silent catch left the cart stuck with nothing
+        // in the console) and settle to `error` rather than back to `idle`, so
+        // `isLoading` resolves instead of treating the failed load as a
+        // perpetual in-flight load with no retry.
+        console.error('[cart] initial server load failed', error)
+        if (myEpoch === epoch) set({ status: 'error' })
       })
       .finally(() => {
         inflight = null

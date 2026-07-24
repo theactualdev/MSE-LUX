@@ -188,14 +188,16 @@ describe('useWishlist — signed-in mode', () => {
     expect(useServerWishlistStore.getState().ids).toEqual(['P1'])
   })
 
-  it('ensureLoaded() whose fetch rejects resets status to idle, and a subsequent ensureLoaded() retries with a second fetch', async () => {
+  it('ensureLoaded() whose fetch rejects settles status to error (not stuck), and a subsequent ensureLoaded() retries with a second fetch', async () => {
     getServerWishlistIdsMock.mockRejectedValueOnce(new Error('db connectivity blip'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
     useServerWishlistStore.getState().ensureLoaded()
     expect(useServerWishlistStore.getState().status).toBe('loading')
 
-    await waitFor(() => expect(useServerWishlistStore.getState().status).toBe('idle'))
+    await waitFor(() => expect(useServerWishlistStore.getState().status).toBe('error'))
     expect(getServerWishlistIdsMock).toHaveBeenCalledTimes(1)
+    errorSpy.mockRestore()
 
     getServerWishlistIdsMock.mockResolvedValueOnce(['P1'])
     useServerWishlistStore.getState().ensureLoaded()

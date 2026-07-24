@@ -50,12 +50,20 @@ export function WishlistView() {
     if (idsKey === '') return
     const idList = idsKey.split(',')
     let active = true
-    resolveProductsByIds(idList).then((resolved) => {
-      if (active) {
-        setProducts(resolved)
-        setResolvedKey(idsKey)
-      }
-    })
+    resolveProductsByIds(idList)
+      .then((resolved) => {
+        if (active) {
+          setProducts(resolved)
+          setResolvedKey(idsKey)
+        }
+      })
+      .catch((error) => {
+        // Don't leave the page stuck on a skeleton if resolution rejects —
+        // mark this id set resolved (the grid then shows whatever resolved, or
+        // the empty state) and surface the cause instead of swallowing it.
+        console.error('[WishlistView] resolveProductsByIds failed', error)
+        if (active) setResolvedKey(idsKey)
+      })
     return () => {
       active = false
     }

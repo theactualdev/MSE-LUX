@@ -90,7 +90,11 @@ export function useWishlist(): UseWishlistResult {
   // Guests read `ids` synchronously from localStorage; signed-in `ids` load
   // async from the server store. Mirrors `useCart`'s `itemsReady` half (no
   // product resolution here — a wishlist line is just an id).
-  const isLoading = signedIn ? serverStatus !== 'ready' : false
+  // `error` and `ready` both count as "settled": a failed initial load must not
+  // pin `isLoading` true forever with no retry (that left the wishlist stuck on
+  // a skeleton). Only the not-yet-settled states keep it loading. Failure logged
+  // in the store.
+  const isLoading = signedIn ? serverStatus === 'idle' || serverStatus === 'loading' : false
 
   return {
     ids,
