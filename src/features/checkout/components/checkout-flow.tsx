@@ -13,11 +13,11 @@ import { PaymentStep, type PaymentMethod } from '@/features/checkout/components/
 import { ReviewStep } from '@/features/checkout/components/review-step'
 import { OrderSummaryPanel } from '@/features/checkout/components/order-summary-panel'
 import { useLastOrderStore } from '@/features/checkout/store'
-import { buildMockOrder } from '@/features/checkout/lib/place-order'
+import { placeOrder } from '@/features/checkout/data'
 import { useCart } from '@/features/cart/use-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { computeCartSummary } from '@/features/cart/lib/summary'
-import { shippingMethods } from '@/features/cart/lib/shipping'
+import { shippingMethods, shippingAmountFor } from '@/features/cart/lib/shipping'
 import type { Contact, Address } from '@/features/checkout/schema'
 import { cn } from '@/lib/utils'
 
@@ -46,21 +46,28 @@ const STEP_LABELS: Record<Step, string> = {
  * doesn't flash the empty state first. If the cart is empty, shows an empty
  * state linking back to `/` instead of the flow.
  *
- * On `Place order`, `orderNumber` and `placedAt` are generated here, inside
- * the event handler (never during render), before building and persisting
- * the mock order and clearing the cart.
+ * On `Place order`, `handlePlaceOrder` calls the `placeOrder` server action,
+ * which re-prices and persists the order server-side; `orderNumber` comes
+ * back from that call, not generated client-side.
  */
-export function CheckoutFlow() {
+export function CheckoutFlow({
+  initialContact,
+  initialAddress,
+}: {
+  initialContact?: Contact
+  initialAddress?: Address
+}) {
   const router = useRouter()
   const hydrated = useHydrated()
-  const { lines, clear, isLoading } = useCart()
+  const { lines, clear, isLoading, chargeCurrency } = useCart()
 
   const [step, setStep] = useState<Step>('contact')
-  const [contact, setContact] = useState<Contact>()
-  const [address, setAddress] = useState<Address>()
+  const [contact, setContact] = useState<Contact | undefined>(initialContact)
+  const [address, setAddress] = useState<Address | undefined>(initialAddress)
   const [shippingMethod, setShippingMethod] = useState(shippingMethods[0])
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card')
   const [placing, setPlacing] = useState(false)
+  const [error, setError] = useState<string>()
 
   if (!hydrated || isLoading) {
     return (
@@ -100,30 +107,36 @@ export function CheckoutFlow() {
     )
   }
 
-  const summary = computeCartSummary(lines, shippingMethod.amount, 'NGN')
+  const summary = computeCartSummary(lines, shippingAmountFor(shippingMethod, chargeCurrency), chargeCurrency)
 
-  function handlePlaceOrder() {
+  async function handlePlaceOrder() {
     if (!contact || !address) return
 
-    const orderNumber = `MSE-${Math.floor(100_000 + Math.random() * 900_000)}`
-    const placedAt = new Date().toISOString()
+    setError(undefined)
+    setPlacing(true)
 
-    const order = buildMockOrder({
+    const result = await placeOrder({
       contact,
       address,
-      shippingMethod,
-      lines,
-      summary,
-      orderNumber,
-      placedAt,
+      shippingMethodId: shippingMethod.id,
+      chargeCurrency,
+      guestLines: lines.map((line) => ({
+        productId: line.product.id,
+        variantId: line.variant?.id,
+        quantity: line.quantity,
+      })),
     })
 
-    // Flip to the placing state BEFORE clearing the cart, so the empty-bag
-    // state can't render in the gap before the navigation completes.
-    setPlacing(true)
-    useLastOrderStore.getState().setOrder(order)
-    clear()
-    router.push(`/order/${order.orderNumber}`)
+    if ('ok' in result) {
+      // Flip to the placing state BEFORE clearing the cart, so the empty-bag
+      // state can't render in the gap before the navigation completes.
+      useLastOrderStore.getState().setOrder(result.order)
+      clear()
+      router.push(`/order/${result.order.orderNumber}`)
+    } else {
+      setPlacing(false)
+      setError(result.error)
+    }
   }
 
   return (
@@ -175,14 +188,21 @@ export function CheckoutFlow() {
         ) : null}
 
         {step === 'review' && contact && address ? (
-          <ReviewStep
-            contact={contact}
-            address={address}
-            shippingMethod={shippingMethod}
-            lines={lines}
-            summary={summary}
-            onPlaceOrder={handlePlaceOrder}
-          />
+          <div className="flex flex-col gap-4">
+            {error ? (
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+            ) : null}
+            <ReviewStep
+              contact={contact}
+              address={address}
+              shippingMethod={shippingMethod}
+              lines={lines}
+              summary={summary}
+              onPlaceOrder={handlePlaceOrder}
+            />
+          </div>
         ) : null}
       </div>
 
