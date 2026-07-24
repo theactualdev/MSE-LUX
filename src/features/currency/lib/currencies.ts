@@ -29,3 +29,10 @@ export function isFxDerived(currency: Currency): boolean {
 export function localeForCurrency(currency: Currency): string {
   return isSupportedCurrency(currency) ? LOCALE[currency] : 'en-US'
 }
+
+/** The authored currency a customer is charged in: NGN for Nigeria, USD for the
+ *  rest of the world. FX-derived display currencies (GBP/EUR/…) are browse-only
+ *  estimates and map to the authored USD — the charge path never uses FX. */
+export function chargeCurrencyFor(displayCurrency: Currency): 'NGN' | 'USD' {
+  return displayCurrency === 'NGN' ? 'NGN' : 'USD'
+}

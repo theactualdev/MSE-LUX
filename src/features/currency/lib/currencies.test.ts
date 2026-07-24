@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { currencyForCountry, localeForCurrency, isFxDerived, isSupportedCurrency, SUPPORTED_CURRENCIES, DEFAULT_CURRENCY } from './currencies'
+import { currencyForCountry, localeForCurrency, isFxDerived, isSupportedCurrency, SUPPORTED_CURRENCIES, DEFAULT_CURRENCY, chargeCurrencyFor } from './currencies'
 
 describe('currencyForCountry', () => {
   it('maps the authored and known markets', () => {
@@ -43,5 +43,15 @@ describe('predicates + locale', () => {
   })
   it('DEFAULT_CURRENCY is NGN (the unknown-geo fallback)', () => {
     expect(DEFAULT_CURRENCY).toBe('NGN')
+  })
+})
+
+describe('chargeCurrencyFor', () => {
+  it('maps NGN to NGN and every other display currency to USD', () => {
+    expect(chargeCurrencyFor('NGN')).toBe('NGN')
+    expect(chargeCurrencyFor('USD')).toBe('USD')
+    for (const fx of ['GBP', 'EUR', 'CAD', 'GHS', 'ZAR', 'KES'] as const) {
+      expect(chargeCurrencyFor(fx)).toBe('USD')
+    }
   })
 })
