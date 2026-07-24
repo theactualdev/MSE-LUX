@@ -284,6 +284,51 @@ describe('placeOrder — guest checkout', () => {
     })
   })
 
+  it('aggregates duplicate guest tuples for the same product before clamping, so it cannot oversell', async () => {
+    // PRODUCT.inventory is 5. Two tuples for the same product at 99 each must
+    // clamp ONCE to 5 — not twice, which would decrement 10 against 5 in stock.
+    await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingMethodId: 'lagos',
+      chargeCurrency: 'NGN',
+      guestLines: [
+        { productId: PRODUCT_ID, quantity: 99 },
+        { productId: PRODUCT_ID, quantity: 99 },
+      ],
+    })
+
+    expect(order.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          lines: {
+            create: [expect.objectContaining({ productId: PRODUCT_ID, quantity: 5, lineTotalMinor: 2_500_000 })],
+          },
+        }),
+      }),
+    )
+    expect(product.update).toHaveBeenCalledTimes(1)
+    expect(product.update).toHaveBeenCalledWith({
+      where: { id: PRODUCT_ID },
+      data: { inventory: { decrement: 5 } },
+    })
+  })
+
+  it('rejects an invalid chargeCurrency without writing an order', async () => {
+    await expect(
+      placeOrder({
+        contact: CONTACT,
+        address: ADDRESS,
+        shippingMethodId: 'lagos',
+        chargeCurrency: 'EUR' as never,
+        guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+      }),
+    ).resolves.toEqual({ error: expect.any(String) })
+
+    expect(order.create).not.toHaveBeenCalled()
+    expect($transaction).not.toHaveBeenCalled()
+  })
+
   it('returns an error and writes nothing when the cart is empty', async () => {
     await expect(
       placeOrder({
@@ -340,6 +385,30 @@ describe('placeOrder — guest checkout', () => {
     })
 
     expect($transaction).toHaveBeenCalledTimes(1)
+  })
+
+  it('retries in a FRESH transaction (not the failed one) after an orderNumber collision', async () => {
+    // Postgres aborts the whole transaction on any failed statement, so a
+    // real orderNumber collision surfaces as the $transaction call itself
+    // rejecting — never as a recoverable error from inside a still-open tx.
+    // This is exactly what the retry loop must wrap the whole $transaction
+    // call to handle.
+    $transaction
+      .mockImplementationOnce(async () => {
+        throw { code: 'P2002' }
+      })
+      .mockImplementationOnce(async (fn: (client: typeof tx) => unknown) => fn(tx))
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingMethodId: 'lagos',
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+    })
+
+    expect(result).toEqual({ ok: true, order: expect.objectContaining({ orderNumber: 'MSE-123456' }) })
+    expect($transaction).toHaveBeenCalledTimes(2)
   })
 
   it('returns { ok, order } shaped by mapOrderRow', async () => {

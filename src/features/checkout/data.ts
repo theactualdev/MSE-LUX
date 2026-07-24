@@ -12,7 +12,9 @@ import type { PlaceOrderInput, PlaceOrderResult, GuestOrderLine } from '@/featur
 
 /**
  * Order placement: re-prices server-side, decrements inventory, and clears
- * the signed-in user's cart, all inside one `db.$transaction`.
+ * the signed-in user's cart, inside a `db.$transaction` per attempt (see
+ * `generateOrderNumber`'s doc comment for why "per attempt", not "one for
+ * the whole call").
  *
  * WHY `'use server'` RATHER THAN `import 'server-only'`: same reasoning as
  * `cart/data.ts` — the two directives can't coexist, so this Server Actions
@@ -48,10 +50,22 @@ function isRecordNotFound(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2025'
 }
 
-/** How many times to retry order creation on an `orderNumber` collision before giving up. Collisions on a random 6-digit space are rare; this only guards the tail. */
+/** How many times to retry order placement on an `orderNumber` collision before giving up. Collisions on a random 6-digit space are rare; this only guards the tail. */
 const MAX_ORDER_NUMBER_ATTEMPTS = 5
 
-/** `MSE-` + a random 6-digit number (`000000`-`999999`). Retried on a `P2002` collision against the `orderNumber` unique constraint. */
+/**
+ * `MSE-` + a random 6-digit number (`000000`-`999999`).
+ *
+ * A collision against the `orderNumber` unique constraint is retried with a
+ * FRESH number in a FRESH `db.$transaction` — never inside the same
+ * transaction the failed `create` ran in. Postgres aborts the entire
+ * transaction on any failed statement: every later statement on that same
+ * connection then fails with `25P02` ("current transaction is aborted"), not
+ * the original `P2002` — so a retry-inside-the-transaction would never see
+ * the error code it's looking for and would crash on the very collision it
+ * exists to handle. `placeOrder` therefore wraps the WHOLE `db.$transaction`
+ * call in the retry loop, not just this one `create`.
+ */
 function generateOrderNumber(): string {
   const digits = Math.floor(Math.random() * 1_000_000)
     .toString()
@@ -82,10 +96,45 @@ async function resolveRawLines(userId: string | null, guestLines: GuestOrderLine
   return rows.map((row) => ({ productId: row.productId, variantId: row.variantId ?? undefined, quantity: row.quantity }))
 }
 
+/**
+ * Collapses duplicate `(productId, variantId)` tuples into one, summing their
+ * quantities. Without this, a guest payload with two tuples for the same
+ * line (e.g. `[{p, qty:99}, {p, qty:99}]` against 5 in stock) would clamp
+ * EACH tuple to the inventory independently — two `OrderLine`s and two
+ * `{decrement: 5}` calls against 5 in stock, oversold 2x in a single
+ * request. Aggregating first means every product/variant is clamped exactly
+ * once. A no-op for the signed-in server cart, whose `(cartId, productId,
+ * variantId)` compound-unique index already guarantees one row per line —
+ * this runs uniformly on both paths anyway rather than trusting that
+ * invariant here too.
+ */
+function aggregateRawLines(rawLines: GuestOrderLine[]): GuestOrderLine[] {
+  const byKey = new Map<string, GuestOrderLine>()
+
+  for (const line of rawLines) {
+    const key = `${line.productId}::${line.variantId ?? ''}`
+    const existing = byKey.get(key)
+    if (existing) {
+      existing.quantity += line.quantity
+    } else {
+      byKey.set(key, { ...line })
+    }
+  }
+
+  return Array.from(byKey.values())
+}
+
 export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResult> {
   const parsedContact = contactSchema.safeParse(input.contact)
   const parsedAddress = addressSchema.safeParse(input.address)
   if (!parsedContact.success || !parsedAddress.success) return INVALID_INPUT
+
+  // `chargeCurrency`'s `'NGN' | 'USD'` type is compile-time only — this is a
+  // public Server Action, so a caller can send any string at runtime. An
+  // unvalidated value would reach `resolveDisplayPrice` (via `buildCartLines`)
+  // and throw OUTSIDE the try/catch below, violating this module's "never
+  // throws out" contract.
+  if (input.chargeCurrency !== 'NGN' && input.chargeCurrency !== 'USD') return INVALID_INPUT
 
   const method = shippingMethods.find((m) => m.id === input.shippingMethodId)
   if (!method) return INVALID_INPUT
@@ -94,7 +143,9 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   const rawLines = await resolveRawLines(userId, input.guestLines)
   if (rawLines.length === 0) return EMPTY_CART
 
-  const productIds = Array.from(new Set(rawLines.map((line) => line.productId)))
+  const aggregatedLines = aggregateRawLines(rawLines)
+
+  const productIds = Array.from(new Set(aggregatedLines.map((line) => line.productId)))
   const products = await resolveProductsByIds(productIds)
   const productById = new Map(products.map((p) => [p.id, p]))
 
@@ -102,7 +153,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   // product no longer resolves, or whose resolved quantity clamps to 0, is
   // dropped rather than ordered — never trust the client's tuple as-is.
   const clampedItems: CartItem[] = []
-  for (const raw of rawLines) {
+  for (const raw of aggregatedLines) {
     const product = productById.get(raw.productId)
     if (!product) continue
 
@@ -158,58 +209,50 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
     totalMinor,
   }
 
-  try {
-    const order = await db.$transaction(async (tx) => {
-      // Nested closure (not a top-level helper) so `tx` — the interactive-transaction
-      // client — is captured without having to name its type. Retries on a `P2002`
-      // `orderNumber` collision by catching it here, inside the transaction callback,
-      // rather than letting it propagate and abort the whole transaction.
-      async function createOrderWithUniqueNumber() {
-        for (let attempt = 0; attempt < MAX_ORDER_NUMBER_ATTEMPTS; attempt++) {
-          try {
-            return await tx.order.create({
-              data: { ...orderData, orderNumber: generateOrderNumber(), lines: { create: orderLineInputs } },
-              include: { lines: true },
+  // Each attempt is its OWN `db.$transaction` call (own connection/transaction) —
+  // see `generateOrderNumber`'s doc comment for why a collision can't be retried
+  // inside the transaction that hit it.
+  for (let attempt = 0; attempt < MAX_ORDER_NUMBER_ATTEMPTS; attempt++) {
+    const orderNumber = generateOrderNumber()
+
+    try {
+      const order = await db.$transaction(async (tx) => {
+        const created = await tx.order.create({
+          data: { ...orderData, orderNumber, lines: { create: orderLineInputs } },
+          include: { lines: true },
+        })
+
+        // Best-effort atomic decrement per line — a concurrent oversell is
+        // Phase 8's concern (see the plan); this deliberately does not
+        // guard-read inventory first.
+        for (const line of lines) {
+          if (line.variant) {
+            await tx.productVariant.update({
+              where: { id: line.variant.id },
+              data: { inventory: { decrement: line.quantity } },
             })
-          } catch (error) {
-            const isLastAttempt = attempt === MAX_ORDER_NUMBER_ATTEMPTS - 1
-            if (!isUniqueViolation(error) || isLastAttempt) throw error
+          } else {
+            await tx.product.update({
+              where: { id: line.product.id },
+              data: { inventory: { decrement: line.quantity } },
+            })
           }
         }
-        // Unreachable — the loop above always returns or throws — but keeps this an
-        // expression-typed function for TypeScript's control-flow analysis.
-        throw new Error('Could not generate a unique order number.')
-      }
 
-      const created = await createOrderWithUniqueNumber()
-
-      // Best-effort atomic decrement per line — a concurrent oversell is
-      // Phase 8's concern (see the plan); this deliberately does not
-      // guard-read inventory first.
-      for (const line of lines) {
-        if (line.variant) {
-          await tx.productVariant.update({
-            where: { id: line.variant.id },
-            data: { inventory: { decrement: line.quantity } },
-          })
-        } else {
-          await tx.product.update({
-            where: { id: line.product.id },
-            data: { inventory: { decrement: line.quantity } },
-          })
+        if (userId) {
+          await tx.cartItem.deleteMany({ where: { cart: { profileId: userId } } })
         }
-      }
 
-      if (userId) {
-        await tx.cartItem.deleteMany({ where: { cart: { profileId: userId } } })
-      }
+        return created
+      })
 
-      return created
-    })
-
-    return { ok: true, order: mapOrderRow(order) }
-  } catch (error) {
-    if (isUniqueViolation(error) || isRecordNotFound(error)) return GENERIC_ERROR
-    throw error
+      return { ok: true, order: mapOrderRow(order) }
+    } catch (error) {
+      if (isUniqueViolation(error)) continue // fresh orderNumber, fresh transaction, next attempt
+      if (isRecordNotFound(error)) return GENERIC_ERROR
+      throw error // matches cart/data.ts: only a truly-unexpected error propagates
+    }
   }
+
+  return GENERIC_ERROR // exhausted every orderNumber attempt
 }
