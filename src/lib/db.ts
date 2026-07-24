@@ -33,16 +33,24 @@ function createPrismaClient(): PrismaClient {
   if (!connectionString) {
     throw new Error('DATABASE_URL is not set — add it to .env (see docs/phases/phase-3-database/spec.md).')
   }
+  // Never wait forever for a pooled connection. pg's default
+  // `connectionTimeoutMillis` is 0 (no timeout), so if the pool is momentarily
+  // exhausted a query queues indefinitely — which at runtime surfaced as a
+  // request that never resolves and a UI stuck on a loading skeleton with
+  // nothing logged. A bounded timeout turns that into a visible, catchable
+  // error the data layer / stores already handle.
+  //
+  // But `next build` prerenders many pages in parallel worker threads (each
+  // with its own pool) all contending for the transaction-mode pooler's
+  // limited connections, so acquiring one legitimately takes longer than the
+  // tight runtime bound — an 8s limit fails the build with
+  // "timeout exceeded when trying to connect". So use a generous bound during
+  // the production build and the tight one at runtime.
+  const isBuild = process.env.NEXT_PHASE === 'phase-production-build'
   return new PrismaClient({
     adapter: new PrismaPg({
       connectionString,
-      // Never wait forever for a pooled connection. pg's default
-      // `connectionTimeoutMillis` is 0 (no timeout), so if the pool is
-      // momentarily exhausted a query queues indefinitely — which surfaced as a
-      // request that never resolves and a UI stuck on a loading skeleton with
-      // nothing logged. Failing fast turns that into a visible, catchable error
-      // the data layer / stores already handle.
-      connectionTimeoutMillis: 8_000,
+      connectionTimeoutMillis: isBuild ? 60_000 : 8_000,
     }),
   })
 }
