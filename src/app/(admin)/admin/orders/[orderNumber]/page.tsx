@@ -116,18 +116,6 @@ export default async function AdminOrderDetailPage({ params }: OrderDetailPagePr
         </dl>
       </div>
 
-      <OrderActions
-        orderNumber={order.orderNumber}
-        status={order.status}
-        nigeria={isNigeria(order.address.country)}
-        refundOwed={order.refundOwed}
-        paidShipping={{
-          amountMinor: order.summary.shipping.amountMinor,
-          currency: order.summary.shipping.currency,
-          label: order.shippingLabel,
-        }}
-      />
-
       <div className="flex flex-col gap-1 rounded-xl border border-border p-4">
         <h2 className="text-sm font-medium text-foreground">Shipping address</h2>
         <div className="flex flex-col text-sm text-muted-foreground">
@@ -176,6 +164,18 @@ export default async function AdminOrderDetailPage({ params }: OrderDetailPagePr
       </div>
 
       <CartSummary summary={order.summary} className="rounded-xl border border-border p-4" />
+
+      <OrderActions
+        orderNumber={order.orderNumber}
+        status={order.status}
+        nigeria={isNigeria(order.address.country)}
+        refundOwed={order.refundOwed}
+        paidShipping={{
+          amountMinor: order.summary.shipping.amountMinor,
+          currency: order.summary.shipping.currency,
+          label: order.shippingLabel,
+        }}
+      />
     </div>
   )
 }
