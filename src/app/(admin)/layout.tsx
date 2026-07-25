@@ -19,6 +19,11 @@ export const metadata: Metadata = {
  * thrown here in the root layout would escape (admin)/not-found.tsx and land
  * on Next's unstyled default 404. Keeping this layout logic-free is what
  * makes the branded 404 reachable.
+ *
+ * SECURITY INVARIANT: because this root layout is ungated, every admin route
+ * MUST live under `admin/` (below admin/layout.tsx's requireRole gate). A
+ * sibling segment added here — e.g. (admin)/reports/page.tsx — would ship
+ * UNGATED at a bare URL like /reports. Never add routes at this level.
  */
 export default function AdminRootLayout({ children }: { children: React.ReactNode }) {
   return (

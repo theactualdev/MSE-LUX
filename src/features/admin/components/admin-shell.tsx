@@ -53,7 +53,7 @@ export function AdminShell({ email, children }: { email: string | null; children
         ) : (
           <span
             key={item.label}
-            className="flex items-baseline justify-between rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground/50"
+            className="flex items-baseline justify-between rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground/70"
           >
             {item.label}
             <span className="text-[10px] font-normal uppercase tracking-wide">Coming soon</span>
