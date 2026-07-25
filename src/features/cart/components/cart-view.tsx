@@ -7,7 +7,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { CartLineItem } from '@/features/cart/components/cart-line-item'
 import { CartSummary } from '@/features/cart/components/cart-summary'
 import { computeCartSummary } from '@/features/cart/lib/summary'
-import { shippingAmountFor, shippingMethods } from '@/features/cart/lib/shipping'
 import { useCart } from '@/features/cart/use-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { cn } from '@/lib/utils'
@@ -66,7 +65,10 @@ export function CartView() {
     )
   }
 
-  const summary = computeCartSummary(lines, shippingAmountFor(shippingMethods[0], chargeCurrency), chargeCurrency)
+  // The /cart page has no shipping address yet, so it can't quote a real
+  // rate — show 0 shipping here; the "Shipping estimated at checkout" note
+  // below sets the right expectation, and checkout computes the real total.
+  const summary = computeCartSummary(lines, { amountMinor: 0, currency: chargeCurrency }, chargeCurrency)
 
   return (
     <div className="flex flex-col gap-10 lg:flex-row lg:items-start">

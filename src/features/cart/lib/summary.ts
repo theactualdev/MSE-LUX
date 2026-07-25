@@ -12,8 +12,7 @@ export interface CartSummary {
 /**
  * Computes the cart summary entirely in `currency` (the charge currency),
  * summing straight from the lines' authored minor units — no FX conversion.
- * Callers must pass lines and shipping already authored in `currency` (see
- * `shippingAmountFor`).
+ * Callers must pass lines and shipping already authored in `currency`.
  */
 export function computeCartSummary(lines: CartLine[], shipping: Money, currency: Currency): CartSummary {
   const subtotalAmountMinor = lines.reduce((sum, line) => sum + line.lineTotal.amountMinor, 0)
