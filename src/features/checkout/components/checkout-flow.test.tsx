@@ -178,6 +178,7 @@ describe('CheckoutFlow', () => {
     await waitFor(() => expect(getShippingRatesMock).toHaveBeenCalledWith({
       address: { ...address, line2: '', postalCode: '' },
       email: contact.email,
+      chargeCurrency: 'NGN',
       guestLines: [{ productId: 'p1', variantId: undefined, quantity: 2 }],
     }))
 

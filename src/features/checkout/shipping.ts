@@ -7,7 +7,8 @@ import { validateAddress, fetchRates } from '@/features/checkout/lib/shipbubble'
 import { signQuote, addressHash } from '@/features/checkout/lib/shipping-quote'
 import {
   SHIPBUBBLE_ORIGIN_ADDRESS_CODE,
-  FLAT_INTERNATIONAL,
+  FLAT_INTERNATIONAL_USD,
+  FLAT_INTERNATIONAL_NGN,
   FLAT_FALLBACK_NGN,
   FLAT_FALLBACK_USD,
   WEIGHT_BASE_GRAMS,
@@ -22,8 +23,11 @@ import type { ShippingOption } from '@/features/checkout/shipping-types'
 /**
  * `getShippingRates`: the client calls this right after the address step to
  * get selectable, server-signed shipping options — live ShipBubble courier
- * rates for a Nigerian destination, a flat international rate elsewhere, and
- * a flat fallback whenever the ShipBubble path can't complete. This mirrors
+ * rates when charging NGN to a Nigerian destination, a flat rate in the
+ * charge currency otherwise (live ₦ rates can't be charged in USD without
+ * FX), and a flat fallback whenever the ShipBubble path can't complete.
+ * Every option's currency equals `input.chargeCurrency`, never the address's
+ * country, so `placeOrder`'s currency guard always passes. This mirrors
  * `placeOrder`'s cart-resolution idiom (`data.ts`) exactly, but is read-only:
  * no order, no inventory clamp, no DB write — it only reads the cart to size
  * the ShipBubble package (weight + declared value).
@@ -117,16 +121,33 @@ function safeAddressHash(address: unknown): string {
   return addressHash(candidate)
 }
 
-/** The single flat rate returned whenever the request can't even be processed (malformed address, or any other unexpected throw) — always NGN, since a genuinely malformed address will be rejected again by `placeOrder`'s own `addressSchema.safeParse` before anything is charged. */
-function guardFallbackOption(address: unknown): ShippingOption {
+/**
+ * The single flat rate returned whenever the request can't even be processed
+ * (malformed address, or any other unexpected throw) — in `chargeCurrency`,
+ * defaulting to NGN if `chargeCurrency` is itself somehow invalid at this
+ * boundary. A genuinely malformed address will be rejected again by
+ * `placeOrder`'s own `addressSchema.safeParse` before anything is charged.
+ */
+function guardFallbackOption(address: unknown, chargeCurrency: unknown): ShippingOption {
   const hash = safeAddressHash(address)
-  return toOption('fallback', FLAT_FALLBACK_NGN.label, FLAT_FALLBACK_NGN.amountMinor, FLAT_FALLBACK_NGN.currency, hash, FLAT_FALLBACK_NGN.deliveryEta)
+  const fallback = chargeCurrency === 'USD' ? FLAT_FALLBACK_USD : FLAT_FALLBACK_NGN
+  return toOption('fallback', fallback.label, fallback.amountMinor, fallback.currency, hash, fallback.deliveryEta)
 }
 
 export async function getShippingRates(input: {
   address: Address
   /** ShipBubble requires a contact email for address validation; the checkout flow already has it by the shipping step. */
   email: string
+  /**
+   * The customer's browsing-region charge currency (Phase 5d/6) — independent
+   * of the shipping address. Every returned option's `currency` (and its
+   * token's payload currency) equals this, never the address's country, so
+   * `placeOrder`'s `quote.currency !== input.chargeCurrency` guard always
+   * passes for a legit flow: live ShipBubble ₦ rates are only used when
+   * charging NGN to a Nigerian address; every other combination gets a flat
+   * rate already denominated in `chargeCurrency`.
+   */
+  chargeCurrency: 'NGN' | 'USD'
   guestLines?: GuestOrderLine[]
 }): Promise<ShippingOption[]> {
   try {
@@ -135,24 +156,21 @@ export async function getShippingRates(input: {
     // must not throw straight out of the function; it gets one safe flat
     // option instead, exactly like any other unrecoverable failure below.
     const parsedAddress = addressSchema.safeParse(input.address)
-    if (!parsedAddress.success) return [guardFallbackOption(input.address)]
+    if (!parsedAddress.success) return [guardFallbackOption(input.address, input.chargeCurrency)]
 
     const address = parsedAddress.data
-    const { email, guestLines } = input
+    const { email, guestLines, chargeCurrency } = input
     const hash = addressHash(address)
     const nigeria = isNigeria(address.country)
 
-    if (!nigeria) {
-      return [
-        toOption(
-          'international',
-          FLAT_INTERNATIONAL.label,
-          FLAT_INTERNATIONAL.amountMinor,
-          FLAT_INTERNATIONAL.currency,
-          hash,
-          FLAT_INTERNATIONAL.deliveryEta,
-        ),
-      ]
+    // ShipBubble only ever quotes in NGN, so live rates can only be offered
+    // when the customer is charged in NGN AND the address is Nigerian.
+    // Every other combination (USD charge to anywhere, or NGN charge to a
+    // non-NG address) gets a single flat rate already in `chargeCurrency` —
+    // no ShipBubble call, no FX.
+    if (chargeCurrency !== 'NGN' || !nigeria) {
+      const flat = chargeCurrency === 'USD' ? FLAT_INTERNATIONAL_USD : FLAT_INTERNATIONAL_NGN
+      return [toOption('international', flat.label, flat.amountMinor, flat.currency, hash, flat.deliveryEta)]
     }
 
     try {
@@ -217,16 +235,17 @@ export async function getShippingRates(input: {
 
       if (rates.length === 0) throw new Error('ShipBubble returned no couriers')
 
-      return rates.map((rate) => {
-        const currency = rate.currency === 'USD' ? 'USD' : 'NGN'
-        return toOption(`${rate.courierId}:${rate.serviceCode}`, rate.label, rate.amountMinor, currency, hash, rate.deliveryEta)
-      })
+      // This branch only runs when `chargeCurrency === 'NGN' && nigeria`, so
+      // every option is forced to NGN — the branch invariant — regardless of
+      // whatever currency ShipBubble's response happens to label the rate
+      // with (it's always NGN in practice for a NG receiver).
+      return rates.map((rate) => toOption(`${rate.courierId}:${rate.serviceCode}`, rate.label, rate.amountMinor, 'NGN', hash, rate.deliveryEta))
     } catch (error) {
       // Never block checkout on a ShipBubble outage / bad config / unvalidatable
-      // address / empty courier list — fall back to a single flat rate.
+      // address / empty courier list — fall back to the flat NGN rate (this
+      // branch is only reached when charging NGN to a Nigerian address).
       console.error('getShippingRates: ShipBubble path failed, falling back to a flat rate', error)
-      const fallback = nigeria ? FLAT_FALLBACK_NGN : FLAT_FALLBACK_USD
-      return [toOption('fallback', fallback.label, fallback.amountMinor, fallback.currency, hash, fallback.deliveryEta)]
+      return [toOption('fallback', FLAT_FALLBACK_NGN.label, FLAT_FALLBACK_NGN.amountMinor, FLAT_FALLBACK_NGN.currency, hash, FLAT_FALLBACK_NGN.deliveryEta)]
     }
   } catch (error) {
     // Top-level safety net: `getShippingRates` must NEVER throw — it's a
@@ -236,6 +255,6 @@ export async function getShippingRates(input: {
     // ShipBubble try, or an unexpected throw during address validation
     // itself) and still returns one safe, verifiable fallback option.
     console.error('getShippingRates: unexpected failure, falling back to a flat rate', error)
-    return [guardFallbackOption(input.address)]
+    return [guardFallbackOption(input.address, input.chargeCurrency)]
   }
 }

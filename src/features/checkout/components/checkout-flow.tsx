@@ -219,6 +219,7 @@ export function CheckoutFlow({
               const opts = await getShippingRates({
                 address: values,
                 email: contact.email,
+                chargeCurrency,
                 guestLines: lines.map((line) => ({
                   productId: line.product.id,
                   variantId: line.variant?.id,

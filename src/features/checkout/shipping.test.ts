@@ -40,7 +40,8 @@ vi.mock('@/features/checkout/lib/shipping-config', () => ({
   get SHIPBUBBLE_ORIGIN_ADDRESS_CODE() {
     return configState.originAddressCode
   },
-  FLAT_INTERNATIONAL: { amountMinor: 250_000, currency: 'USD' as const, label: 'International shipping', deliveryEta: '7–14 days' },
+  FLAT_INTERNATIONAL_USD: { amountMinor: 250_000, currency: 'USD' as const, label: 'International shipping', deliveryEta: '7–14 days' },
+  FLAT_INTERNATIONAL_NGN: { amountMinor: 500_000, currency: 'NGN' as const, label: 'International shipping', deliveryEta: '7–14 days' },
   FLAT_FALLBACK_NGN: { amountMinor: 300_000, currency: 'NGN' as const, label: 'Standard delivery', deliveryEta: '3–5 days' },
   FLAT_FALLBACK_USD: { amountMinor: 260_000, currency: 'USD' as const, label: 'International shipping', deliveryEta: '7–14 days' },
   WEIGHT_BASE_GRAMS: 300,
@@ -125,7 +126,7 @@ describe('getShippingRates — Nigeria, signed-in', () => {
       { courierId: 'courier_2', serviceCode: 'dhl_express', label: 'DHL', amountMinor: 600_000, currency: 'NGN', deliveryEta: '1 day' },
     ])
 
-    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL })
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' })
 
     // Cart resolved from the SERVER cart (never guestLines) for a signed-in caller.
     expect(cartItem.findMany).toHaveBeenCalledWith({
@@ -166,7 +167,7 @@ describe('getShippingRates — Nigeria, signed-in', () => {
   it('is authoritative: a tampered amount on a genuine option fails verification', async () => {
     fetchRates.mockResolvedValue([{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 350_000, currency: 'NGN', deliveryEta: '2-3 days' }])
 
-    const [option] = await getShippingRates({ address: NG_ADDRESS, email: EMAIL })
+    const [option] = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' })
 
     const [body, sig] = option.token.split('.')
     const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'))
@@ -189,6 +190,7 @@ describe('getShippingRates — guest', () => {
     const options = await getShippingRates({
       address: NG_ADDRESS,
       email: EMAIL,
+      chargeCurrency: 'NGN',
       guestLines: [{ productId: PRODUCT_ID, quantity: 3 }],
     })
 
@@ -203,11 +205,17 @@ describe('getShippingRates — guest', () => {
   })
 })
 
-describe('getShippingRates — non-Nigeria', () => {
-  it('returns exactly the flat international option and never calls ShipBubble', async () => {
+describe('getShippingRates — quotes in the charge currency, not the address country', () => {
+  // The core Phase-7 currency invariant: every returned option's currency
+  // equals `chargeCurrency` (never the address's country), so `placeOrder`'s
+  // `quote.currency !== input.chargeCurrency` guard always passes for a legit
+  // flow. Live ShipBubble ₦ rates are ONLY used when charging NGN to a
+  // Nigerian address; every other combination is a flat rate in `chargeCurrency`.
+
+  it('USD charge + non-NG address → flat USD option, never calls ShipBubble', async () => {
     getCurrentUserId.mockResolvedValue(null)
 
-    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
+    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
 
     expect(validateAddress).not.toHaveBeenCalled()
     expect(fetchRates).not.toHaveBeenCalled()
@@ -220,6 +228,59 @@ describe('getShippingRates — non-Nigeria', () => {
 
     const payload = verifyQuote(options[0].token, US_ADDRESS)
     expect(payload).toMatchObject({ label: 'International shipping', amountMinor: 250_000, currency: 'USD' })
+  })
+
+  it('USD charge + NG address → flat USD option, never calls ShipBubble (its ₦ rates can’t be charged in USD)', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'USD', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
+
+    expect(validateAddress).not.toHaveBeenCalled()
+    expect(fetchRates).not.toHaveBeenCalled()
+
+    expect(options).toEqual([
+      expect.objectContaining({ id: 'international', amountMinor: 250_000, currency: 'USD' }),
+    ])
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ currency: 'USD' })
+  })
+
+  it('NGN charge + non-NG address → flat NGN international option, never calls ShipBubble', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+
+    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
+
+    expect(validateAddress).not.toHaveBeenCalled()
+    expect(fetchRates).not.toHaveBeenCalled()
+
+    expect(options).toEqual([
+      expect.objectContaining({ id: 'international', label: 'International shipping', amountMinor: 500_000, currency: 'NGN' }),
+    ])
+    expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ amountMinor: 500_000, currency: 'NGN' })
+  })
+
+  it('the invariant holds across every branch: every option.currency === chargeCurrency and its token verifies', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'recv-inv' })
+    fetchRates.mockResolvedValue([{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 350_000, currency: 'NGN', deliveryEta: '2-3 days' }])
+
+    const combos = [
+      { address: NG_ADDRESS, chargeCurrency: 'NGN' as const },
+      { address: NG_ADDRESS, chargeCurrency: 'USD' as const },
+      { address: US_ADDRESS, chargeCurrency: 'NGN' as const },
+      { address: US_ADDRESS, chargeCurrency: 'USD' as const },
+    ]
+
+    for (const { address, chargeCurrency } of combos) {
+      const options = await getShippingRates({ address, email: EMAIL, chargeCurrency, guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
+      expect(options.length).toBeGreaterThanOrEqual(1)
+      for (const option of options) {
+        expect(option.currency).toBe(chargeCurrency)
+        const payload = verifyQuote(option.token, address)
+        expect(payload).not.toBeNull()
+        expect(payload!.currency).toBe(chargeCurrency)
+      }
+    }
   })
 })
 
@@ -234,7 +295,7 @@ describe('getShippingRates — fallback', () => {
     validateAddress.mockResolvedValue({ addressCode: 'recv-3' })
     fetchRates.mockRejectedValue(new Error('ShipBubble is down'))
 
-    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL })
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' })
 
     expect(options).toHaveLength(1)
     expect(options[0]).toMatchObject({ id: 'fallback', label: 'Standard delivery', amountMinor: 300_000, currency: 'NGN' })
@@ -244,7 +305,7 @@ describe('getShippingRates — fallback', () => {
   it('falls back when validateAddress throws', async () => {
     validateAddress.mockRejectedValue(new Error('unvalidatable address'))
 
-    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL })
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' })
 
     expect(fetchRates).not.toHaveBeenCalled()
     expect(options).toHaveLength(1)
@@ -256,7 +317,7 @@ describe('getShippingRates — fallback', () => {
     validateAddress.mockResolvedValue({ addressCode: 'recv-4' })
     fetchRates.mockResolvedValue([])
 
-    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL })
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' })
 
     expect(options).toHaveLength(1)
     expect(options[0].id).toBe('fallback')
@@ -267,7 +328,7 @@ describe('getShippingRates — fallback', () => {
     validateAddress.mockResolvedValue({ addressCode: 'recv-5' })
     cartItem.findMany.mockRejectedValue(new Error('db unavailable'))
 
-    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL })
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' })
 
     expect(options).toHaveLength(1)
     expect(options[0].id).toBe('fallback')
@@ -277,7 +338,7 @@ describe('getShippingRates — fallback', () => {
   it('falls back to the flat rate — without calling validateAddress — when SHIPBUBBLE_ORIGIN_ADDRESS_CODE is blank', async () => {
     configState.originAddressCode = ''
 
-    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL })
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' })
 
     expect(validateAddress).not.toHaveBeenCalled()
     expect(fetchRates).not.toHaveBeenCalled()
@@ -296,7 +357,7 @@ describe('getShippingRates — robustness against a malformed address', () => {
   it('returns a fallback option (never throws) when address.country is missing', async () => {
     const malformedAddress = { ...NG_ADDRESS, country: undefined } as unknown as Address
 
-    const options = await getShippingRates({ address: malformedAddress, email: EMAIL })
+    const options = await getShippingRates({ address: malformedAddress, email: EMAIL, chargeCurrency: 'NGN' })
 
     expect(options.length).toBeGreaterThanOrEqual(1)
     expect(options[0].id).toBe('fallback')
@@ -306,7 +367,7 @@ describe('getShippingRates — robustness against a malformed address', () => {
   })
 
   it('returns a fallback option (never throws) when address itself is null', async () => {
-    const options = await getShippingRates({ address: null as unknown as Address, email: EMAIL })
+    const options = await getShippingRates({ address: null as unknown as Address, email: EMAIL, chargeCurrency: 'NGN' })
 
     expect(options.length).toBeGreaterThanOrEqual(1)
     expect(options[0].id).toBe('fallback')

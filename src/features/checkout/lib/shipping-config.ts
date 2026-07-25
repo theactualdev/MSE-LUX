@@ -26,11 +26,21 @@ export const SHIPBUBBLE_ORIGIN_ADDRESS_CODE = process.env.SHIPBUBBLE_ORIGIN_ADDR
 export const SHIPBUBBLE_CATEGORY_ID = Number(process.env.SHIPBUBBLE_CATEGORY_ID ?? '0')
 
 /**
- * The flat rate offered for a non-Nigeria delivery address (no live
- * ShipBubble quoting for international couriers yet — see spec §2 deferred
- * list). Illustrative value; finalize before launch.
+ * The flat rate offered for a non-Nigeria delivery address, or any address
+ * when the customer is charged in USD (no live ShipBubble quoting for
+ * international couriers yet — see spec §2 deferred list; and ShipBubble's ₦
+ * rates can't be charged in USD without FX). Illustrative value; finalize
+ * before launch.
  */
-export const FLAT_INTERNATIONAL = { amountMinor: 2500, currency: 'USD' as const, label: 'International shipping', deliveryEta: '7–14 days' }
+export const FLAT_INTERNATIONAL_USD = { amountMinor: 2500, currency: 'USD' as const, label: 'International shipping', deliveryEta: '7–14 days' }
+
+/**
+ * The flat rate offered when the customer is charged in NGN but the delivery
+ * address is outside Nigeria — same "no live international quoting" gap as
+ * `FLAT_INTERNATIONAL_USD`, but quoted in NGN since that's the charge
+ * currency. Illustrative value; finalize before launch.
+ */
+export const FLAT_INTERNATIONAL_NGN = { amountMinor: 500_000, currency: 'NGN' as const, label: 'International shipping', deliveryEta: '7–14 days' }
 
 /**
  * The flat rate used when ShipBubble is unavailable / can't validate the
@@ -41,8 +51,8 @@ export const FLAT_FALLBACK_NGN = { amountMinor: 250_000, currency: 'NGN' as cons
 
 /**
  * The flat rate used when ShipBubble is unavailable for a non-Nigerian
- * address (falls back to the same value as `FLAT_INTERNATIONAL` today, kept
- * as a distinct export so the two concerns — "no live international
+ * address (falls back to the same value as `FLAT_INTERNATIONAL_USD` today,
+ * kept as a distinct export so the two concerns — "no live international
  * quoting" vs. "ShipBubble outage" — can diverge later without a rename).
  */
 export const FLAT_FALLBACK_USD = { amountMinor: 2500, currency: 'USD' as const, label: 'International shipping', deliveryEta: '7–14 days' }
