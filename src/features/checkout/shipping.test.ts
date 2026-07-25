@@ -260,6 +260,18 @@ describe('getShippingRates — fallback', () => {
 
     expect(options).toHaveLength(1)
     expect(options[0].id).toBe('fallback')
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).not.toBeNull()
+  })
+
+  it('falls back — without throwing — when cart resolution itself throws (e.g. a db error)', async () => {
+    validateAddress.mockResolvedValue({ addressCode: 'recv-5' })
+    cartItem.findMany.mockRejectedValue(new Error('db unavailable'))
+
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL })
+
+    expect(options).toHaveLength(1)
+    expect(options[0].id).toBe('fallback')
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).not.toBeNull()
   })
 
   it('falls back to the flat rate — without calling validateAddress — when SHIPBUBBLE_ORIGIN_ADDRESS_CODE is blank', async () => {
@@ -272,5 +284,33 @@ describe('getShippingRates — fallback', () => {
     expect(options).toHaveLength(1)
     expect(options[0]).toMatchObject({ id: 'fallback', amountMinor: 300_000, currency: 'NGN' })
     expect(verifyQuote(options[0].token, NG_ADDRESS)).not.toBeNull()
+  })
+})
+
+describe('getShippingRates — robustness against a malformed address', () => {
+  // `getShippingRates` is a public Server Action: its args are NOT
+  // runtime-validated by the framework, so a direct/malformed POST can
+  // arrive with a broken `address` shape. It must never throw — it must
+  // still return a single safe, verifiable fallback option.
+
+  it('returns a fallback option (never throws) when address.country is missing', async () => {
+    const malformedAddress = { ...NG_ADDRESS, country: undefined } as unknown as Address
+
+    const options = await getShippingRates({ address: malformedAddress, email: EMAIL })
+
+    expect(options.length).toBeGreaterThanOrEqual(1)
+    expect(options[0].id).toBe('fallback')
+    expect(validateAddress).not.toHaveBeenCalled()
+    expect(fetchRates).not.toHaveBeenCalled()
+    expect(verifyQuote(options[0].token, malformedAddress)).not.toBeNull()
+  })
+
+  it('returns a fallback option (never throws) when address itself is null', async () => {
+    const options = await getShippingRates({ address: null as unknown as Address, email: EMAIL })
+
+    expect(options.length).toBeGreaterThanOrEqual(1)
+    expect(options[0].id).toBe('fallback')
+    expect(validateAddress).not.toHaveBeenCalled()
+    expect(fetchRates).not.toHaveBeenCalled()
   })
 })

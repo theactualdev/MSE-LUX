@@ -14,6 +14,7 @@ import {
   WEIGHT_PER_ITEM_GRAMS,
   NOMINAL_DIMENSION,
 } from '@/features/checkout/lib/shipping-config'
+import { addressSchema } from '@/features/checkout/schema'
 import type { Address } from '@/features/checkout/schema'
 import type { GuestOrderLine } from '@/features/checkout/types'
 import type { ShippingOption } from '@/features/checkout/shipping-types'
@@ -102,100 +103,139 @@ function tomorrowIsoDate(): string {
   return new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 }
 
+/**
+ * `addressHash` is safe on a well-formed `Address` (every field is normalized
+ * with `?? ''`), but `getShippingRates` is a public Server Action — callers
+ * don't runtime-validate their args, so `input.address` can arrive as
+ * `null`/`undefined`/a non-object at the boundary. Coerces anything that
+ * isn't a real object to `{}` first so a guard-path fallback option can
+ * always be built (and later re-verified with `verifyQuote`) without risking
+ * a second throw while we're already handling the first one.
+ */
+function safeAddressHash(address: unknown): string {
+  const candidate = address && typeof address === 'object' ? (address as Address) : ({} as Address)
+  return addressHash(candidate)
+}
+
+/** The single flat rate returned whenever the request can't even be processed (malformed address, or any other unexpected throw) — always NGN, since a genuinely malformed address will be rejected again by `placeOrder`'s own `addressSchema.safeParse` before anything is charged. */
+function guardFallbackOption(address: unknown): ShippingOption {
+  const hash = safeAddressHash(address)
+  return toOption('fallback', FLAT_FALLBACK_NGN.label, FLAT_FALLBACK_NGN.amountMinor, FLAT_FALLBACK_NGN.currency, hash, FLAT_FALLBACK_NGN.deliveryEta)
+}
+
 export async function getShippingRates(input: {
   address: Address
   /** ShipBubble requires a contact email for address validation; the checkout flow already has it by the shipping step. */
   email: string
   guestLines?: GuestOrderLine[]
 }): Promise<ShippingOption[]> {
-  const { address, email, guestLines } = input
-  const hash = addressHash(address)
-  const nigeria = isNigeria(address.country)
-
-  if (!nigeria) {
-    return [
-      toOption(
-        'international',
-        FLAT_INTERNATIONAL.label,
-        FLAT_INTERNATIONAL.amountMinor,
-        FLAT_INTERNATIONAL.currency,
-        hash,
-        FLAT_INTERNATIONAL.deliveryEta,
-      ),
-    ]
-  }
-
   try {
-    // A blank origin code means the store's ShipBubble pickup address hasn't
-    // been configured yet — fail fast into the fallback rather than calling
-    // ShipBubble with an invalid sender code.
-    if (!SHIPBUBBLE_ORIGIN_ADDRESS_CODE) throw new Error('SHIPBUBBLE_ORIGIN_ADDRESS_CODE is not configured')
+    // `input.address` is untrusted at this boundary (a public Server Action —
+    // no runtime arg validation happens for us). A malformed/missing address
+    // must not throw straight out of the function; it gets one safe flat
+    // option instead, exactly like any other unrecoverable failure below.
+    const parsedAddress = addressSchema.safeParse(input.address)
+    if (!parsedAddress.success) return [guardFallbackOption(input.address)]
 
-    const userId = await getCurrentUserId()
-    const rawLines = await resolveRawLines(userId, guestLines)
-    const aggregatedLines = aggregateRawLines(rawLines)
+    const address = parsedAddress.data
+    const { email, guestLines } = input
+    const hash = addressHash(address)
+    const nigeria = isNigeria(address.country)
 
-    const productIds = Array.from(new Set(aggregatedLines.map((line) => line.productId)))
-    const products = await resolveProductsByIds(productIds)
-    const productById = new Map(products.map((p) => [p.id, p]))
-
-    // Declared/insured value and the flat weight estimate, both driven by the
-    // REAL cart — item prices are re-read from the authored NGN priceSet
-    // (never a client-supplied amount); a line whose product no longer
-    // resolves is simply skipped (mirrors `placeOrder`'s re-pricing).
-    let totalQuantity = 0
-    let totalValueMinor = 0
-    for (const line of aggregatedLines) {
-      const product = productById.get(line.productId)
-      if (!product) continue
-
-      const variant = line.variantId ? product.variants.find((v) => v.id === line.variantId) : undefined
-      const unitNgnMinor = (variant?.priceSet?.ngn ?? product.priceSet.ngn).amountMinor
-
-      totalQuantity += line.quantity
-      totalValueMinor += unitNgnMinor * line.quantity
+    if (!nigeria) {
+      return [
+        toOption(
+          'international',
+          FLAT_INTERNATIONAL.label,
+          FLAT_INTERNATIONAL.amountMinor,
+          FLAT_INTERNATIONAL.currency,
+          hash,
+          FLAT_INTERNATIONAL.deliveryEta,
+        ),
+      ]
     }
 
-    const totalWeightGrams = WEIGHT_BASE_GRAMS + WEIGHT_PER_ITEM_GRAMS * totalQuantity
+    try {
+      // A blank origin code means the store's ShipBubble pickup address hasn't
+      // been configured yet — fail fast into the fallback rather than calling
+      // ShipBubble with an invalid sender code.
+      if (!SHIPBUBBLE_ORIGIN_ADDRESS_CODE) throw new Error('SHIPBUBBLE_ORIGIN_ADDRESS_CODE is not configured')
 
-    const packageItems = [
-      {
-        name: 'MSE Lux order',
-        description: 'Jewelry order',
-        unit_weight: totalWeightGrams,
-        unit_amount: totalValueMinor,
-        quantity: 1,
-      },
-    ]
+      const userId = await getCurrentUserId()
+      const rawLines = await resolveRawLines(userId, guestLines)
+      const aggregatedLines = aggregateRawLines(rawLines)
 
-    const addressLine = `${address.line1}, ${address.city}, ${address.state}, ${address.country}`
+      const productIds = Array.from(new Set(aggregatedLines.map((line) => line.productId)))
+      const products = await resolveProductsByIds(productIds)
+      const productById = new Map(products.map((p) => [p.id, p]))
 
-    const { addressCode: receiverAddressCode } = await validateAddress({
-      name: address.fullName,
-      email,
-      phone: address.phone,
-      address: addressLine,
-    })
+      // Declared/insured value and the flat weight estimate, both driven by the
+      // REAL cart — item prices are re-read from the authored NGN priceSet
+      // (never a client-supplied amount); a line whose product no longer
+      // resolves is simply skipped (mirrors `placeOrder`'s re-pricing).
+      let totalQuantity = 0
+      let totalValueMinor = 0
+      for (const line of aggregatedLines) {
+        const product = productById.get(line.productId)
+        if (!product) continue
 
-    const rates = await fetchRates({
-      senderAddressCode: SHIPBUBBLE_ORIGIN_ADDRESS_CODE,
-      receiverAddressCode,
-      packageItems,
-      packageDimension: NOMINAL_DIMENSION,
-      pickupDate: tomorrowIsoDate(),
-    })
+        const variant = line.variantId ? product.variants.find((v) => v.id === line.variantId) : undefined
+        const unitNgnMinor = (variant?.priceSet?.ngn ?? product.priceSet.ngn).amountMinor
 
-    if (rates.length === 0) throw new Error('ShipBubble returned no couriers')
+        totalQuantity += line.quantity
+        totalValueMinor += unitNgnMinor * line.quantity
+      }
 
-    return rates.map((rate) => {
-      const currency = rate.currency === 'USD' ? 'USD' : 'NGN'
-      return toOption(`${rate.courierId}:${rate.serviceCode}`, rate.label, rate.amountMinor, currency, hash, rate.deliveryEta)
-    })
+      const totalWeightGrams = WEIGHT_BASE_GRAMS + WEIGHT_PER_ITEM_GRAMS * totalQuantity
+
+      const packageItems = [
+        {
+          name: 'MSE Lux order',
+          description: 'Jewelry order',
+          unit_weight: totalWeightGrams,
+          unit_amount: totalValueMinor,
+          quantity: 1,
+        },
+      ]
+
+      const addressLine = `${address.line1}, ${address.city}, ${address.state}, ${address.country}`
+
+      const { addressCode: receiverAddressCode } = await validateAddress({
+        name: address.fullName,
+        email,
+        phone: address.phone,
+        address: addressLine,
+      })
+
+      const rates = await fetchRates({
+        senderAddressCode: SHIPBUBBLE_ORIGIN_ADDRESS_CODE,
+        receiverAddressCode,
+        packageItems,
+        packageDimension: NOMINAL_DIMENSION,
+        pickupDate: tomorrowIsoDate(),
+      })
+
+      if (rates.length === 0) throw new Error('ShipBubble returned no couriers')
+
+      return rates.map((rate) => {
+        const currency = rate.currency === 'USD' ? 'USD' : 'NGN'
+        return toOption(`${rate.courierId}:${rate.serviceCode}`, rate.label, rate.amountMinor, currency, hash, rate.deliveryEta)
+      })
+    } catch (error) {
+      // Never block checkout on a ShipBubble outage / bad config / unvalidatable
+      // address / empty courier list — fall back to a single flat rate.
+      console.error('getShippingRates: ShipBubble path failed, falling back to a flat rate', error)
+      const fallback = nigeria ? FLAT_FALLBACK_NGN : FLAT_FALLBACK_USD
+      return [toOption('fallback', fallback.label, fallback.amountMinor, fallback.currency, hash, fallback.deliveryEta)]
+    }
   } catch (error) {
-    // Never block checkout on a ShipBubble outage / bad config / unvalidatable
-    // address / empty courier list — fall back to a single flat rate.
-    console.error('getShippingRates: ShipBubble path failed, falling back to a flat rate', error)
-    const fallback = nigeria ? FLAT_FALLBACK_NGN : FLAT_FALLBACK_USD
-    return [toOption('fallback', fallback.label, fallback.amountMinor, fallback.currency, hash, fallback.deliveryEta)]
+    // Top-level safety net: `getShippingRates` must NEVER throw — it's a
+    // public Server Action feeding the checkout page, and a throw here would
+    // break checkout outright. This catches anything not already handled
+    // above (e.g. a bug in a step that runs before/outside the inner
+    // ShipBubble try, or an unexpected throw during address validation
+    // itself) and still returns one safe, verifiable fallback option.
+    console.error('getShippingRates: unexpected failure, falling back to a flat rate', error)
+    return [guardFallbackOption(input.address)]
   }
 }
