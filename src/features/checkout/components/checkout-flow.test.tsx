@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CheckoutFlow } from '@/features/checkout/components/checkout-flow'
 import { placeOrder } from '@/features/checkout/data'
+import { initializePayment, verifyPayment } from '@/features/checkout/payments'
 import { useCart } from '@/features/cart/use-cart'
 import type { Product } from '@/types/catalog'
 import type { CartLine } from '@/features/cart/lib/lines'
@@ -18,6 +19,11 @@ vi.mock('@/features/checkout/data', () => ({
   placeOrder: vi.fn(),
 }))
 
+vi.mock('@/features/checkout/payments', () => ({
+  initializePayment: vi.fn(),
+  verifyPayment: vi.fn(),
+}))
+
 vi.mock('@/features/cart/use-cart', () => ({
   useCart: vi.fn(),
 }))
@@ -30,7 +36,24 @@ vi.mock('@/features/checkout/store', () => ({
   },
 }))
 
+// The popup import is dynamic (`await import('@paystack/inline-js')`) inside
+// the handler, so it's mocked the same way any other module dependency is:
+// the default export is a constructor whose instance's `resumeTransaction`
+// is a test-controlled spy that invokes whichever callback the test wants.
+const resumeTransaction = vi.fn()
+
+vi.mock('@paystack/inline-js', () => ({
+  // `vi.fn(() => ...)` can't be `new`ed (arrow functions aren't
+  // constructible) — the real SDK is a class, so the mock needs a real
+  // function/class too.
+  default: vi.fn(function PaystackMock() {
+    return { resumeTransaction }
+  }),
+}))
+
 const placeOrderMock = vi.mocked(placeOrder)
+const initializePaymentMock = vi.mocked(initializePayment)
+const verifyPaymentMock = vi.mocked(verifyPayment)
 const useCartMock = vi.mocked(useCart)
 
 const product = {
@@ -92,6 +115,9 @@ describe('CheckoutFlow', () => {
     push.mockClear()
     setOrder.mockClear()
     placeOrderMock.mockReset()
+    initializePaymentMock.mockReset()
+    verifyPaymentMock.mockReset()
+    resumeTransaction.mockReset()
     mockCart()
   })
 
@@ -101,11 +127,14 @@ describe('CheckoutFlow', () => {
     expect(await screen.findByLabelText(/email/i)).toHaveValue('ada@example.com')
   })
 
-  it('places the order with the charge currency and guest line tuples, then stores, clears, and navigates', async () => {
+  it('places the order, initializes payment, opens the popup, verifies, then stores, clears, and navigates', async () => {
     const user = userEvent.setup({ delay: null })
-    placeOrderMock.mockResolvedValue({
-      ok: true,
-      order: { orderNumber: 'MSE-123456' } as never,
+    const order = { orderNumber: 'MSE-123456' } as never
+    placeOrderMock.mockResolvedValue({ ok: true, order })
+    initializePaymentMock.mockResolvedValue({ ok: true, accessCode: 'code_1', publicKey: 'pk_test_1' })
+    verifyPaymentMock.mockResolvedValue({ ok: true, status: 'paid' })
+    resumeTransaction.mockImplementation((_accessCode: string, opts: { onSuccess: (t: { reference: string }) => void }) => {
+      opts.onSuccess({ reference: 'ref_1' })
     })
 
     const { clear } = useCartMock()
@@ -126,8 +155,12 @@ describe('CheckoutFlow', () => {
       guestLines: [{ productId: 'p1', variantId: undefined, quantity: 2 }],
     })
 
+    await waitFor(() => expect(initializePaymentMock).toHaveBeenCalledWith('MSE-123456'))
+    await waitFor(() => expect(resumeTransaction).toHaveBeenCalledWith('code_1', expect.any(Object)))
+    await waitFor(() => expect(verifyPaymentMock).toHaveBeenCalledWith('ref_1'))
+
     await waitFor(() => expect(push).toHaveBeenCalledWith('/order/MSE-123456'))
-    expect(setOrder).toHaveBeenCalledWith({ orderNumber: 'MSE-123456' })
+    expect(setOrder).toHaveBeenCalledWith(order)
     expect(clear).toHaveBeenCalledTimes(1)
   })
 
@@ -142,6 +175,69 @@ describe('CheckoutFlow', () => {
     await user.click(screen.getByRole('button', { name: /place order/i }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
+    expect(initializePaymentMock).not.toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
+    expect(clear).not.toHaveBeenCalled()
+    expect(setOrder).not.toHaveBeenCalled()
+  })
+
+  it('shows the error and does not open the popup when initializePayment fails', async () => {
+    const user = userEvent.setup({ delay: null })
+    placeOrderMock.mockResolvedValue({ ok: true, order: { orderNumber: 'MSE-123456' } as never })
+    initializePaymentMock.mockResolvedValue({ error: 'Could not start payment. Please try again.' })
+
+    const { clear } = useCartMock()
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    await driveToReview(user)
+    await user.click(screen.getByRole('button', { name: /place order/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not start payment/i)
+    expect(resumeTransaction).not.toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
+    expect(clear).not.toHaveBeenCalled()
+    expect(setOrder).not.toHaveBeenCalled()
+  })
+
+  it('returns to review with the cart intact when the popup is cancelled', async () => {
+    const user = userEvent.setup({ delay: null })
+    placeOrderMock.mockResolvedValue({ ok: true, order: { orderNumber: 'MSE-123456' } as never })
+    initializePaymentMock.mockResolvedValue({ ok: true, accessCode: 'code_1', publicKey: 'pk_test_1' })
+    resumeTransaction.mockImplementation((_accessCode: string, opts: { onCancel: () => void }) => {
+      opts.onCancel()
+    })
+
+    const { clear } = useCartMock()
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    await driveToReview(user)
+    await user.click(screen.getByRole('button', { name: /place order/i }))
+
+    await waitFor(() => expect(resumeTransaction).toHaveBeenCalled())
+    // Back on the review step, ready to retry.
+    expect(await screen.findByRole('button', { name: /place order/i })).toBeInTheDocument()
+    expect(verifyPaymentMock).not.toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
+    expect(clear).not.toHaveBeenCalled()
+    expect(setOrder).not.toHaveBeenCalled()
+  })
+
+  it('shows the error and does not navigate when verifyPayment fails', async () => {
+    const user = userEvent.setup({ delay: null })
+    placeOrderMock.mockResolvedValue({ ok: true, order: { orderNumber: 'MSE-123456' } as never })
+    initializePaymentMock.mockResolvedValue({ ok: true, accessCode: 'code_1', publicKey: 'pk_test_1' })
+    verifyPaymentMock.mockResolvedValue({ error: 'Could not confirm payment. Please try again.' })
+    resumeTransaction.mockImplementation((_accessCode: string, opts: { onSuccess: (t: { reference: string }) => void }) => {
+      opts.onSuccess({ reference: 'ref_1' })
+    })
+
+    const { clear } = useCartMock()
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    await driveToReview(user)
+    await user.click(screen.getByRole('button', { name: /place order/i }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/could not confirm payment/i)
     expect(push).not.toHaveBeenCalled()
     expect(clear).not.toHaveBeenCalled()
     expect(setOrder).not.toHaveBeenCalled()

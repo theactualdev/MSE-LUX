@@ -9,11 +9,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ContactStep } from '@/features/checkout/components/contact-step'
 import { AddressStep } from '@/features/checkout/components/address-step'
 import { ShippingStep } from '@/features/checkout/components/shipping-step'
-import { PaymentStep, type PaymentMethod } from '@/features/checkout/components/payment-step'
+import { PaymentStep } from '@/features/checkout/components/payment-step'
 import { ReviewStep } from '@/features/checkout/components/review-step'
 import { OrderSummaryPanel } from '@/features/checkout/components/order-summary-panel'
 import { useLastOrderStore } from '@/features/checkout/store'
 import { placeOrder } from '@/features/checkout/data'
+import { initializePayment, verifyPayment } from '@/features/checkout/payments'
 import { useCart } from '@/features/cart/use-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { computeCartSummary } from '@/features/cart/lib/summary'
@@ -35,8 +36,8 @@ const STEP_LABELS: Record<Step, string> = {
 
 /**
  * Multi-step guest checkout orchestrator: contact → address → shipping →
- * payment (mock) → review. Holds the current step and the data collected at
- * each step, and renders a persistent, read-only `<OrderSummaryPanel>`
+ * payment (Paystack) → review. Holds the current step and the data collected
+ * at each step, and renders a persistent, read-only `<OrderSummaryPanel>`
  * alongside the active step (using the selected shipping method, defaulting
  * to the first).
  *
@@ -46,9 +47,13 @@ const STEP_LABELS: Record<Step, string> = {
  * doesn't flash the empty state first. If the cart is empty, shows an empty
  * state linking back to `/` instead of the flow.
  *
- * On `Place order`, `handlePlaceOrder` calls the `placeOrder` server action,
- * which re-prices and persists the order server-side; `orderNumber` comes
- * back from that call, not generated client-side.
+ * On `Place order`, `handlePlaceOrder` places a PENDING order via the
+ * `placeOrder` server action, initializes a Paystack transaction for it
+ * (`initializePayment`, which derives the amount from the stored order —
+ * never a client value), and opens the Paystack inline popup with the
+ * returned access code. The popup's `onSuccess` is only a fast-path hint —
+ * the order isn't trusted paid until the server `verifyPayment` call
+ * confirms it (the webhook is the backstop if that call never lands).
  */
 export function CheckoutFlow({
   initialContact,
@@ -65,7 +70,6 @@ export function CheckoutFlow({
   const [contact, setContact] = useState<Contact | undefined>(initialContact)
   const [address, setAddress] = useState<Address | undefined>(initialAddress)
   const [shippingMethod, setShippingMethod] = useState(shippingMethods[0])
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('card')
   const [placing, setPlacing] = useState(false)
   const [error, setError] = useState<string>()
 
@@ -115,7 +119,7 @@ export function CheckoutFlow({
     setError(undefined)
     setPlacing(true)
 
-    const result = await placeOrder({
+    const placed = await placeOrder({
       contact,
       address,
       shippingMethodId: shippingMethod.id,
@@ -127,16 +131,47 @@ export function CheckoutFlow({
       })),
     })
 
-    if ('ok' in result) {
-      // Flip to the placing state BEFORE clearing the cart, so the empty-bag
-      // state can't render in the gap before the navigation completes.
-      useLastOrderStore.getState().setOrder(result.order)
-      clear()
-      router.push(`/order/${result.order.orderNumber}`)
-    } else {
+    if (!('ok' in placed)) {
       setPlacing(false)
-      setError(result.error)
+      setError(placed.error)
+      return
     }
+
+    const init = await initializePayment(placed.order.orderNumber)
+
+    if (!('ok' in init)) {
+      setPlacing(false)
+      setError(init.error)
+      return
+    }
+
+    // Dynamically imported so the Paystack SDK never reaches the initial
+    // bundle and SSR never touches it.
+    const { default: Paystack } = await import('@paystack/inline-js')
+    const popup = new Paystack()
+
+    popup.resumeTransaction(init.accessCode, {
+      onSuccess: async (transaction: { reference: string }) => {
+        const verified = await verifyPayment(transaction.reference)
+
+        if ('ok' in verified) {
+          // Flip to the placing state BEFORE clearing the cart, so the
+          // empty-bag state can't render in the gap before the navigation
+          // completes.
+          useLastOrderStore.getState().setOrder(placed.order)
+          clear()
+          router.push(`/order/${placed.order.orderNumber}`)
+        } else {
+          setPlacing(false)
+          setError(verified.error)
+        }
+      },
+      onCancel: () => setPlacing(false),
+      onError: () => {
+        setPlacing(false)
+        setError('Payment could not be completed. Please try again.')
+      },
+    })
   }
 
   return (
@@ -177,15 +212,7 @@ export function CheckoutFlow({
           />
         ) : null}
 
-        {step === 'payment' ? (
-          <PaymentStep
-            defaultValue={paymentMethod}
-            onSelect={(method) => {
-              setPaymentMethod(method)
-              setStep('review')
-            }}
-          />
-        ) : null}
+        {step === 'payment' ? <PaymentStep onContinue={() => setStep('review')} /> : null}
 
         {step === 'review' && contact && address ? (
           <div className="flex flex-col gap-4">
