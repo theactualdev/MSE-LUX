@@ -132,8 +132,10 @@ describe('(storefront)/account/orders/[orderNumber] page', () => {
     const { render, screen } = await import('@testing-library/react')
     render(tree)
 
-    // The key assertion: TRK-99 from test 1 should NOT be visible
+    // The key assertion: the tracking BLOCK is absent entirely — not just the
+    // previous test's number, but the "Tracking" heading itself.
     expect(screen.queryByText('TRK-99')).not.toBeInTheDocument()
+    expect(screen.queryByText('Tracking')).not.toBeInTheDocument()
   })
 })
 
