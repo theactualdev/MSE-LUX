@@ -17,6 +17,10 @@ beforeEach(() => {
 })
 
 describe('listAdminOrders', () => {
+  it('pages by exactly 20 rows (the PAGE_SIZE contract the symbolic assertions below rely on)', () => {
+    expect(PAGE_SIZE).toBe(20)
+  })
+
   it('returns empty list when no orders exist', async () => {
     order.findMany.mockResolvedValue([])
     order.count.mockResolvedValue(0)
