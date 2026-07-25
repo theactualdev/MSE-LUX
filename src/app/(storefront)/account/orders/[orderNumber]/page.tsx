@@ -81,6 +81,16 @@ export default async function OrderDetailPage({ params }: OrderDetailPageProps) 
               <p className="text-sm text-muted-foreground">{order.shippingLabel}</p>
             </div>
 
+            {order.trackingNumber ? (
+              <div className="flex items-center justify-between gap-3 rounded-xl border border-border p-4">
+                <h2 className="text-sm font-medium text-foreground">Tracking</h2>
+                <p className="text-sm text-muted-foreground">
+                  {order.trackingCarrier ? `${order.trackingCarrier} · ` : ''}
+                  <span className="font-medium text-foreground">{order.trackingNumber}</span>
+                </p>
+              </div>
+            ) : null}
+
             <div className="flex flex-col divide-y divide-border rounded-xl border border-border p-4">
               {order.lines.map((line, index) => (
                 <div key={`${line.name}-${index}`} className="flex gap-4 py-4 first:pt-0 last:pb-0">
