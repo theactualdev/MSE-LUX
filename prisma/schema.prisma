@@ -400,6 +400,18 @@ model Order {
   // exactly once).
   paidAt            DateTime?
 
+  // Phase 8b fulfilment lifecycle — all nullable; set only by the matching
+  // transition in features/admin/orders/transitions.ts.
+  shippedAt         DateTime?
+  deliveredAt       DateTime?
+  cancelledAt       DateTime?
+  trackingCarrier   String?
+  trackingNumber    String?
+  // ShipBubble's shipment reference when booked via the API; null for manual tracking entry.
+  shipbubbleOrderId String?
+  // Set when a PAID (PROCESSING) order is cancelled — the 8d refund flow's work queue.
+  refundOwed        Boolean   @default(false)
+
   // Row-audit timestamp (when this record was created/last touched), distinct
   // from `placedAt`, the business event timestamp.
   createdAt DateTime @default(now())

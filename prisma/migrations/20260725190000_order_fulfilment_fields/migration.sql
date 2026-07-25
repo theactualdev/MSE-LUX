@@ -1,0 +1,7 @@
+ALTER TABLE "Order" ADD COLUMN "shippedAt" TIMESTAMP(3);
+ALTER TABLE "Order" ADD COLUMN "deliveredAt" TIMESTAMP(3);
+ALTER TABLE "Order" ADD COLUMN "cancelledAt" TIMESTAMP(3);
+ALTER TABLE "Order" ADD COLUMN "trackingCarrier" TEXT;
+ALTER TABLE "Order" ADD COLUMN "trackingNumber" TEXT;
+ALTER TABLE "Order" ADD COLUMN "shipbubbleOrderId" TEXT;
+ALTER TABLE "Order" ADD COLUMN "refundOwed" BOOLEAN NOT NULL DEFAULT false;

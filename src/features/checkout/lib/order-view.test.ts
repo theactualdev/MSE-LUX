@@ -83,4 +83,42 @@ describe('mapOrderRow', () => {
     expect(view.status).toBe('PROCESSING')
     expect(view.placedAt).toBe('2026-07-24T10:00:00.000Z')
   })
+
+  it('maps trackingCarrier and trackingNumber onto the view', () => {
+    const row = buildRow()
+    row.trackingCarrier = 'GIG Logistics'
+    row.trackingNumber = 'GIG-123'
+    const view = mapOrderRow(row)
+
+    expect(view.trackingCarrier).toBe('GIG Logistics')
+    expect(view.trackingNumber).toBe('GIG-123')
+  })
+
+  it('allows omitting tracking fields from a row literal (backward compatibility)', () => {
+    // Verify that a row without the new keys still compiles and maps (with undefined fields)
+    const view = mapOrderRow({
+      orderNumber: 'MSE-1001',
+      email: 'jane@example.com',
+      status: 'PROCESSING',
+      placedAt: new Date('2026-07-24T10:00:00.000Z'),
+      shipFullName: 'Jane Doe',
+      shipPhone: '+1 555 123 4567',
+      shipLine1: '123 Main St',
+      shipLine2: null,
+      shipCity: 'New York',
+      shipState: 'NY',
+      shipCountry: 'US',
+      shipPostalCode: '10001',
+      shippingLabel: 'Standard Shipping',
+      currency: 'USD',
+      subtotalMinor: 2900,
+      shippingMinor: 500,
+      taxMinor: 232,
+      totalMinor: 3632,
+      lines: [],
+    })
+
+    expect(view.trackingCarrier).toBeUndefined()
+    expect(view.trackingNumber).toBeUndefined()
+  })
 })

@@ -44,9 +44,11 @@ export interface OrderRowForMapping {
   taxMinor: number
   totalMinor: number
   lines: OrderLineRowForMapping[]
+  trackingCarrier?: string | null
+  trackingNumber?: string | null
 }
 
-export type OrderView = Order & { status: OrderStatus }
+export type OrderView = Order & { status: OrderStatus; trackingCarrier?: string; trackingNumber?: string }
 
 function toOrderLine(row: OrderLineRowForMapping, currency: Currency): OrderLine {
   return {
@@ -90,5 +92,7 @@ export function mapOrderRow(row: OrderRowForMapping): OrderView {
     },
     placedAt: row.placedAt.toISOString(),
     status: row.status,
+    trackingCarrier: row.trackingCarrier ?? undefined,
+    trackingNumber: row.trackingNumber ?? undefined,
   }
 }
