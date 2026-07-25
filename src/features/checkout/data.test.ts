@@ -211,49 +211,16 @@ describe('placeOrder — guest checkout', () => {
       }),
       include: { lines: true },
     })
-  })
 
-  it('decrements product inventory (no variant) by the ordered quantity', async () => {
-    await placeOrder({
-      contact: CONTACT,
-      address: ADDRESS,
-      shippingMethodId: 'lagos',
-      chargeCurrency: 'NGN',
-      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
-    })
-
-    expect(product.update).toHaveBeenCalledWith({
-      where: { id: PRODUCT_ID },
-      data: { inventory: { decrement: 1 } },
-    })
-    expect(productVariant.update).not.toHaveBeenCalled()
-  })
-
-  it('decrements variant inventory when the line has a variant', async () => {
-    order.create.mockResolvedValue(
-      createdRow({
-        subtotalMinor: 500_000,
-        totalMinor: 787_500,
-        lines: [{ ...createdRow().lines[0], variantLabel: '18cm' }],
-      }),
-    )
-
-    await placeOrder({
-      contact: CONTACT,
-      address: ADDRESS,
-      shippingMethodId: 'lagos',
-      chargeCurrency: 'NGN',
-      guestLines: [{ productId: PRODUCT_ID, variantId: VARIANT_ID, quantity: 2 }],
-    })
-
-    expect(productVariant.update).toHaveBeenCalledWith({
-      where: { id: VARIANT_ID },
-      data: { inventory: { decrement: 2 } },
-    })
+    // Placement creates a PENDING order only — inventory decrement and cart
+    // clear are fulfilment side effects that now live in `markOrderPaid`
+    // (`lib/fulfil-order.ts`), triggered only by a verified payment.
     expect(product.update).not.toHaveBeenCalled()
+    expect(productVariant.update).not.toHaveBeenCalled()
+    expect(cartItem.deleteMany).not.toHaveBeenCalled()
   })
 
-  it('clamps a requested quantity above inventory, both in the stored line and the decrement', async () => {
+  it('clamps a requested quantity above inventory in the stored line', async () => {
     await placeOrder({
       contact: CONTACT,
       address: ADDRESS,
@@ -278,15 +245,12 @@ describe('placeOrder — guest checkout', () => {
         }),
       }),
     )
-    expect(product.update).toHaveBeenCalledWith({
-      where: { id: PRODUCT_ID },
-      data: { inventory: { decrement: 5 } },
-    })
   })
 
   it('aggregates duplicate guest tuples for the same product before clamping, so it cannot oversell', async () => {
     // PRODUCT.inventory is 5. Two tuples for the same product at 99 each must
-    // clamp ONCE to 5 — not twice, which would decrement 10 against 5 in stock.
+    // clamp ONCE to 5 — not twice, which would store an order line for 10
+    // against 5 in stock (and, later, oversell on fulfilment).
     await placeOrder({
       contact: CONTACT,
       address: ADDRESS,
@@ -307,11 +271,6 @@ describe('placeOrder — guest checkout', () => {
         }),
       }),
     )
-    expect(product.update).toHaveBeenCalledTimes(1)
-    expect(product.update).toHaveBeenCalledWith({
-      where: { id: PRODUCT_ID },
-      data: { inventory: { decrement: 5 } },
-    })
   })
 
   it('rejects an invalid chargeCurrency without writing an order', async () => {
@@ -453,17 +412,15 @@ describe('placeOrder — signed-in checkout', () => {
         }),
       }),
     )
-  })
 
-  it('clears the cart after a successful order', async () => {
-    await placeOrder({
-      contact: CONTACT,
-      address: ADDRESS,
-      shippingMethodId: 'lagos',
-      chargeCurrency: 'NGN',
-    })
-
-    expect(cartItem.deleteMany).toHaveBeenCalledWith({ where: { cart: { profileId: USER_ID } } })
+    // Placement creates a PENDING order only — inventory decrement and cart
+    // clear are fulfilment side effects that now live in `markOrderPaid`
+    // (`lib/fulfil-order.ts`), triggered only by a verified payment. In
+    // particular, the signed-in user's cart must still be intact after a
+    // PENDING order is placed.
+    expect(product.update).not.toHaveBeenCalled()
+    expect(productVariant.update).not.toHaveBeenCalled()
+    expect(cartItem.deleteMany).not.toHaveBeenCalled()
   })
 
   it('returns an error and writes nothing when the signed-in user has no cart rows', async () => {

@@ -11,10 +11,20 @@ import { mapOrderRow } from '@/features/checkout/lib/order-view'
 import type { PlaceOrderInput, PlaceOrderResult, GuestOrderLine } from '@/features/checkout/types'
 
 /**
- * Order placement: re-prices server-side, decrements inventory, and clears
- * the signed-in user's cart, inside a `db.$transaction` per attempt (see
- * `generateOrderNumber`'s doc comment for why "per attempt", not "one for
- * the whole call").
+ * Order placement: re-prices server-side and creates a **PENDING** order —
+ * nothing else. Every `orderLineInputs` quantity is already clamped to the
+ * authored catalog's inventory (see the clamp loop below), so a PENDING
+ * order's totals and lines are correct even though no inventory has been
+ * touched yet. Each attempt runs its `tx.order.create` inside its own
+ * `db.$transaction` (see `generateOrderNumber`'s doc comment for why "per
+ * attempt", not "one for the whole call").
+ *
+ * Fulfilment — decrementing inventory and clearing the signed-in user's
+ * cart — does NOT happen here. It happens exactly once, on verified
+ * payment, in `markOrderPaid` (`lib/fulfil-order.ts`), which both the
+ * Paystack webhook and `verifyPayment` funnel through. Placing an order
+ * therefore never reserves stock or touches the cart; only a paid order
+ * does.
  *
  * WHY `'use server'` RATHER THAN `import 'server-only'`: same reasoning as
  * `cart/data.ts` — the two directives can't coexist, so this Server Actions
@@ -216,35 +226,12 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
     const orderNumber = generateOrderNumber()
 
     try {
-      const order = await db.$transaction(async (tx) => {
-        const created = await tx.order.create({
+      const order = await db.$transaction(async (tx) =>
+        tx.order.create({
           data: { ...orderData, orderNumber, lines: { create: orderLineInputs } },
           include: { lines: true },
-        })
-
-        // Best-effort atomic decrement per line — a concurrent oversell is
-        // Phase 8's concern (see the plan); this deliberately does not
-        // guard-read inventory first.
-        for (const line of lines) {
-          if (line.variant) {
-            await tx.productVariant.update({
-              where: { id: line.variant.id },
-              data: { inventory: { decrement: line.quantity } },
-            })
-          } else {
-            await tx.product.update({
-              where: { id: line.product.id },
-              data: { inventory: { decrement: line.quantity } },
-            })
-          }
-        }
-
-        if (userId) {
-          await tx.cartItem.deleteMany({ where: { cart: { profileId: userId } } })
-        }
-
-        return created
-      })
+        }),
+      )
 
       return { ok: true, order: mapOrderRow(order) }
     } catch (error) {
