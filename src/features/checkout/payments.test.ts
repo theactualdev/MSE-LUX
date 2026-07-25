@@ -43,6 +43,11 @@ vi.mock('@/features/checkout/lib/fulfil-order', () => ({
   markOrderPaid: (...args: unknown[]) => markOrderPaid(...args),
 }))
 
+// The guest ownership gate: initializePayment reads the httpOnly `mse_guest_order`
+// cookie placeOrder set, and only proceeds if it names this order.
+const cookieStore = { get: vi.fn(), set: vi.fn() }
+vi.mock('next/headers', () => ({ cookies: vi.fn(async () => cookieStore) }))
+
 const { initializePayment, verifyPayment } = await import('@/features/checkout/payments')
 
 const ORDER_NUMBER = 'MSE-000123'
@@ -79,6 +84,9 @@ function charge(overrides: Partial<PaystackCharge> = {}): PaystackCharge {
 beforeEach(() => {
   vi.clearAllMocks()
   process.env.NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY = PUBLIC_KEY
+  // By default the guest cookie names this order (the ownership check passes);
+  // the mismatch case overrides this per-test.
+  cookieStore.get.mockReturnValue({ value: ORDER_NUMBER })
 })
 
 afterEach(() => {
@@ -112,8 +120,9 @@ describe('initializePayment', () => {
     expect(result).toEqual({ ok: true, accessCode: 'access_123', publicKey: PUBLIC_KEY })
   })
 
-  it('guest (userId null): scopes the order lookup by { orderNumber, profileId: null }', async () => {
+  it('guest (userId null) with a matching mse_guest_order cookie: scopes the lookup by { orderNumber, profileId: null }', async () => {
     getCurrentUserId.mockResolvedValue(null)
+    cookieStore.get.mockReturnValue({ value: ORDER_NUMBER })
     order.findFirst.mockResolvedValue(baseOrder({ profileId: null }))
     initializeTransaction.mockResolvedValue({ accessCode: 'access_456', reference: 'generated-ref' })
     order.update.mockResolvedValue(baseOrder({ profileId: null }))
@@ -122,6 +131,28 @@ describe('initializePayment', () => {
 
     expect(order.findFirst).toHaveBeenCalledWith({ where: { orderNumber: ORDER_NUMBER, profileId: null } })
     expect(result).toEqual({ ok: true, accessCode: 'access_456', publicKey: PUBLIC_KEY })
+  })
+
+  it('guest whose mse_guest_order cookie does NOT match the order number: returns { error }, never queries the DB or calls initializeTransaction (no enumeration)', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+    cookieStore.get.mockReturnValue({ value: 'MSE-999999' }) // a different (their own) order
+
+    const result = await initializePayment(ORDER_NUMBER)
+
+    expect('error' in result).toBe(true)
+    expect(order.findFirst).not.toHaveBeenCalled()
+    expect(initializeTransaction).not.toHaveBeenCalled()
+  })
+
+  it('guest with no mse_guest_order cookie: returns { error }, never queries the DB', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+    cookieStore.get.mockReturnValue(undefined)
+
+    const result = await initializePayment(ORDER_NUMBER)
+
+    expect('error' in result).toBe(true)
+    expect(order.findFirst).not.toHaveBeenCalled()
+    expect(initializeTransaction).not.toHaveBeenCalled()
   })
 
   it('order not found: returns { error }, never calls initializeTransaction', async () => {

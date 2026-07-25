@@ -62,6 +62,10 @@ vi.mock('@/features/auth/claims', () => ({
   getCurrentUserId: () => getCurrentUserId(),
 }))
 
+// placeOrder sets an httpOnly cookie binding a GUEST order to the session.
+const cookieStore = { set: vi.fn(), get: vi.fn() }
+vi.mock('next/headers', () => ({ cookies: vi.fn(async () => cookieStore) }))
+
 const resolveProductsByIds = vi.fn()
 
 vi.mock('@/features/catalog/server/resolve-products', () => ({

@@ -1,5 +1,6 @@
 'use server'
 
+import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
 import { getCurrentUserId } from '@/features/auth/claims'
 import { resolveProductsByIds } from '@/features/catalog/server/resolve-products'
@@ -232,6 +233,22 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
           include: { lines: true },
         }),
       )
+
+      // Bind a GUEST order to the session that placed it. A guest order has no
+      // `profileId`, so payment actions can't scope it by user — an httpOnly
+      // cookie is the session-bound proof of ownership, so an anonymous caller
+      // can't enumerate order numbers and pay for (take over) a stranger's
+      // order. Signed-in orders are scoped by `profileId` and need no cookie.
+      if (!userId) {
+        const cookieStore = await cookies()
+        cookieStore.set('mse_guest_order', order.orderNumber, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === 'production',
+          sameSite: 'lax',
+          path: '/',
+          maxAge: 60 * 60, // 1h — long enough to complete payment
+        })
+      }
 
       return { ok: true, order: mapOrderRow(order) }
     } catch (error) {

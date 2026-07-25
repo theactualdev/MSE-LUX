@@ -1,5 +1,6 @@
 'use server'
 
+import { cookies } from 'next/headers'
 import { db } from '@/lib/db'
 import { getCurrentUserId } from '@/features/auth/claims'
 import { initializeTransaction, verifyTransaction } from '@/features/checkout/lib/paystack'
@@ -38,15 +39,21 @@ function generateReference(orderNumber: string): string {
 }
 
 /**
- * Loads the order for `orderNumber`, scoped to the caller: a signed-in
- * caller only sees their own orders (`profileId: userId`); a guest
- * (`userId` null) is scoped by `profileId: null`, since a guest order has no
- * profile and the order number came from the order they themselves just
- * placed in this checkout session. Never scoped by `orderNumber` alone —
- * that would let any caller who guesses/observes an order number pay (or
- * probe) someone else's order.
+ * Loads the order for `orderNumber`, scoped to the caller. A signed-in caller
+ * only sees their own orders (`profileId: userId`). A guest (`userId` null)
+ * has no profile, so `profileId: null` alone matches EVERY guest order — that
+ * would let an anonymous caller enumerate order numbers and pay for (take
+ * over) a stranger's order. So the guest path additionally requires the
+ * httpOnly `mse_guest_order` cookie that `placeOrder` set to name THIS order:
+ * a session-bound proof the caller is the one who placed it. Returns `null`
+ * (indistinguishable from "not found") when the cookie doesn't match, so the
+ * action never reveals whether an order number exists.
  */
 async function loadOwnedOrder(orderNumber: string, userId: string | null) {
+  if (!userId) {
+    const cookieStore = await cookies()
+    if (cookieStore.get('mse_guest_order')?.value !== orderNumber) return null
+  }
   return db.order.findFirst({ where: { orderNumber, profileId: userId } })
 }
 
