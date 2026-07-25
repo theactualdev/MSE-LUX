@@ -11,7 +11,7 @@ afterEach(() => {
   delete process.env.SHIPBUBBLE_API_KEY
 })
 
-const { validateAddress, fetchRates } = await import('@/features/checkout/lib/shipbubble')
+const { validateAddress, fetchRates, createLabel } = await import('@/features/checkout/lib/shipbubble')
 
 describe('validateAddress', () => {
   it('POSTs to /shipping/address/validate with the Bearer header and the name/email/phone/address body, and returns data.address_code as a string', async () => {
@@ -139,9 +139,10 @@ describe('fetchRates', () => {
     })
     vi.stubGlobal('fetch', fetchMock)
 
-    const rates = await fetchRates(baseInput)
+    const result = await fetchRates(baseInput)
 
-    expect(rates).toEqual([
+    expect(result.requestToken).toBe('req_tok_1')
+    expect(result.rates).toEqual([
       {
         courierId: 'courier_1',
         serviceCode: 'gig_standard',
@@ -178,7 +179,7 @@ describe('fetchRates', () => {
     })
   })
 
-  it('returns an empty array when data.couriers is missing', async () => {
+  it('returns an empty rates array (with the request token) when data.couriers is missing', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue({
@@ -187,8 +188,20 @@ describe('fetchRates', () => {
       }),
     )
 
-    const rates = await fetchRates(baseInput)
-    expect(rates).toEqual([])
+    const result = await fetchRates(baseInput)
+    expect(result).toEqual({ requestToken: 'req_tok_1', rates: [] })
+  })
+
+  it('throws when a status:true response is missing request_token (booking off it would be impossible)', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: true, data: { couriers: [] } }),
+      }),
+    )
+
+    await expect(fetchRates(baseInput)).rejects.toThrow('ShipBubble fetch rates returned no request_token')
   })
 
   it('throws when the response is status:false', async () => {
@@ -214,5 +227,57 @@ describe('fetchRates', () => {
     vi.stubGlobal('fetch', vi.fn())
 
     await expect(fetchRates(baseInput)).rejects.toThrow('SHIPBUBBLE_API_KEY is not set')
+  })
+})
+
+describe('createLabel', () => {
+  const baseInput = { requestToken: 'req_tok_1', courierId: 'courier_1', serviceCode: 'gig_std' }
+
+  it('POSTs /shipping/labels with request_token + service_code + courier_id and maps the response', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ status: true, data: { order_id: 'SB-ORD-1', tracking_number: 'TRK-99', tracking_url: 'https://track/TRK-99', courier: { name: 'GIG Logistics' } } }),
+    } as Response)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const result = await createLabel({ requestToken: 'req_tok_1', courierId: 'courier_1', serviceCode: 'gig_std' })
+
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('https://api.shipbubble.com/v1/shipping/labels')
+    expect(JSON.parse((init as RequestInit).body as string)).toEqual({ request_token: 'req_tok_1', service_code: 'gig_std', courier_id: 'courier_1' })
+    expect(result).toEqual({ shipbubbleOrderId: 'SB-ORD-1', trackingNumber: 'TRK-99', trackingUrl: 'https://track/TRK-99', courierName: 'GIG Logistics' })
+  })
+
+  it('throws on status:false and on a missing tracking number', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: false, message: 'Invalid request token' }),
+      }),
+    )
+    await expect(createLabel(baseInput)).rejects.toThrow()
+
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: true, data: { order_id: 'SB-ORD-1', courier: { name: 'GIG Logistics' } } }),
+      }),
+    )
+    await expect(createLabel(baseInput)).rejects.toThrow()
+  })
+
+  it('throws when the response is a non-2xx', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) }))
+
+    await expect(createLabel(baseInput)).rejects.toThrow()
+  })
+
+  it('throws when SHIPBUBBLE_API_KEY is not set', async () => {
+    delete process.env.SHIPBUBBLE_API_KEY
+    vi.stubGlobal('fetch', vi.fn())
+
+    await expect(createLabel(baseInput)).rejects.toThrow('SHIPBUBBLE_API_KEY is not set')
   })
 })

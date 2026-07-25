@@ -225,7 +225,10 @@ export async function getShippingRates(input: {
         address: addressLine,
       })
 
-      const rates = await fetchRates({
+      // `requestToken` is deliberately unused here — checkout's quotes are our
+      // own HMAC-signed tokens (see `shipping-quote.ts`), not ShipBubble's;
+      // the request token only matters to a later booking step (`createLabel`).
+      const { rates } = await fetchRates({
         senderAddressCode: SHIPBUBBLE_ORIGIN_ADDRESS_CODE,
         receiverAddressCode,
         packageItems,

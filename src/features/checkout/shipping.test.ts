@@ -121,10 +121,13 @@ describe('getShippingRates — Nigeria, signed-in', () => {
   })
 
   it('resolves the signed-in server cart, validates the address, fetches live rates, and returns one signed option per courier', async () => {
-    fetchRates.mockResolvedValue([
-      { courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 350_000, currency: 'NGN', deliveryEta: '2-3 days' },
-      { courierId: 'courier_2', serviceCode: 'dhl_express', label: 'DHL', amountMinor: 600_000, currency: 'NGN', deliveryEta: '1 day' },
-    ])
+    fetchRates.mockResolvedValue({
+      requestToken: 'req_tok_1',
+      rates: [
+        { courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 350_000, currency: 'NGN', deliveryEta: '2-3 days' },
+        { courierId: 'courier_2', serviceCode: 'dhl_express', label: 'DHL', amountMinor: 600_000, currency: 'NGN', deliveryEta: '1 day' },
+      ],
+    })
 
     const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' })
 
@@ -165,7 +168,7 @@ describe('getShippingRates — Nigeria, signed-in', () => {
   })
 
   it('is authoritative: a tampered amount on a genuine option fails verification', async () => {
-    fetchRates.mockResolvedValue([{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 350_000, currency: 'NGN', deliveryEta: '2-3 days' }])
+    fetchRates.mockResolvedValue({ requestToken: 'req_tok_1', rates: [{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 350_000, currency: 'NGN', deliveryEta: '2-3 days' }] })
 
     const [option] = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' })
 
@@ -185,7 +188,7 @@ describe('getShippingRates — guest', () => {
     getCurrentUserId.mockResolvedValue(null)
     resolveProductsByIds.mockResolvedValue([PRODUCT])
     validateAddress.mockResolvedValue({ addressCode: 'recv-2' })
-    fetchRates.mockResolvedValue([{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 400_000, currency: 'NGN', deliveryEta: '2-3 days' }])
+    fetchRates.mockResolvedValue({ requestToken: 'req_tok_1', rates: [{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 400_000, currency: 'NGN', deliveryEta: '2-3 days' }] })
 
     const options = await getShippingRates({
       address: NG_ADDRESS,
@@ -262,7 +265,7 @@ describe('getShippingRates — quotes in the charge currency, not the address co
     getCurrentUserId.mockResolvedValue(null)
     resolveProductsByIds.mockResolvedValue([PRODUCT])
     validateAddress.mockResolvedValue({ addressCode: 'recv-inv' })
-    fetchRates.mockResolvedValue([{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 350_000, currency: 'NGN', deliveryEta: '2-3 days' }])
+    fetchRates.mockResolvedValue({ requestToken: 'req_tok_1', rates: [{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 350_000, currency: 'NGN', deliveryEta: '2-3 days' }] })
 
     const combos = [
       { address: NG_ADDRESS, chargeCurrency: 'NGN' as const },
@@ -315,7 +318,7 @@ describe('getShippingRates — fallback', () => {
 
   it('falls back when fetchRates returns an empty courier list', async () => {
     validateAddress.mockResolvedValue({ addressCode: 'recv-4' })
-    fetchRates.mockResolvedValue([])
+    fetchRates.mockResolvedValue({ requestToken: 'req_tok_1', rates: [] })
 
     const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' })
 

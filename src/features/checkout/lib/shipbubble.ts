@@ -98,7 +98,14 @@ export async function validateAddress(input: {
  * `deliveryEta` is read from `delivery_eta` if present, else
  * `delivery_eta_time`, else left `undefined`.
  *
- * Throws a plain `Error` on a non-2xx response or `status: false`.
+ * Also returns the raw `data.request_token` ShipBubble issues alongside the
+ * quote — callers that go on to book a shipment (`createLabel`, Task 3) pass
+ * it straight through to bind the booking to this quote. A `status: true`
+ * response with no `request_token` is treated as a failure (booking off it
+ * would be impossible), and throws.
+ *
+ * Throws a plain `Error` on a non-2xx response, `status: false`, or a missing
+ * `request_token`.
  */
 export async function fetchRates(input: {
   senderAddressCode: string
@@ -106,7 +113,7 @@ export async function fetchRates(input: {
   packageItems: PackageItem[]
   packageDimension: { length: number; width: number; height: number }
   pickupDate: string
-}): Promise<ShipBubbleRate[]> {
+}): Promise<{ requestToken: string; rates: ShipBubbleRate[] }> {
   const apiKey = requireApiKey()
 
   const res = await fetch(`${SHIPBUBBLE_BASE_URL}/shipping/fetch_rates`, {
@@ -146,14 +153,63 @@ export async function fetchRates(input: {
     throw new Error(`ShipBubble fetch rates failed: ${body.message ?? res.status}`)
   }
 
+  const requestToken = body.data.request_token
+  if (!requestToken) throw new Error('ShipBubble fetch rates returned no request_token')
+
   const couriers = body.data.couriers ?? []
 
-  return couriers.map((courier) => ({
-    courierId: String(courier.courier_id ?? ''),
-    serviceCode: String(courier.service_code ?? ''),
-    label: String(courier.courier_name ?? ''),
-    amountMinor: courier.total ?? 0,
-    currency: String(courier.currency ?? ''),
-    deliveryEta: courier.delivery_eta ?? courier.delivery_eta_time,
-  }))
+  return {
+    requestToken,
+    rates: couriers.map((courier) => ({
+      courierId: String(courier.courier_id ?? ''),
+      serviceCode: String(courier.service_code ?? ''),
+      label: String(courier.courier_name ?? ''),
+      amountMinor: courier.total ?? 0,
+      currency: String(courier.currency ?? ''),
+      deliveryEta: courier.delivery_eta ?? courier.delivery_eta_time,
+    })),
+  }
+}
+
+/**
+ * `POST /shipping/labels` — books the shipment ShipBubble quoted via
+ * `fetchRates` (the `requestToken` binds this booking to that quote; tokens
+ * are short-lived, so callers re-quote just before booking).
+ *
+ * QA-VERIFY (same protocol as `courier.total` above): the exact field names
+ * (`request_token`/`service_code`/`courier_id`; `data.order_id`,
+ * `data.tracking_number`, `data.tracking_url`, `data.courier.name`) are from
+ * ShipBubble's docs and MUST be confirmed against a real test key before live
+ * use — mapped in exactly this one function.
+ */
+export async function createLabel(input: { requestToken: string; courierId: string; serviceCode: string }): Promise<{
+  shipbubbleOrderId: string
+  trackingNumber: string
+  trackingUrl?: string
+  courierName: string
+}> {
+  const apiKey = requireApiKey()
+
+  const res = await fetch(`${SHIPBUBBLE_BASE_URL}/shipping/labels`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ request_token: input.requestToken, service_code: input.serviceCode, courier_id: input.courierId }),
+  })
+
+  const body = (await res.json()) as {
+    status?: boolean
+    message?: string
+    data?: { order_id?: number | string; tracking_number?: string; tracking_url?: string; courier?: { name?: string } }
+  }
+
+  if (!res.ok || body.status !== true || !body.data?.order_id || !body.data.tracking_number) {
+    throw new Error(`ShipBubble create label failed: ${body.message ?? res.status}`)
+  }
+
+  return {
+    shipbubbleOrderId: String(body.data.order_id),
+    trackingNumber: body.data.tracking_number,
+    trackingUrl: body.data.tracking_url,
+    courierName: String(body.data.courier?.name ?? ''),
+  }
 }
