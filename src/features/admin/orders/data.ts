@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { db } from '@/lib/db'
-import { type OrderStatus } from '@/generated/prisma/client'
+import { type OrderStatus, type Prisma } from '@/generated/prisma/client'
 import { mapOrderRow, type OrderView, type OrderRowForMapping } from '@/features/checkout/lib/order-view'
 
 /**
@@ -14,7 +14,6 @@ import { mapOrderRow, type OrderView, type OrderRowForMapping } from '@/features
  * the entire protection — do not export this from any ungated route.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- exported for use by T7/T8 consumers
 export const PAGE_SIZE = 20
 
 export interface AdminOrderListItem {
@@ -65,8 +64,7 @@ export async function listAdminOrders(input: ListAdminOrdersInput = {}): Promise
   const skip = (clampedPage - 1) * PAGE_SIZE
 
   // Build where clause
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Prisma where types are complex and inferred correctly at call sites
-  let where: any = {}
+  let where: Prisma.OrderWhereInput = {}
 
   if (status && query) {
     // Both filters: combine with AND

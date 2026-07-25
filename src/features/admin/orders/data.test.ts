@@ -55,7 +55,7 @@ describe('listAdminOrders', () => {
       where: {},
       orderBy: { placedAt: 'desc' },
       skip: 0,
-      take: 20,
+      take: PAGE_SIZE,
       select: {
         orderNumber: true,
         placedAt: true,
@@ -125,7 +125,7 @@ describe('listAdminOrders', () => {
     expect(order.count).toHaveBeenCalledWith({ where: { status: 'PROCESSING' } })
   })
 
-  it('handles pagination: page 1 skip 0, page 2 skip 20, page 3 skip 40', async () => {
+  it('handles pagination: page 1 skip 0, page 2 skip PAGE_SIZE, page 3 skip 2*PAGE_SIZE', async () => {
     order.findMany.mockResolvedValue([])
     order.count.mockResolvedValue(100)
 
@@ -135,11 +135,11 @@ describe('listAdminOrders', () => {
 
     // Page 2
     await listAdminOrders({ page: 2 })
-    expect(order.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ skip: 20 }))
+    expect(order.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ skip: PAGE_SIZE }))
 
     // Page 3
     await listAdminOrders({ page: 3 })
-    expect(order.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ skip: 40 }))
+    expect(order.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ skip: 2 * PAGE_SIZE }))
   })
 
   it('clamps page to minimum 1 when page <= 0', async () => {
@@ -158,19 +158,19 @@ describe('listAdminOrders', () => {
     order.findMany.mockResolvedValue([])
 
     let result = await listAdminOrders({})
-    expect(result.pageCount).toBe(1) // Math.max(1, Math.ceil(1/20)) = 1
+    expect(result.pageCount).toBe(1) // Math.max(1, Math.ceil(1/PAGE_SIZE)) = 1
 
-    order.count.mockResolvedValue(20)
+    order.count.mockResolvedValue(PAGE_SIZE)
     result = await listAdminOrders({})
-    expect(result.pageCount).toBe(1) // Math.ceil(20/20) = 1
+    expect(result.pageCount).toBe(1) // Math.ceil(PAGE_SIZE/PAGE_SIZE) = 1
 
-    order.count.mockResolvedValue(21)
+    order.count.mockResolvedValue(PAGE_SIZE + 1)
     result = await listAdminOrders({})
-    expect(result.pageCount).toBe(2) // Math.ceil(21/20) = 2
+    expect(result.pageCount).toBe(2) // Math.ceil((PAGE_SIZE+1)/PAGE_SIZE) = 2
 
     order.count.mockResolvedValue(100)
     result = await listAdminOrders({})
-    expect(result.pageCount).toBe(5) // Math.ceil(100/20) = 5
+    expect(result.pageCount).toBe(5) // Math.ceil(100/PAGE_SIZE) = 5
   })
 
   it('searches by order number when query is provided', async () => {
