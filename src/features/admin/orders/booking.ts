@@ -16,9 +16,9 @@ import {
  * address against ShipBubble (`getBookingRates`) and books the admin's chosen
  * courier's label, then flips the order to SHIPPED via `shipOrder`
  * (`bookShipment`). Server-only and UNGATED on purpose: every caller reaches
- * these through the `(admin)/admin` layout, which has already enforced
- * `requireRole(ADMIN)` — same trust model as the sibling `data.ts` and
- * `transitions.ts`.
+ * these through `actions.ts`, which re-checks ADMIN itself (server actions
+ * are public HTTP endpoints — the (admin) layout gate covers rendering only).
+ * Same trust model as the sibling `transitions.ts`.
  *
  * Neither function throws: ShipBubble failures collapse to `shipbubble-error`
  * and `shipOrder`'s own `TransitionResult` errors are passed straight

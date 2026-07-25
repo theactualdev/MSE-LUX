@@ -59,8 +59,10 @@ export type AdminOrderDetail = OrderView & {
 export async function listAdminOrders(input: ListAdminOrdersInput = {}): Promise<ListAdminOrdersResult> {
   const { status, query, page = 1 } = input
 
-  // Clamp page to minimum 1
-  const clampedPage = Math.max(1, page)
+  // Clamp page to a minimum-1 INTEGER — a fractional page (?page=2.01 typed
+  // into the URL) would otherwise produce a fractional `skip`, which Prisma
+  // rejects at runtime ("Expected Int") and crash the whole list route.
+  const clampedPage = Math.max(1, Math.floor(page))
   const skip = (clampedPage - 1) * PAGE_SIZE
 
   // Build where clause
