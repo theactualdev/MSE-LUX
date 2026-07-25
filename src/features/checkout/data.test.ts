@@ -1,13 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { signQuote, addressHash } from '@/features/checkout/lib/shipping-quote'
 import type { Product } from '@/types/catalog'
 import type { Contact, Address } from '@/features/checkout/schema'
 
 /**
- * `buildCartLines`, `shippingAmountFor`, and `mapOrderRow` are pure and
- * DB-free, so they run for real here (not mocked) — these tests assert on
- * their actual output, which is exactly the point: the stored
- * `unitPriceMinor` must come from the authored catalog via `buildCartLines`,
- * never from anything the caller supplied.
+ * `buildCartLines`, `mapOrderRow`, and the real `shipping-quote` lib
+ * (`signQuote`/`addressHash`/`verifyQuote`, exercised via `placeOrder`
+ * itself) are pure and DB-free, so they run for real here (not mocked) —
+ * these tests assert on their actual output, which is exactly the point: the
+ * stored `unitPriceMinor` must come from the authored catalog via
+ * `buildCartLines`, and the stored `shippingMinor`/`shippingLabel` must come
+ * from a verified quote token, never from anything the caller supplied.
  *
  * Same rationale as `cart/data.test.ts`: Prisma bypasses RLS, so
  * authorization lives entirely in this module's query scoping — assertions
@@ -119,7 +122,28 @@ const ADDRESS: Address = {
   country: 'Nigeria',
 }
 
-// Subtotal for 1x PRODUCT_ID (no variant) in NGN = 500_000. Shipping ('lagos', NGN) = 250_000.
+const SHIPPING_QUOTE_SECRET = 'test-shipping-quote-secret'
+
+/**
+ * Signs a real, verifiable shipping-quote token for `ADDRESS` using the
+ * actual `shipping-quote` lib (not mocked) — `placeOrder` calls the real
+ * `verifyQuote`, so a fixture must be an authentic token, not a stub value.
+ * Defaults to the 'Lagos delivery' rate every existing assertion below was
+ * written against; pass overrides to build a tampered/expired/wrong-address
+ * token for the negative-path tests.
+ */
+function validShippingToken(overrides: { amountMinor?: number; currency?: 'NGN' | 'USD'; label?: string; exp?: number; address?: Address } = {}) {
+  return signQuote({
+    label: overrides.label ?? 'Lagos delivery',
+    amountMinor: overrides.amountMinor ?? 250_000,
+    currency: overrides.currency ?? 'NGN',
+    addressHash: addressHash(overrides.address ?? ADDRESS),
+    exp: overrides.exp ?? Date.now() + 60_000,
+  })
+}
+
+// Subtotal for 1x PRODUCT_ID (no variant) in NGN = 500_000. Shipping (signed
+// quote token for ADDRESS, NGN) = 250_000.
 // Tax = round(500_000 * 0.075) = 37_500. Total = 787_500.
 function createdRow(overrides: Partial<Record<string, unknown>> = {}) {
   return {
@@ -158,6 +182,7 @@ function createdRow(overrides: Partial<Record<string, unknown>> = {}) {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  process.env.SHIPBUBBLE_QUOTE_SECRET = SHIPPING_QUOTE_SECRET
   getCurrentUserId.mockResolvedValue(null)
   resolveProductsByIds.mockResolvedValue([PRODUCT])
   order.create.mockResolvedValue(createdRow())
@@ -168,7 +193,7 @@ describe('placeOrder — guest checkout', () => {
     const result = await placeOrder({
       contact: CONTACT,
       address: ADDRESS,
-      shippingMethodId: 'lagos',
+      shippingToken: validShippingToken(),
       chargeCurrency: 'NGN',
       guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
     })
@@ -228,7 +253,7 @@ describe('placeOrder — guest checkout', () => {
     await placeOrder({
       contact: CONTACT,
       address: ADDRESS,
-      shippingMethodId: 'lagos',
+      shippingToken: validShippingToken(),
       chargeCurrency: 'NGN',
       // PRODUCT.inventory is 5; requesting 99 should clamp to 5.
       guestLines: [{ productId: PRODUCT_ID, quantity: 99 }],
@@ -258,7 +283,7 @@ describe('placeOrder — guest checkout', () => {
     await placeOrder({
       contact: CONTACT,
       address: ADDRESS,
-      shippingMethodId: 'lagos',
+      shippingToken: validShippingToken(),
       chargeCurrency: 'NGN',
       guestLines: [
         { productId: PRODUCT_ID, quantity: 99 },
@@ -282,7 +307,7 @@ describe('placeOrder — guest checkout', () => {
       placeOrder({
         contact: CONTACT,
         address: ADDRESS,
-        shippingMethodId: 'lagos',
+        shippingToken: validShippingToken(),
         chargeCurrency: 'EUR' as never,
         guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
       }),
@@ -297,7 +322,7 @@ describe('placeOrder — guest checkout', () => {
       placeOrder({
         contact: CONTACT,
         address: ADDRESS,
-        shippingMethodId: 'lagos',
+        shippingToken: validShippingToken(),
         chargeCurrency: 'NGN',
         guestLines: [],
       }),
@@ -314,7 +339,7 @@ describe('placeOrder — guest checkout', () => {
       placeOrder({
         contact: CONTACT,
         address: ADDRESS,
-        shippingMethodId: 'lagos',
+        shippingToken: validShippingToken(),
         chargeCurrency: 'NGN',
         guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
       }),
@@ -324,25 +349,95 @@ describe('placeOrder — guest checkout', () => {
     expect($transaction).not.toHaveBeenCalled()
   })
 
-  it('returns an error for an unknown shipping method', async () => {
+  it('rejects a malformed shipping token without writing an order', async () => {
     await expect(
       placeOrder({
         contact: CONTACT,
         address: ADDRESS,
-        shippingMethodId: 'does-not-exist',
+        shippingToken: 'not-a-real-token',
         chargeCurrency: 'NGN',
         guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
       }),
     ).resolves.toEqual({ error: expect.any(String) })
 
     expect(order.create).not.toHaveBeenCalled()
+    expect($transaction).not.toHaveBeenCalled()
+  })
+
+  it('rejects a tampered shipping token (payload edited without re-signing) without writing an order', async () => {
+    const token = validShippingToken()
+    const [body, sig] = token.split('.')
+    const tamperedPayload = { label: 'Lagos delivery', amountMinor: 1, currency: 'NGN', addressHash: addressHash(ADDRESS), exp: Date.now() + 60_000 }
+    const tamperedBody = Buffer.from(JSON.stringify(tamperedPayload)).toString('base64url')
+    const tamperedToken = `${tamperedBody}.${sig}`
+    expect(tamperedBody).not.toBe(body) // sanity: the body really changed
+
+    await expect(
+      placeOrder({
+        contact: CONTACT,
+        address: ADDRESS,
+        shippingToken: tamperedToken,
+        chargeCurrency: 'NGN',
+        guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+      }),
+    ).resolves.toEqual({ error: expect.any(String) })
+
+    expect(order.create).not.toHaveBeenCalled()
+    expect($transaction).not.toHaveBeenCalled()
+  })
+
+  it('rejects an expired shipping token without writing an order', async () => {
+    await expect(
+      placeOrder({
+        contact: CONTACT,
+        address: ADDRESS,
+        shippingToken: validShippingToken({ exp: Date.now() - 1000 }),
+        chargeCurrency: 'NGN',
+        guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+      }),
+    ).resolves.toEqual({ error: expect.any(String) })
+
+    expect(order.create).not.toHaveBeenCalled()
+    expect($transaction).not.toHaveBeenCalled()
+  })
+
+  it('rejects a shipping token signed for a different address without writing an order', async () => {
+    const otherAddress: Address = { ...ADDRESS, line1: '99 Different Street', city: 'Ibadan' }
+
+    await expect(
+      placeOrder({
+        contact: CONTACT,
+        address: ADDRESS,
+        shippingToken: validShippingToken({ address: otherAddress }),
+        chargeCurrency: 'NGN',
+        guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+      }),
+    ).resolves.toEqual({ error: expect.any(String) })
+
+    expect(order.create).not.toHaveBeenCalled()
+    expect($transaction).not.toHaveBeenCalled()
+  })
+
+  it('rejects a shipping token whose currency does not match chargeCurrency without writing an order', async () => {
+    await expect(
+      placeOrder({
+        contact: CONTACT,
+        address: ADDRESS,
+        shippingToken: validShippingToken({ currency: 'USD', amountMinor: 3000 }),
+        chargeCurrency: 'NGN',
+        guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+      }),
+    ).resolves.toEqual({ error: expect.any(String) })
+
+    expect(order.create).not.toHaveBeenCalled()
+    expect($transaction).not.toHaveBeenCalled()
   })
 
   it('runs the whole placement inside exactly one transaction', async () => {
     await placeOrder({
       contact: CONTACT,
       address: ADDRESS,
-      shippingMethodId: 'lagos',
+      shippingToken: validShippingToken(),
       chargeCurrency: 'NGN',
       guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
     })
@@ -365,7 +460,7 @@ describe('placeOrder — guest checkout', () => {
     const result = await placeOrder({
       contact: CONTACT,
       address: ADDRESS,
-      shippingMethodId: 'lagos',
+      shippingToken: validShippingToken(),
       chargeCurrency: 'NGN',
       guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
     })
@@ -378,7 +473,7 @@ describe('placeOrder — guest checkout', () => {
     const result = await placeOrder({
       contact: CONTACT,
       address: ADDRESS,
-      shippingMethodId: 'lagos',
+      shippingToken: validShippingToken(),
       chargeCurrency: 'NGN',
       guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
     })
@@ -399,7 +494,7 @@ describe('placeOrder — signed-in checkout', () => {
     await placeOrder({
       contact: CONTACT,
       address: ADDRESS,
-      shippingMethodId: 'lagos',
+      shippingToken: validShippingToken(),
       chargeCurrency: 'NGN',
       // Should be entirely ignored — the signed-in user's server cart is authoritative.
       guestLines: [{ productId: 'some-other-product', quantity: 99 }],
@@ -431,7 +526,7 @@ describe('placeOrder — signed-in checkout', () => {
     cartItem.findMany.mockResolvedValue([])
 
     await expect(
-      placeOrder({ contact: CONTACT, address: ADDRESS, shippingMethodId: 'lagos', chargeCurrency: 'NGN' }),
+      placeOrder({ contact: CONTACT, address: ADDRESS, shippingToken: validShippingToken(), chargeCurrency: 'NGN' }),
     ).resolves.toEqual({ error: expect.any(String) })
 
     expect(order.create).not.toHaveBeenCalled()

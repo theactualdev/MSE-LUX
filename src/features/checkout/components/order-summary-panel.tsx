@@ -3,13 +3,13 @@ import { CartLineItem } from '@/features/cart/components/cart-line-item'
 import { CartSummary } from '@/features/cart/components/cart-summary'
 import type { CartLine } from '@/features/cart/lib/lines'
 import type { CartSummary as CartSummaryModel } from '@/features/cart/lib/summary'
-import type { ShippingMethod } from '@/features/cart/lib/shipping'
 import { cn } from '@/lib/utils'
 
 interface OrderSummaryPanelProps {
   lines: CartLine[]
   summary: CartSummaryModel
-  shippingMethod: ShippingMethod
+  /** Only the label is displayed here — the amount is already reflected in `summary`. */
+  shippingMethod?: { label: string }
   className?: string
 }
 
@@ -35,10 +35,12 @@ export function OrderSummaryPanel({ lines, summary, shippingMethod, className }:
           ))}
         </div>
 
-        <div className="flex items-center justify-between border-t border-border pt-4 text-sm text-muted-foreground">
-          <span>Shipping method</span>
-          <span className="text-foreground">{shippingMethod.label}</span>
-        </div>
+        {shippingMethod ? (
+          <div className="flex items-center justify-between border-t border-border pt-4 text-sm text-muted-foreground">
+            <span>Shipping method</span>
+            <span className="text-foreground">{shippingMethod.label}</span>
+          </div>
+        ) : null}
 
         <CartSummary summary={summary} className="border-t border-border pt-4" />
       </CardContent>

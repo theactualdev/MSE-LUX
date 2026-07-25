@@ -16,7 +16,7 @@ export interface GuestOrderLine {
 export interface PlaceOrderInput {
   contact: { email: string }
   address: Address
-  shippingMethodId: string
+  shippingToken: string
   chargeCurrency: 'NGN' | 'USD'
   /** Used ONLY when there is no signed-in user — a signed-in caller's persisted server cart is authoritative instead. */
   guestLines?: GuestOrderLine[]

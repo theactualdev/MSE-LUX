@@ -14,12 +14,13 @@ import { ReviewStep } from '@/features/checkout/components/review-step'
 import { OrderSummaryPanel } from '@/features/checkout/components/order-summary-panel'
 import { useLastOrderStore } from '@/features/checkout/store'
 import { placeOrder } from '@/features/checkout/data'
+import { getShippingRates } from '@/features/checkout/shipping'
 import { initializePayment, verifyPayment } from '@/features/checkout/payments'
 import { useCart } from '@/features/cart/use-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { computeCartSummary } from '@/features/cart/lib/summary'
-import { shippingMethods, shippingAmountFor } from '@/features/cart/lib/shipping'
 import type { Contact, Address } from '@/features/checkout/schema'
+import type { ShippingOption } from '@/features/checkout/shipping-types'
 import { cn } from '@/lib/utils'
 
 type Step = 'contact' | 'address' | 'shipping' | 'payment' | 'review'
@@ -38,8 +39,17 @@ const STEP_LABELS: Record<Step, string> = {
  * Multi-step guest checkout orchestrator: contact → address → shipping →
  * payment (Paystack) → review. Holds the current step and the data collected
  * at each step, and renders a persistent, read-only `<OrderSummaryPanel>`
- * alongside the active step (using the selected shipping method, defaulting
- * to the first).
+ * alongside the active step (using the selected shipping option, if any —
+ * there is no shipping to summarize before the address step's live rates
+ * come back).
+ *
+ * Right after the address step, `getShippingRates` fetches live, server-
+ * signed shipping options for that address (and the guest/cart lines) and
+ * the flow advances to the shipping step with them already populated,
+ * defaulting to the first option. The chosen option's opaque `token` — never
+ * its `amountMinor` — is what `placeOrder` receives; the server derives the
+ * charged shipping amount from that verified token, not from anything this
+ * component sends as a number.
  *
  * Gated on `useHydrated` so the persisted cart is never read before the
  * client has hydrated (avoids a server/client mismatch), and on
@@ -69,7 +79,9 @@ export function CheckoutFlow({
   const [step, setStep] = useState<Step>('contact')
   const [contact, setContact] = useState<Contact | undefined>(initialContact)
   const [address, setAddress] = useState<Address | undefined>(initialAddress)
-  const [shippingMethod, setShippingMethod] = useState(shippingMethods[0])
+  const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([])
+  const [selectedShipping, setSelectedShipping] = useState<ShippingOption>()
+  const [shippingLoading, setShippingLoading] = useState(false)
   const [placing, setPlacing] = useState(false)
   const [error, setError] = useState<string>()
 
@@ -111,10 +123,14 @@ export function CheckoutFlow({
     )
   }
 
-  const summary = computeCartSummary(lines, shippingAmountFor(shippingMethod, chargeCurrency), chargeCurrency)
+  const summary = computeCartSummary(
+    lines,
+    { amountMinor: selectedShipping?.amountMinor ?? 0, currency: chargeCurrency },
+    chargeCurrency,
+  )
 
   async function handlePlaceOrder() {
-    if (!contact || !address) return
+    if (!contact || !address || !selectedShipping) return
 
     setError(undefined)
     setPlacing(true)
@@ -122,7 +138,7 @@ export function CheckoutFlow({
     const placed = await placeOrder({
       contact,
       address,
-      shippingMethodId: shippingMethod.id,
+      shippingToken: selectedShipping.token,
       chargeCurrency,
       guestLines: lines.map((line) => ({
         productId: line.product.id,
@@ -194,8 +210,25 @@ export function CheckoutFlow({
         {step === 'address' ? (
           <AddressStep
             defaultValues={address}
-            onSubmit={(values) => {
+            onSubmit={async (values) => {
+              if (!contact) return
+
               setAddress(values)
+              setShippingLoading(true)
+
+              const opts = await getShippingRates({
+                address: values,
+                email: contact.email,
+                guestLines: lines.map((line) => ({
+                  productId: line.product.id,
+                  variantId: line.variant?.id,
+                  quantity: line.quantity,
+                })),
+              })
+
+              setShippingOptions(opts)
+              setSelectedShipping(opts[0])
+              setShippingLoading(false)
               setStep('shipping')
             }}
           />
@@ -203,10 +236,11 @@ export function CheckoutFlow({
 
         {step === 'shipping' ? (
           <ShippingStep
-            methods={shippingMethods}
-            defaultValue={shippingMethod}
-            onSelect={(method) => {
-              setShippingMethod(method)
+            options={shippingOptions}
+            loading={shippingLoading}
+            defaultId={selectedShipping?.id}
+            onSelect={(option) => {
+              setSelectedShipping(option)
               setStep('payment')
             }}
           />
@@ -214,7 +248,7 @@ export function CheckoutFlow({
 
         {step === 'payment' ? <PaymentStep onContinue={() => setStep('review')} /> : null}
 
-        {step === 'review' && contact && address ? (
+        {step === 'review' && contact && address && selectedShipping ? (
           <div className="flex flex-col gap-4">
             {error ? (
               <p role="alert" className="text-sm text-destructive">
@@ -224,7 +258,7 @@ export function CheckoutFlow({
             <ReviewStep
               contact={contact}
               address={address}
-              shippingMethod={shippingMethod}
+              shippingMethod={selectedShipping}
               lines={lines}
               summary={summary}
               onPlaceOrder={handlePlaceOrder}
@@ -236,7 +270,7 @@ export function CheckoutFlow({
       <OrderSummaryPanel
         lines={lines}
         summary={summary}
-        shippingMethod={shippingMethod}
+        shippingMethod={selectedShipping}
         className="w-full lg:sticky lg:top-24 lg:w-80 lg:shrink-0"
       />
     </div>

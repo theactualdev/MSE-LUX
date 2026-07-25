@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CheckoutFlow } from '@/features/checkout/components/checkout-flow'
 import { placeOrder } from '@/features/checkout/data'
+import { getShippingRates } from '@/features/checkout/shipping'
 import { initializePayment, verifyPayment } from '@/features/checkout/payments'
 import { useCart } from '@/features/cart/use-cart'
 import type { Product } from '@/types/catalog'
 import type { CartLine } from '@/features/cart/lib/lines'
 import type { Contact, Address } from '@/features/checkout/schema'
+import type { ShippingOption } from '@/features/checkout/shipping-types'
 
 const push = vi.fn()
 
@@ -17,6 +19,10 @@ vi.mock('next/navigation', () => ({
 
 vi.mock('@/features/checkout/data', () => ({
   placeOrder: vi.fn(),
+}))
+
+vi.mock('@/features/checkout/shipping', () => ({
+  getShippingRates: vi.fn(),
 }))
 
 vi.mock('@/features/checkout/payments', () => ({
@@ -52,9 +58,15 @@ vi.mock('@paystack/inline-js', () => ({
 }))
 
 const placeOrderMock = vi.mocked(placeOrder)
+const getShippingRatesMock = vi.mocked(getShippingRates)
 const initializePaymentMock = vi.mocked(initializePayment)
 const verifyPaymentMock = vi.mocked(verifyPayment)
 const useCartMock = vi.mocked(useCart)
+
+const SHIPPING_OPTIONS: ShippingOption[] = [
+  { id: 'lagos', label: 'Lagos delivery', amountMinor: 250_000, currency: 'NGN', deliveryEta: '1–2 days', token: 'token-lagos' },
+  { id: 'nationwide', label: 'Nationwide delivery', amountMinor: 500_000, currency: 'NGN', deliveryEta: '3–5 days', token: 'token-nationwide' },
+]
 
 const product = {
   id: 'p1',
@@ -115,6 +127,8 @@ describe('CheckoutFlow', () => {
     push.mockClear()
     setOrder.mockClear()
     placeOrderMock.mockReset()
+    getShippingRatesMock.mockReset()
+    getShippingRatesMock.mockResolvedValue(SHIPPING_OPTIONS)
     initializePaymentMock.mockReset()
     verifyPaymentMock.mockReset()
     resumeTransaction.mockReset()
@@ -125,6 +139,23 @@ describe('CheckoutFlow', () => {
     render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
 
     expect(await screen.findByLabelText(/email/i)).toHaveValue('ada@example.com')
+  })
+
+  it('fetches and renders the live shipping options after the address step', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    await user.click(await screen.findByRole('button', { name: /continue/i })) // contact -> address
+    await user.click(await screen.findByRole('button', { name: /continue/i })) // address -> shipping
+
+    await waitFor(() => expect(getShippingRatesMock).toHaveBeenCalledTimes(1))
+
+    // Both options render in the radio group; "Lagos delivery" also appears
+    // a second time in the persistent OrderSummaryPanel (the default
+    // selection), so assert via the radiogroup rather than a bare text query.
+    const group = await screen.findByRole('radiogroup', { name: /shipping method/i })
+    expect(within(group).getByText('Lagos delivery')).toBeInTheDocument()
+    expect(within(group).getByText('Nationwide delivery')).toBeInTheDocument()
   })
 
   it('places the order, initializes payment, opens the popup, verifies, then stores, clears, and navigates', async () => {
@@ -141,6 +172,15 @@ describe('CheckoutFlow', () => {
     render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
 
     await driveToReview(user)
+
+    // Submitting the address step fetches live shipping rates for that
+    // address (+ contact email + guest lines), never a static mock list.
+    await waitFor(() => expect(getShippingRatesMock).toHaveBeenCalledWith({
+      address: { ...address, line2: '', postalCode: '' },
+      email: contact.email,
+      guestLines: [{ productId: 'p1', variantId: undefined, quantity: 2 }],
+    }))
+
     await user.click(screen.getByRole('button', { name: /place order/i }))
 
     await waitFor(() => expect(placeOrderMock).toHaveBeenCalledTimes(1))
@@ -150,7 +190,10 @@ describe('CheckoutFlow', () => {
       // which fills unset optional inputs with '' rather than leaving them
       // undefined.
       address: { ...address, line2: '', postalCode: '' },
-      shippingMethodId: 'lagos',
+      // The FIRST returned shipping option is selected by default; its
+      // opaque `token` — never a client-computed amount — is what reaches
+      // `placeOrder`.
+      shippingToken: SHIPPING_OPTIONS[0].token,
       chargeCurrency: 'NGN',
       guestLines: [{ productId: 'p1', variantId: undefined, quantity: 2 }],
     })

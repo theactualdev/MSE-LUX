@@ -3,13 +3,13 @@ import { CartLineItem } from '@/features/cart/components/cart-line-item'
 import { CartSummary } from '@/features/cart/components/cart-summary'
 import type { CartLine } from '@/features/cart/lib/lines'
 import type { CartSummary as CartSummaryModel } from '@/features/cart/lib/summary'
-import type { ShippingMethod } from '@/features/cart/lib/shipping'
 import type { Contact, Address } from '@/features/checkout/schema'
 
 interface ReviewStepProps {
   contact: Contact
   address: Address
-  shippingMethod: ShippingMethod
+  /** Only the label is displayed here — the amount is already reflected in `summary`. */
+  shippingMethod: { label: string }
   lines: CartLine[]
   summary: CartSummaryModel
   onPlaceOrder: () => void

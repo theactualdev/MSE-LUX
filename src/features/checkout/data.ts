@@ -6,7 +6,8 @@ import { getCurrentUserId } from '@/features/auth/claims'
 import { resolveProductsByIds } from '@/features/catalog/server/resolve-products'
 import { buildCartLines } from '@/features/cart/lib/lines'
 import type { CartItem } from '@/features/cart/store'
-import { shippingMethods, shippingAmountFor, TAX_RATE } from '@/features/cart/lib/shipping'
+import { TAX_RATE } from '@/features/cart/lib/shipping'
+import { verifyQuote } from '@/features/checkout/lib/shipping-quote'
 import { contactSchema, addressSchema } from '@/features/checkout/schema'
 import { mapOrderRow } from '@/features/checkout/lib/order-view'
 import type { PlaceOrderInput, PlaceOrderResult, GuestOrderLine } from '@/features/checkout/types'
@@ -32,10 +33,13 @@ import type { PlaceOrderInput, PlaceOrderResult, GuestOrderLine } from '@/featur
  * module is directly callable from the client checkout flow with no separate
  * `actions.ts` wrapper. That means **`placeOrder` is a public HTTP
  * endpoint**, reachable by anyone who can reach this app. Its `PlaceOrderInput`
- * carries no price of any kind, which is deliberate: every `unitPriceMinor`
+ * carries no raw price of any kind, which is deliberate: every `unitPriceMinor`
  * written below comes from `buildCartLines` reading the authored catalog
- * (via `resolveProductsByIds`), never from the caller — so there is no price
- * field for a tampered client to smuggle in the first place.
+ * (via `resolveProductsByIds`), never from the caller. The one input that
+ * *does* carry an amount — `shippingToken` — is not trusted as a number: it's
+ * an opaque, server-signed quote (`verifyQuote`, `lib/shipping-quote.ts`)
+ * bound to `input.address` and to an expiry, so a tampered/expired/wrong-
+ * address token is rejected outright rather than read for its face value.
  *
  * SECURITY — same authorization model as `cart/data.ts`: Prisma connects
  * through the pooler as a privileged role and bypasses RLS entirely.
@@ -50,6 +54,7 @@ const INVALID_INPUT: PlaceOrderResult = { error: 'Please check your details and 
 const EMPTY_CART: PlaceOrderResult = { error: 'Your cart is empty.' }
 const OUT_OF_STOCK: PlaceOrderResult = { error: 'These items are no longer in stock.' }
 const GENERIC_ERROR: PlaceOrderResult = { error: 'Something went wrong. Please try again.' }
+const SHIPPING_EXPIRED: PlaceOrderResult = { error: 'Please re-select a shipping option.' }
 
 /** Prisma's unique-constraint violation. Matched structurally so this module needn't import the error class. */
 function isUniqueViolation(error: unknown): boolean {
@@ -147,8 +152,14 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   // throws out" contract.
   if (input.chargeCurrency !== 'NGN' && input.chargeCurrency !== 'USD') return INVALID_INPUT
 
-  const method = shippingMethods.find((m) => m.id === input.shippingMethodId)
-  if (!method) return INVALID_INPUT
+  // The shipping amount/label are never trusted from the client — they come
+  // ONLY from a verified, address-bound, unexpired quote token (see the
+  // module doc comment above). A tampered/expired/wrong-address token, or a
+  // currency mismatch against `chargeCurrency`, is rejected before any
+  // pricing work happens.
+  const quote = verifyQuote(input.shippingToken, parsedAddress.data)
+  if (!quote) return SHIPPING_EXPIRED
+  if (quote.currency !== input.chargeCurrency) return INVALID_INPUT
 
   const userId = await getCurrentUserId()
   const rawLines = await resolveRawLines(userId, input.guestLines)
@@ -184,7 +195,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   const lines = buildCartLines(clampedItems, products, input.chargeCurrency)
 
   const subtotalMinor = lines.reduce((sum, line) => sum + line.lineTotal.amountMinor, 0)
-  const shippingMinor = shippingAmountFor(method, input.chargeCurrency).amountMinor
+  const shippingMinor = quote.amountMinor
   const taxMinor = Math.round(subtotalMinor * TAX_RATE)
   const totalMinor = subtotalMinor + shippingMinor + taxMinor
 
@@ -212,7 +223,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
     shipState: parsedAddress.data.state,
     shipCountry: parsedAddress.data.country,
     shipPostalCode: toNullable(parsedAddress.data.postalCode),
-    shippingLabel: method.label,
+    shippingLabel: quote.label,
     currency: input.chargeCurrency,
     subtotalMinor,
     shippingMinor,
