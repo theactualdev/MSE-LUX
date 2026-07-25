@@ -96,7 +96,7 @@ describe('markOrderPaid', () => {
     expect(order.findUnique).toHaveBeenCalledWith({ where: { orderNumber: ORDER_NUMBER }, include: { lines: true } })
 
     expect(order.updateMany).toHaveBeenCalledWith({
-      where: { id: ORDER_ID, paidAt: null },
+      where: { id: ORDER_ID, paidAt: null, status: 'PENDING' },
       data: { status: 'PROCESSING', paidAt: expect.any(Date), paystackReference: REFERENCE },
     })
 
@@ -119,7 +119,7 @@ describe('markOrderPaid', () => {
 
     expect(result).toBe('paid')
     expect(order.updateMany).toHaveBeenCalledWith({
-      where: { id: ORDER_ID, paidAt: null },
+      where: { id: ORDER_ID, paidAt: null, status: 'PENDING' },
       data: { status: 'PROCESSING', paidAt: expect.any(Date), paystackReference: REFERENCE },
     })
     expect(productVariant.update).toHaveBeenCalled()
@@ -139,14 +139,43 @@ describe('markOrderPaid', () => {
     expect(cartItem.deleteMany).not.toHaveBeenCalled()
   })
 
-  it('loses a concurrent race (updateMany count 0): returns paid with no side effects', async () => {
-    order.findUnique.mockResolvedValue(baseOrder())
+  it('loses a concurrent race (updateMany count 0, other caller already set paidAt): returns paid with no side effects', async () => {
+    order.findUnique
+      .mockResolvedValueOnce(baseOrder())
+      // The post-loss lookup: another caller already won and flipped paidAt —
+      // existing race semantics (idempotent success), not the cancelled case.
+      .mockResolvedValueOnce({ paidAt: new Date('2026-01-01T00:00:00Z'), status: 'PROCESSING' })
     order.updateMany.mockResolvedValue({ count: 0 })
 
     const result = await markOrderPaid(charge())
 
     expect(result).toBe('paid')
-    expect(order.updateMany).toHaveBeenCalled()
+    expect(order.updateMany).toHaveBeenCalledTimes(1)
+    expect(productVariant.update).not.toHaveBeenCalled()
+    expect(product.update).not.toHaveBeenCalled()
+    expect(cartItem.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('loses to a cancel (updateMany count 0, order was CANCELLED before this charge landed): flags refundOwed, returns mismatch, no fulfilment side effects', async () => {
+    order.findUnique
+      .mockResolvedValueOnce(baseOrder())
+      // The post-loss lookup: an admin PENDING-cancel won the race — the
+      // order is CANCELLED and was never paid.
+      .mockResolvedValueOnce({ paidAt: null, status: 'CANCELLED' })
+    order.updateMany.mockResolvedValue({ count: 0 })
+
+    const result = await markOrderPaid(charge())
+
+    expect(result).toBe('mismatch')
+    expect(order.updateMany).toHaveBeenCalledTimes(2)
+    expect(order.updateMany).toHaveBeenNthCalledWith(1, {
+      where: { id: ORDER_ID, paidAt: null, status: 'PENDING' },
+      data: { status: 'PROCESSING', paidAt: expect.any(Date), paystackReference: REFERENCE },
+    })
+    expect(order.updateMany).toHaveBeenNthCalledWith(2, {
+      where: { id: ORDER_ID, status: 'CANCELLED' },
+      data: { refundOwed: true, paystackReference: REFERENCE },
+    })
     expect(productVariant.update).not.toHaveBeenCalled()
     expect(product.update).not.toHaveBeenCalled()
     expect(cartItem.deleteMany).not.toHaveBeenCalled()

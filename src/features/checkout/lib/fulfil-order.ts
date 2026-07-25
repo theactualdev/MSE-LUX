@@ -46,6 +46,8 @@ export async function markOrderPaid(charge: PaystackCharge): Promise<'paid' | 'i
       return 'mismatch'
     }
 
+    let lateChargeOnCancelled = false
+
     await db.$transaction(async (tx) => {
       // `updateMany`, not `update`: `update`'s `where` only accepts unique
       // fields, and `paidAt` isn't unique — this is the same
@@ -53,15 +55,31 @@ export async function markOrderPaid(charge: PaystackCharge): Promise<'paid' | 'i
       // `paidAt: null` clause IS the concurrency guard: whichever caller's
       // `updateMany` runs first flips the row and gets `count === 1`; a
       // caller racing it (already past the `order.paidAt` check above, but
-      // now losing the write) gets `count === 0`.
+      // now losing the write) gets `count === 0`. `status: 'PENDING'` is the
+      // race fix: without it, a late payment success arriving after an admin
+      // PENDING-cancel (features/admin/orders/transitions.ts) would resurrect
+      // a CANCELLED order to PROCESSING and decrement stock a second time.
       const { count } = await tx.order.updateMany({
-        where: { id: order.id, paidAt: null },
+        where: { id: order.id, paidAt: null, status: 'PENDING' },
         data: { status: 'PROCESSING', paidAt: new Date(), paystackReference: charge.reference },
       })
 
-      // Lost the race — another caller already won the transition and
-      // applied the side effects below. Do NOT repeat them.
-      if (count === 0) return
+      if (count === 0) {
+        // Two ways to lose: a fulfilment race (the other caller set paidAt —
+        // idempotent success), or the order was CANCELLED before this charge
+        // landed (admin cancel vs. late webhook). A charge against a
+        // cancelled order must NOT fulfil — record the reference and flag
+        // the refund instead of resurrecting the order.
+        const current = await tx.order.findUnique({ where: { id: order.id }, select: { paidAt: true, status: true } })
+        if (!current?.paidAt && current?.status === 'CANCELLED') {
+          await tx.order.updateMany({
+            where: { id: order.id, status: 'CANCELLED' },
+            data: { refundOwed: true, paystackReference: charge.reference },
+          })
+          lateChargeOnCancelled = true
+        }
+        return
+      }
 
       for (const line of order.lines) {
         if (line.variantId) {
@@ -82,6 +100,7 @@ export async function markOrderPaid(charge: PaystackCharge): Promise<'paid' | 'i
       }
     })
 
+    if (lateChargeOnCancelled) return 'mismatch'
     return 'paid'
   } catch (error) {
     console.error('[markOrderPaid] unexpected error', error)
