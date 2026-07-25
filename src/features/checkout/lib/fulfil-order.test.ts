@@ -1,0 +1,191 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import type { PaystackCharge } from '@/features/checkout/lib/paystack'
+
+/**
+ * Same `$transaction` mocking pattern as `checkout/data.test.ts`: the
+ * callback receives spies shared with top-level `db`, so assertions don't
+ * need to care whether a call happened inside or outside `$transaction`.
+ */
+
+const order = {
+  findUnique: vi.fn(),
+  updateMany: vi.fn(),
+}
+
+const product = {
+  update: vi.fn(),
+}
+
+const productVariant = {
+  update: vi.fn(),
+}
+
+const cartItem = {
+  deleteMany: vi.fn(),
+}
+
+const tx = { order, product, productVariant, cartItem }
+
+const $transaction = vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx))
+
+vi.mock('@/lib/db', () => ({
+  db: {
+    get order() {
+      return order
+    },
+    get product() {
+      return product
+    },
+    get productVariant() {
+      return productVariant
+    },
+    get cartItem() {
+      return cartItem
+    },
+    $transaction: (...args: [(client: typeof tx) => unknown]) => $transaction(...args),
+  },
+}))
+
+const { markOrderPaid } = await import('@/features/checkout/lib/fulfil-order')
+
+const ORDER_NUMBER = 'MSE-000123'
+const PROFILE_ID = '11111111-1111-4111-8111-111111111111'
+const ORDER_ID = 'order-1'
+const REFERENCE = 'ref-abc'
+
+function charge(overrides: Partial<PaystackCharge> = {}): PaystackCharge {
+  return {
+    reference: REFERENCE,
+    status: 'success',
+    amountMinor: 50_000,
+    currency: 'NGN',
+    metadata: { orderNumber: ORDER_NUMBER },
+    ...overrides,
+  }
+}
+
+function baseOrder(overrides: Record<string, unknown> = {}) {
+  return {
+    id: ORDER_ID,
+    orderNumber: ORDER_NUMBER,
+    profileId: PROFILE_ID,
+    currency: 'NGN',
+    totalMinor: 50_000,
+    paidAt: null,
+    lines: [
+      { id: 'line-1', productId: 'prod-1', variantId: 'variant-1', quantity: 2 },
+      { id: 'line-2', productId: 'prod-2', variantId: null, quantity: 3 },
+    ],
+    ...overrides,
+  }
+}
+
+beforeEach(() => {
+  vi.clearAllMocks()
+  order.updateMany.mockResolvedValue({ count: 1 })
+})
+
+describe('markOrderPaid', () => {
+  it('fulfils a signed-in order: atomic transition, per-line decrement, cart clear', async () => {
+    order.findUnique.mockResolvedValue(baseOrder())
+
+    const result = await markOrderPaid(charge())
+
+    expect(result).toBe('paid')
+
+    expect(order.findUnique).toHaveBeenCalledWith({ where: { orderNumber: ORDER_NUMBER }, include: { lines: true } })
+
+    expect(order.updateMany).toHaveBeenCalledWith({
+      where: { id: ORDER_ID, paidAt: null },
+      data: { status: 'PROCESSING', paidAt: expect.any(Date), paystackReference: REFERENCE },
+    })
+
+    expect(productVariant.update).toHaveBeenCalledWith({
+      where: { id: 'variant-1' },
+      data: { inventory: { decrement: 2 } },
+    })
+    expect(product.update).toHaveBeenCalledWith({
+      where: { id: 'prod-2' },
+      data: { inventory: { decrement: 3 } },
+    })
+
+    expect(cartItem.deleteMany).toHaveBeenCalledWith({ where: { cart: { profileId: PROFILE_ID } } })
+  })
+
+  it('fulfils a guest order but does not clear a cart', async () => {
+    order.findUnique.mockResolvedValue(baseOrder({ profileId: null }))
+
+    const result = await markOrderPaid(charge())
+
+    expect(result).toBe('paid')
+    expect(order.updateMany).toHaveBeenCalledWith({
+      where: { id: ORDER_ID, paidAt: null },
+      data: { status: 'PROCESSING', paidAt: expect.any(Date), paystackReference: REFERENCE },
+    })
+    expect(productVariant.update).toHaveBeenCalled()
+    expect(product.update).toHaveBeenCalled()
+    expect(cartItem.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('is idempotent: an already-paid order short-circuits with no writes', async () => {
+    order.findUnique.mockResolvedValue(baseOrder({ paidAt: new Date('2026-01-01T00:00:00Z') }))
+
+    const result = await markOrderPaid(charge())
+
+    expect(result).toBe('paid')
+    expect(order.updateMany).not.toHaveBeenCalled()
+    expect(productVariant.update).not.toHaveBeenCalled()
+    expect(product.update).not.toHaveBeenCalled()
+    expect(cartItem.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('loses a concurrent race (updateMany count 0): returns paid with no side effects', async () => {
+    order.findUnique.mockResolvedValue(baseOrder())
+    order.updateMany.mockResolvedValue({ count: 0 })
+
+    const result = await markOrderPaid(charge())
+
+    expect(result).toBe('paid')
+    expect(order.updateMany).toHaveBeenCalled()
+    expect(productVariant.update).not.toHaveBeenCalled()
+    expect(product.update).not.toHaveBeenCalled()
+    expect(cartItem.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('rejects an amount mismatch: mismatch, no writes, order left pending', async () => {
+    order.findUnique.mockResolvedValue(baseOrder())
+
+    const result = await markOrderPaid(charge({ amountMinor: 1 }))
+
+    expect(result).toBe('mismatch')
+    expect(order.updateMany).not.toHaveBeenCalled()
+    expect(product.update).not.toHaveBeenCalled()
+    expect(productVariant.update).not.toHaveBeenCalled()
+    expect(cartItem.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('rejects a currency mismatch: mismatch, no writes', async () => {
+    order.findUnique.mockResolvedValue(baseOrder())
+
+    const result = await markOrderPaid(charge({ currency: 'USD' }))
+
+    expect(result).toBe('mismatch')
+    expect(order.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('ignores a charge with no metadata.orderNumber, without reading the db', async () => {
+    const result = await markOrderPaid(charge({ metadata: {} }))
+
+    expect(result).toBe('ignored')
+    expect(order.findUnique).not.toHaveBeenCalled()
+  })
+
+  it('ignores a charge whose order cannot be found', async () => {
+    order.findUnique.mockResolvedValue(null)
+
+    const result = await markOrderPaid(charge())
+
+    expect(result).toBe('ignored')
+    expect(order.updateMany).not.toHaveBeenCalled()
+  })
+})
