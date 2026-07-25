@@ -1,26 +1,51 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { usePathname } from 'next/navigation'
 import { AdminShell } from '@/features/admin/components/admin-shell'
 
 const handleSignOut = vi.fn()
 vi.mock('@/features/auth/sign-out', () => ({ handleSignOut: () => handleSignOut() }))
-vi.mock('next/navigation', () => ({ usePathname: () => '/admin' }))
+vi.mock('next/navigation', () => ({ usePathname: vi.fn() }))
 
 describe('AdminShell', () => {
-  it('renders the nav with Dashboard active and the future sections disabled as coming soon', () => {
+  beforeEach(() => {
+    vi.mocked(usePathname).mockReturnValue('/admin')
+  })
+
+  it('renders Dashboard active and Orders as a live (inactive) link, with Catalog/Customers still coming soon', () => {
     render(<AdminShell email="admin@mse.lux">content</AdminShell>)
 
     const dashboard = screen.getByRole('link', { name: /dashboard/i })
     expect(dashboard).toHaveAttribute('href', '/admin')
     expect(dashboard).toHaveAttribute('aria-current', 'page')
 
-    // Coming-soon items are NOT links — inert, visibly disabled.
-    for (const label of ['Orders', 'Catalog', 'Customers']) {
+    const orders = screen.getByRole('link', { name: /orders/i })
+    expect(orders).toHaveAttribute('href', '/admin/orders')
+    expect(orders).not.toHaveAttribute('aria-current')
+
+    // Catalog/Customers are still NOT links — inert, visibly disabled.
+    for (const label of ['Catalog', 'Customers']) {
       expect(screen.queryByRole('link', { name: new RegExp(label, 'i') })).toBeNull()
       expect(screen.getByText(label)).toBeInTheDocument()
     }
-    expect(screen.getAllByText(/coming soon/i).length).toBe(3)
+    expect(screen.getAllByText(/coming soon/i).length).toBe(2)
+  })
+
+  it('marks Orders (and not Dashboard) active when the pathname is exactly /admin/orders', () => {
+    vi.mocked(usePathname).mockReturnValue('/admin/orders')
+    render(<AdminShell email="admin@mse.lux">content</AdminShell>)
+
+    expect(screen.getByRole('link', { name: /dashboard/i })).not.toHaveAttribute('aria-current')
+    expect(screen.getByRole('link', { name: /orders/i })).toHaveAttribute('aria-current', 'page')
+  })
+
+  it('keeps Orders active on a nested order detail route via prefix match', () => {
+    vi.mocked(usePathname).mockReturnValue('/admin/orders/MSE-1')
+    render(<AdminShell email="admin@mse.lux">content</AdminShell>)
+
+    expect(screen.getByRole('link', { name: /orders/i })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: /dashboard/i })).not.toHaveAttribute('aria-current')
   })
 
   it('shows the signed-in admin email and signs out on click', async () => {

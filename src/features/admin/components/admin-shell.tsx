@@ -10,17 +10,28 @@ import { siteConfig } from '@/lib/config'
 import { cn } from '@/lib/utils'
 
 /**
- * Admin nav: Dashboard is live; the 8b–8d sections are visible but inert so
- * the shell reads complete and the coming slots are obvious. Inert items are
- * plain text (not links) — nothing for a keyboard/screen-reader user to
- * activate.
+ * Admin nav: Dashboard and Orders are live; the remaining 8c–8d sections are
+ * visible but inert so the shell reads complete and the coming slots are
+ * obvious. Inert items are plain text (not links) — nothing for a
+ * keyboard/screen-reader user to activate.
  */
 const NAV_ITEMS: Array<{ label: string; href?: string }> = [
   { label: 'Dashboard', href: '/admin' },
-  { label: 'Orders' },
+  { label: 'Orders', href: '/admin/orders' },
   { label: 'Catalog' },
   { label: 'Customers' },
 ]
+
+/**
+ * A nav item is active on an exact pathname match, or — for anything besides
+ * the `/admin` dashboard root — on any nested route below it too (so
+ * `/admin/orders/MSE-1` still highlights `Orders`). `/admin` itself must stay
+ * exact-only, or it would light up for every admin route.
+ */
+function isNavItemActive(pathname: string, href: string): boolean {
+  if (href === '/admin') return pathname === href
+  return pathname === href || pathname.startsWith(href + '/')
+}
 
 /**
  * Utilitarian admin chrome: slim top bar (store name, admin email, sign-out)
@@ -34,15 +45,16 @@ export function AdminShell({ email, children }: { email: string | null; children
 
   const nav = (
     <nav aria-label="Admin" className="flex flex-col gap-1 p-4">
-      {NAV_ITEMS.map((item) =>
-        item.href ? (
+      {NAV_ITEMS.map((item) => {
+        const active = item.href ? isNavItemActive(pathname ?? '', item.href) : false
+        return item.href ? (
           <Link
             key={item.label}
             href={item.href}
-            aria-current={pathname === item.href ? 'page' : undefined}
+            aria-current={active ? 'page' : undefined}
             className={cn(
               'rounded-lg px-3 py-2 text-sm font-medium transition-colors',
-              pathname === item.href
+              active
                 ? 'bg-accent text-accent-foreground'
                 : 'text-muted-foreground hover:bg-muted hover:text-foreground',
             )}
@@ -58,8 +70,8 @@ export function AdminShell({ email, children }: { email: string | null; children
             {item.label}
             <span className="text-[10px] font-normal uppercase tracking-wide">Coming soon</span>
           </span>
-        ),
-      )}
+        )
+      })}
     </nav>
   )
 
