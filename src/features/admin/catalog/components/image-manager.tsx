@@ -2,6 +2,7 @@
 
 import { useState, useTransition, type ChangeEvent } from 'react'
 import { useRouter } from 'next/navigation'
+import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -44,10 +45,12 @@ interface ImageManagerProps {
  * the caller's pre-generated staging UUID, so the object already lands in
  * its final storage path even before the product row exists.
  *
- * Thumbnails render as a plain `<img>` rather than `next/image`: the src is
- * an arbitrary just-uploaded Supabase Storage URL (no known dimensions,
- * `product-images` bucket already allow-listed in `next.config.ts`), and for
- * an admin management grid the optimization pipeline buys nothing here.
+ * Thumbnails render via `next/image` in a fixed-size relative box (mirrors
+ * `cart-line-item.tsx`'s `fill` + `sizes` idiom) rather than a plain `<img>`
+ * — both image hosts this app ever produces (picsum, `*.supabase.co`) are
+ * already allow-listed in `next.config.ts`, so there's no reason to opt out
+ * of the optimization pipeline here. The FILE INPUT below is still a plain
+ * `<input type="file">` — no new deps needed for that.
  *
  * Alt text is required (non-blank) on every image before Save is allowed —
  * surfaced inline rather than silently stripped, since blank alt text on a
@@ -149,11 +152,9 @@ export function ImageManager({ productId, initialImages, mode, onImagesChange }:
       <div className="flex flex-col gap-3">
         {images.map((image, index) => (
           <div key={`${image.src}-${index}`} className="flex items-center gap-3 rounded-xl border border-border p-3">
-            <img
-              src={image.src}
-              alt={image.alt || `Product image ${index + 1}`}
-              className="h-16 w-16 shrink-0 rounded-md object-cover"
-            />
+            <div className="relative h-16 w-16 shrink-0 overflow-hidden rounded-md bg-muted">
+              <Image src={image.src} alt={image.alt || 'Product image'} fill sizes="64px" className="object-cover" />
+            </div>
             <div className="flex min-w-0 flex-1 flex-col gap-1">
               <Label htmlFor={`image-manager-alt-${index}`}>Alt text for image {index + 1}</Label>
               <Input

@@ -18,6 +18,14 @@ vi.mock('next/navigation', async () => {
   }
 })
 
+// Mirrors the `next/image` stub in `account/orders/[orderNumber]/page.test.tsx`
+// — a plain `<img>` passthrough so thumbnail assertions (src/alt) work
+// without next/image's real loader/srcset machinery.
+vi.mock('next/image', () => ({
+  // eslint-disable-next-line @next/next/no-img-element
+  default: ({ alt, src }: { alt: string; src: string }) => <img alt={alt} src={src} />,
+}))
+
 const uploadProductImageActionMock = vi.mocked(uploadProductImageAction)
 const updateProductImagesActionMock = vi.mocked(updateProductImagesAction)
 
