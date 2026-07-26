@@ -239,42 +239,54 @@ describe('ProductCreateForm', () => {
     expect(createProductActionMock).not.toHaveBeenCalled()
   })
 
+  // Third-arg timeout (above the file's 20s default): this test fills every
+  // field on the form, and this sandbox's node process count/CPU load
+  // varies test-run to test-run — even with the fireEvent.change conversion
+  // below, a slow tick under load can still push it past 20s.
   it('submit calls createProductAction with a full CreateProductInput payload', async () => {
     const user = userEvent.setup({ delay: null })
     render(<ProductCreateForm taxonomy={TAXONOMY} />)
 
+    // This test fills every field on the form, so per-keystroke `user.type`
+    // (each character its own act()-wrapped keydown/input/keyup cycle,
+    // re-rendering this large form every time) pushed it well past its
+    // siblings' runtime under load. One real `user.type` interaction stays
+    // (Name) so genuine typing behavior is still covered; every other bulk
+    // text field below fires a single `fireEvent.change` instead — same
+    // idiom already used for these controlled inputs in
+    // `variants-builder.test.tsx`.
     await user.type(screen.getByLabelText('Name'), 'Diamond Ring')
-    await user.type(screen.getByLabelText('Slug'), 'diamond-ring')
-    await user.type(screen.getByLabelText('SKU'), 'MSE-RNG-100')
-    await user.type(screen.getByLabelText('Short description'), 'A ring.')
-    await user.type(screen.getByLabelText('Description'), 'A lovely diamond ring.')
-    await user.type(screen.getByLabelText('Material'), '18k Gold')
-    await user.type(screen.getByLabelText('Material tags'), 'gold, diamond')
+    fireEvent.change(screen.getByLabelText('Slug'), { target: { value: 'diamond-ring' } })
+    fireEvent.change(screen.getByLabelText('SKU'), { target: { value: 'MSE-RNG-100' } })
+    fireEvent.change(screen.getByLabelText('Short description'), { target: { value: 'A ring.' } })
+    fireEvent.change(screen.getByLabelText('Description'), { target: { value: 'A lovely diamond ring.' } })
+    fireEvent.change(screen.getByLabelText('Material'), { target: { value: '18k Gold' } })
+    fireEvent.change(screen.getByLabelText('Material tags'), { target: { value: 'gold, diamond' } })
 
     await user.click(screen.getByLabelText('New'))
     await user.click(screen.getByLabelText('Best seller'))
 
-    await user.type(screen.getByLabelText('Price (NGN)'), '45000')
-    await user.type(screen.getByLabelText('Price (USD)'), '500')
-    await user.type(screen.getByLabelText('Sale price (NGN)'), '40000')
-    await user.type(screen.getByLabelText('Sale price (USD)'), '450')
+    fireEvent.change(screen.getByLabelText('Price (NGN)'), { target: { value: '45000' } })
+    fireEvent.change(screen.getByLabelText('Price (USD)'), { target: { value: '500' } })
+    fireEvent.change(screen.getByLabelText('Sale price (NGN)'), { target: { value: '40000' } })
+    fireEvent.change(screen.getByLabelText('Sale price (USD)'), { target: { value: '450' } })
 
-    await user.type(screen.getByLabelText('Inventory'), '5')
-    await user.type(screen.getByLabelText('Weight (g)'), '12')
+    fireEvent.change(screen.getByLabelText('Inventory'), { target: { value: '5' } })
+    fireEvent.change(screen.getByLabelText('Weight (g)'), { target: { value: '12' } })
 
-    await user.type(screen.getByLabelText('SEO title'), 'Diamond Ring | MSE Lux')
-    await user.type(screen.getByLabelText('SEO description'), 'Shop the Diamond Ring.')
+    fireEvent.change(screen.getByLabelText('SEO title'), { target: { value: 'Diamond Ring | MSE Lux' } })
+    fireEvent.change(screen.getByLabelText('SEO description'), { target: { value: 'Shop the Diamond Ring.' } })
 
     await user.click(screen.getByRole('combobox', { name: 'Subcategory' }))
     await user.click(await screen.findByRole('option', { name: 'Engagement' }))
     await user.click(screen.getByLabelText('Spring 2026'))
 
     await user.click(screen.getByRole('button', { name: /add option type/i }))
-    await user.type(screen.getByLabelText(/option name/i), 'Size')
-    await user.type(screen.getByLabelText(/^values$/i), 'Small')
+    fireEvent.change(screen.getByLabelText(/option name/i), { target: { value: 'Size' } })
+    fireEvent.change(screen.getByLabelText(/^values$/i), { target: { value: 'Small' } })
     await user.click(screen.getByRole('button', { name: /generate variants/i }))
-    await user.type(screen.getByLabelText('Small SKU'), 'MSE-RNG-100-S')
-    await user.type(screen.getByLabelText('Small inventory'), '2')
+    fireEvent.change(screen.getByLabelText('Small SKU'), { target: { value: 'MSE-RNG-100-S' } })
+    fireEvent.change(screen.getByLabelText('Small inventory'), { target: { value: '2' } })
 
     await uploadImageWithAlt(user, 'Front view')
     await uploadImageWithAlt(user, 'Side view')
@@ -324,7 +336,7 @@ describe('ProductCreateForm', () => {
       },
       { timeout: 10_000 },
     )
-  })
+  }, 30_000)
 
   it('success calls router.push with /admin/catalog/[productId]', async () => {
     createProductActionMock.mockResolvedValue({ ok: true, revalidate: [], productId: 'prod-abc' })
