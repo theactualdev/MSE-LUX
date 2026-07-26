@@ -32,6 +32,13 @@ const orderLine = { count: vi.fn() }
 const tx = { product, productVariant, productCollection, orderLine }
 const $transaction = vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx))
 
+// Same mocking idiom as `structure.test.ts` for `deleteProduct`'s post-commit
+// storage cleanup.
+const deleteProductImageObject = vi.fn()
+vi.mock('./images', () => ({
+  deleteProductImageObject: (...args: [string]) => deleteProductImageObject(...args),
+}))
+
 vi.mock('@/lib/db', () => ({
   db: {
     get product() {
@@ -126,6 +133,7 @@ beforeEach(() => {
   productVariant.findFirst.mockResolvedValue(null)
   subcategory.findUnique.mockResolvedValue({ id: 'sub-tennis', categoryId: 'cat-bracelets', slug: 'tennis-bracelets' })
   collection.findMany.mockResolvedValue([{ slug: 'bestsellers' }])
+  deleteProductImageObject.mockResolvedValue(true)
 })
 
 describe('updateProduct', () => {
@@ -444,6 +452,7 @@ describe('deleteProduct', () => {
       category: { slug: 'bracelets' },
       subcategory: { slug: 'tennis-bracelets' },
       collections: [{ collectionId: 'col-bestsellers' }],
+      images: [{ src: 'https://example.com/a.jpg' }, { src: 'https://example.com/b.jpg' }],
     })
     orderLine.count.mockResolvedValue(0)
 
@@ -458,12 +467,65 @@ describe('deleteProduct', () => {
     expect(result.revalidate).toContain('/bracelets/tennis-bracelets')
   })
 
-  it('any order lines referencing the product returns has-orders and does NOT delete', async () => {
+  it('deletes storage objects once per DB-loaded src, after the transaction commits', async () => {
+    product.findUnique.mockResolvedValue({
+      slug: 'diamond-tennis-bracelet',
+      category: { slug: 'bracelets' },
+      subcategory: { slug: 'tennis-bracelets' },
+      collections: [{ collectionId: 'col-bestsellers' }],
+      images: [{ src: 'https://example.com/a.jpg' }, { src: 'https://example.com/b.jpg' }],
+    })
+    orderLine.count.mockResolvedValue(0)
+
+    const callOrder: string[] = []
+    product.delete.mockImplementation(async () => {
+      callOrder.push('tx-delete')
+    })
+    deleteProductImageObject.mockImplementation(async (src: string) => {
+      callOrder.push(`storage-delete:${src}`)
+      return true
+    })
+
+    const result = await deleteProduct(ID)
+
+    expect(result.ok).toBe(true)
+    expect(deleteProductImageObject).toHaveBeenCalledTimes(2)
+    expect(deleteProductImageObject).toHaveBeenCalledWith('https://example.com/a.jpg')
+    expect(deleteProductImageObject).toHaveBeenCalledWith('https://example.com/b.jpg')
+    // the tx must have fully resolved before any storage delete fires
+    expect(callOrder).toEqual([
+      'tx-delete',
+      'storage-delete:https://example.com/a.jpg',
+      'storage-delete:https://example.com/b.jpg',
+    ])
+  })
+
+  it('a storage delete failure is logged but does not affect the ok result', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    product.findUnique.mockResolvedValue({
+      slug: 'diamond-tennis-bracelet',
+      category: { slug: 'bracelets' },
+      subcategory: { slug: 'tennis-bracelets' },
+      collections: [{ collectionId: 'col-bestsellers' }],
+      images: [{ src: 'https://example.com/a.jpg' }],
+    })
+    orderLine.count.mockResolvedValue(0)
+    deleteProductImageObject.mockResolvedValue(false)
+
+    const result = await deleteProduct(ID)
+
+    expect(result.ok).toBe(true)
+    expect(errorSpy).toHaveBeenCalled()
+    errorSpy.mockRestore()
+  })
+
+  it('any order lines referencing the product returns has-orders and does NOT delete or clean up storage', async () => {
     product.findUnique.mockResolvedValue({
       slug: 'diamond-tennis-bracelet',
       category: { slug: 'bracelets' },
       subcategory: null,
       collections: [],
+      images: [{ src: 'https://example.com/a.jpg' }],
     })
     orderLine.count.mockResolvedValue(3)
 
@@ -471,6 +533,7 @@ describe('deleteProduct', () => {
 
     expect(result).toEqual({ ok: false, error: 'has-orders' })
     expect(product.delete).not.toHaveBeenCalled()
+    expect(deleteProductImageObject).not.toHaveBeenCalled()
   })
 
   it('an unknown id returns not-found without opening a transaction', async () => {

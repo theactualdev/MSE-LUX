@@ -2,15 +2,19 @@ import 'server-only'
 import { db } from '@/lib/db'
 import { ProductStatus, type Badge } from '@/generated/prisma/client'
 import { updateProductSchema, type UpdateProductInput } from './schema'
+import { deleteProductImageObject } from './images'
 import type { z } from 'zod'
 
 /**
  * The admin catalog product engine: validated edits (`updateProduct`), a
  * guarded ACTIVE⇄DRAFT toggle (`archiveProduct`/`restoreProduct`), and a
  * guarded hard delete (`deleteProduct`) that refuses to run once any order
- * has referenced the product. `computeProductRevalidateTargets` is pure —
- * no I/O — so the revalidation path list can be unit tested without
- * mocking Prisma.
+ * has referenced the product — and, once the delete transaction commits,
+ * best-effort-cleans up that product's storage objects via
+ * `deleteProductImageObject` (`./images.ts`), same post-commit idiom as
+ * `./structure.ts`'s image-replace cleanup. `computeProductRevalidateTargets`
+ * is pure — no I/O — so the revalidation path list can be unit tested
+ * without mocking Prisma.
  *
  * Ungated by design — every caller reaches this through actions.ts, which
  * re-checks ADMIN (server actions are public endpoints; the (admin) layout
@@ -303,6 +307,15 @@ const TARGETS_SELECT = {
   collections: { select: { collectionId: true } },
 } as const
 
+/** `TARGETS_SELECT` plus the image `src`s `deleteProduct` needs for its
+ * post-commit storage cleanup — kept as its own constant rather than
+ * widening `TARGETS_SELECT` itself, since `archiveProduct`/`restoreProduct`
+ * have no use for image rows. */
+const DELETE_PRODUCT_SELECT = {
+  ...TARGETS_SELECT,
+  images: { select: { src: true } },
+} as const
+
 async function fullRevalidateTargetsFor(row: {
   slug: string
   category: { slug: string }
@@ -356,7 +369,7 @@ export async function restoreProduct(id: string): Promise<CatalogWriteResult> {
 
 export async function deleteProduct(id: string): Promise<CatalogWriteResult> {
   try {
-    const current = await db.product.findUnique({ where: { id }, select: TARGETS_SELECT })
+    const current = await db.product.findUnique({ where: { id }, select: DELETE_PRODUCT_SELECT })
     if (!current) return { ok: false, error: 'not-found' }
 
     let blocked = false
@@ -369,6 +382,17 @@ export async function deleteProduct(id: string): Promise<CatalogWriteResult> {
       await tx.product.delete({ where: { id } })
     })
     if (blocked) return { ok: false, error: 'has-orders' }
+
+    // Best-effort storage cleanup AFTER the delete transaction commits —
+    // same idiom as `./structure.ts`'s post-commit cleanup: only `src`s read
+    // from this product's own DB rows above (never anything client-supplied)
+    // are ever passed to `deleteProductImageObject`, and a cleanup failure
+    // never flips this already-successful delete's `ok` result (the helper
+    // logs failures itself; we log again here with this function's tag).
+    for (const image of current.images) {
+      const deleted = await deleteProductImageObject(image.src)
+      if (!deleted) console.error('[deleteProduct] failed to delete orphaned storage object', image.src)
+    }
 
     return { ok: true, revalidate: await fullRevalidateTargetsFor(current) }
   } catch (error) {
