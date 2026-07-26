@@ -76,6 +76,21 @@ describe('getAdminMetrics', () => {
 
   it('returns all zeros on an empty store (no throw)', async () => {
     const metrics = await getAdminMetrics()
-    expect(metrics).toEqual({ ordersTotal: 0, awaitingFulfilment: 0, revenue: { ngn: 0, usd: 0 }, lowStock: 0 })
+    expect(metrics).toEqual({
+      ordersTotal: 0,
+      awaitingFulfilment: 0,
+      revenue: { ngn: 0, usd: 0 },
+      lowStock: 0,
+      refundsOwed: 0,
+    })
+  })
+
+  it('counts refundsOwed as refund-owed, not-yet-recorded orders', async () => {
+    order.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0).mockResolvedValueOnce(7)
+
+    const metrics = await getAdminMetrics()
+
+    expect(order.count).toHaveBeenNthCalledWith(3, { where: { refundOwed: true, refundedAt: null } })
+    expect(metrics.refundsOwed).toBe(7)
   })
 })

@@ -7,7 +7,7 @@ vi.mock('@/lib/db', () => ({
   },
 }))
 
-const { listAdminOrders, getAdminOrder, PAGE_SIZE } = await import('@/features/admin/orders/data')
+const { listAdminOrders, getAdminOrder, countRefundQueue, PAGE_SIZE } = await import('@/features/admin/orders/data')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -268,6 +268,72 @@ describe('listAdminOrders', () => {
       },
     })
   })
+
+  it('refundQueue alone: where is the bare refund-queue condition (no AND wrapper)', async () => {
+    await listAdminOrders({ refundQueue: true })
+
+    expect(order.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { refundOwed: true, refundedAt: null } })
+    )
+    expect(order.count).toHaveBeenCalledWith({ where: { refundOwed: true, refundedAt: null } })
+  })
+
+  it('refundQueue: false or omitted never adds the refund condition', async () => {
+    await listAdminOrders({ refundQueue: false })
+    expect(order.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: {} }))
+
+    await listAdminOrders({})
+    expect(order.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ where: {} }))
+  })
+
+  it('refundQueue + status: AND-composes both conditions', async () => {
+    await listAdminOrders({ refundQueue: true, status: 'CANCELLED' })
+
+    expect(order.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { AND: [{ status: 'CANCELLED' }, { refundOwed: true, refundedAt: null }] },
+      })
+    )
+  })
+
+  it('refundQueue + query: AND-composes both conditions', async () => {
+    await listAdminOrders({ refundQueue: true, query: 'MSE-1' })
+
+    expect(order.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          AND: [{ OR: [{ orderNumber: 'MSE-1' }, { email: { contains: 'MSE-1', mode: 'insensitive' } }] }, { refundOwed: true, refundedAt: null }],
+        },
+      })
+    )
+  })
+
+  it('refundQueue + status + query: AND-composes all three, in order', async () => {
+    await listAdminOrders({ refundQueue: true, status: 'CANCELLED', query: 'MSE-1' })
+
+    expect(order.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          AND: [
+            { status: 'CANCELLED' },
+            { OR: [{ orderNumber: 'MSE-1' }, { email: { contains: 'MSE-1', mode: 'insensitive' } }] },
+            { refundOwed: true, refundedAt: null },
+          ],
+        },
+      })
+    )
+  })
+})
+
+describe('countRefundQueue', () => {
+  it('counts with the same where as the refund-queue filter', async () => {
+    order.count.mockResolvedValue(4)
+
+    const result = await countRefundQueue()
+
+    expect(order.count).toHaveBeenCalledWith({ where: { refundOwed: true, refundedAt: null } })
+    expect(result).toBe(4)
+  })
 })
 
 describe('getAdminOrder', () => {
@@ -319,6 +385,8 @@ describe('getAdminOrder', () => {
       paidAt: new Date('2026-07-20T10:30:00Z'),
       paystackReference: 'ps_ref_123456',
       refundOwed: false,
+      refundedAt: null,
+      refundReference: null,
       shippedAt: new Date('2026-07-21T08:00:00Z'),
       deliveredAt: new Date('2026-07-25T14:00:00Z'),
       cancelledAt: null,
@@ -334,10 +402,53 @@ describe('getAdminOrder', () => {
     expect(result?.paidAt).toBe('2026-07-20T10:30:00.000Z')
     expect(result?.paystackReference).toBe('ps_ref_123456')
     expect(result?.refundOwed).toBe(false)
+    expect(result?.refundedAt).toBeNull()
+    expect(result?.refundReference).toBeNull()
     expect(result?.shippedAt).toBe('2026-07-21T08:00:00.000Z')
     expect(result?.deliveredAt).toBe('2026-07-25T14:00:00.000Z')
     expect(result?.cancelledAt).toBeNull()
     expect(result?.shipbubbleOrderId).toBe('sb_123456')
+  })
+
+  it('surfaces refundedAt/refundReference once the refund has been recorded', async () => {
+    const mockOrderRow = {
+      orderNumber: 'MSE-1b',
+      email: 'test@example.com',
+      status: 'CANCELLED',
+      placedAt: new Date('2026-07-20'),
+      shipFullName: 'John Doe',
+      shipPhone: '+234123456789',
+      shipLine1: '123 Main St',
+      shipLine2: null,
+      shipCity: 'Lagos',
+      shipState: 'Lagos',
+      shipCountry: 'NG',
+      shipPostalCode: '100001',
+      shippingLabel: 'Standard',
+      currency: 'NGN',
+      subtotalMinor: 45000,
+      shippingMinor: 2000,
+      taxMinor: 3000,
+      totalMinor: 50000,
+      lines: [],
+      trackingCarrier: null,
+      trackingNumber: null,
+      paidAt: new Date('2026-07-20T10:30:00Z'),
+      paystackReference: 'ps_ref_123456',
+      refundOwed: false,
+      refundedAt: new Date('2026-07-22T09:00:00Z'),
+      refundReference: 'RF-1',
+      shippedAt: null,
+      deliveredAt: null,
+      cancelledAt: new Date('2026-07-21T00:00:00Z'),
+      shipbubbleOrderId: null,
+    }
+    order.findUnique.mockResolvedValue(mockOrderRow)
+
+    const result = await getAdminOrder('MSE-1b')
+
+    expect(result?.refundedAt).toBe('2026-07-22T09:00:00.000Z')
+    expect(result?.refundReference).toBe('RF-1')
   })
 
   it('ISO-stringifies date fields, preserving nulls', async () => {
@@ -366,6 +477,8 @@ describe('getAdminOrder', () => {
       paidAt: null,
       paystackReference: null,
       refundOwed: false,
+      refundedAt: null,
+      refundReference: null,
       shippedAt: null,
       deliveredAt: null,
       cancelledAt: null,
@@ -377,6 +490,8 @@ describe('getAdminOrder', () => {
 
     expect(result?.paidAt).toBeNull()
     expect(result?.paystackReference).toBeNull()
+    expect(result?.refundedAt).toBeNull()
+    expect(result?.refundReference).toBeNull()
     expect(result?.shippedAt).toBeNull()
     expect(result?.deliveredAt).toBeNull()
     expect(result?.cancelledAt).toBeNull()
@@ -419,6 +534,8 @@ describe('getAdminOrder', () => {
       paidAt: new Date('2026-07-19T09:15:00Z'),
       paystackReference: 'ps_ref_789012',
       refundOwed: false,
+      refundedAt: null,
+      refundReference: null,
       shippedAt: new Date('2026-07-20T10:30:00Z'),
       deliveredAt: null,
       cancelledAt: null,

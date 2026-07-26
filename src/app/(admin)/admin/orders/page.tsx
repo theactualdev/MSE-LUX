@@ -1,11 +1,12 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { OrderStatus } from '@/generated/prisma/client'
-import { listAdminOrders } from '@/features/admin/orders/data'
+import { listAdminOrders, countRefundQueue } from '@/features/admin/orders/data'
 import { StatusBadge } from '@/features/admin/orders/components/status-badge'
 import { formatMoney } from '@/lib/money/format'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
+import { Badge } from '@/components/ui/badge'
 import type { Currency } from '@/types/money'
 import { cn } from '@/lib/utils'
 
@@ -23,21 +24,17 @@ function tabLabel(status: OrderStatus | undefined): string {
   return status.charAt(0) + status.slice(1).toLowerCase()
 }
 
-/** Builds an /admin/orders URL for a given tab, preserving the current search query and resetting to page 1. */
-function tabHref(status: OrderStatus | undefined, query: string | undefined): string {
+/**
+ * Builds an /admin/orders URL from the active filter set, resetting to page 1
+ * unless a page > 1 is explicitly given. `status` and `refundQueue` are
+ * mutually exclusive tabs — callers pass at most one.
+ */
+function ordersHref(opts: { status?: OrderStatus; refundQueue?: boolean; query?: string; page?: number }): string {
   const params = new URLSearchParams()
-  if (status) params.set('status', status)
-  if (query) params.set('q', query)
-  const qs = params.toString()
-  return qs ? `/admin/orders?${qs}` : '/admin/orders'
-}
-
-/** Builds an /admin/orders URL for a given page, preserving the current status + search query. */
-function pageHref(status: OrderStatus | undefined, query: string | undefined, page: number): string {
-  const params = new URLSearchParams()
-  if (status) params.set('status', status)
-  if (query) params.set('q', query)
-  if (page > 1) params.set('page', String(page))
+  if (opts.status) params.set('status', opts.status)
+  if (opts.refundQueue) params.set('refunds', '1')
+  if (opts.query) params.set('q', opts.query)
+  if (opts.page && opts.page > 1) params.set('page', String(opts.page))
   const qs = params.toString()
   return qs ? `/admin/orders?${qs}` : '/admin/orders'
 }
@@ -56,11 +53,17 @@ export default async function AdminOrdersPage({
 }) {
   const params = await searchParams
   const rawStatus = typeof params.status === 'string' ? params.status : undefined
-  const status = isOrderStatus(rawStatus) ? rawStatus : undefined
+  const refundQueue = params.refunds === '1'
+  // The two tab dimensions are mutually exclusive — a `refunds=1` URL wins
+  // over any `status` alongside it, same as clicking the Refund owed tab.
+  const status = !refundQueue && isOrderStatus(rawStatus) ? rawStatus : undefined
   const query = typeof params.q === 'string' && params.q.trim() ? params.q.trim() : undefined
   const page = Math.max(1, Number(typeof params.page === 'string' ? params.page : '1') || 1)
 
-  const { orders, total, pageCount } = await listAdminOrders({ status, query, page })
+  const [{ orders, total, pageCount }, refundQueueCount] = await Promise.all([
+    listAdminOrders(refundQueue ? { refundQueue: true, query, page } : { status, query, page }),
+    countRefundQueue(),
+  ])
 
   return (
     <div className="flex flex-col gap-6">
@@ -73,11 +76,11 @@ export default async function AdminOrdersPage({
 
       <nav aria-label="Filter by status" className="flex flex-wrap gap-1">
         {STATUS_TABS.map((tab) => {
-          const active = tab === status
+          const active = !refundQueue && tab === status
           return (
             <Link
               key={tab ?? 'all'}
-              href={tabHref(tab, query)}
+              href={ordersHref({ status: tab, query })}
               aria-current={active ? 'page' : undefined}
               className={cn(
                 'rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
@@ -90,10 +93,24 @@ export default async function AdminOrdersPage({
             </Link>
           )
         })}
+        <Link
+          href={ordersHref({ refundQueue: true, query })}
+          aria-current={refundQueue ? 'page' : undefined}
+          className={cn(
+            'flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium transition-colors',
+            refundQueue
+              ? 'bg-accent text-accent-foreground'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+          )}
+        >
+          Refund owed
+          {refundQueueCount > 0 ? <Badge variant={refundQueue ? 'secondary' : 'destructive'}>{refundQueueCount}</Badge> : null}
+        </Link>
       </nav>
 
       <form method="GET" className="flex gap-2">
         {status ? <input type="hidden" name="status" value={status} /> : null}
+        {refundQueue ? <input type="hidden" name="refunds" value="1" /> : null}
         <Input
           type="search"
           name="q"
@@ -144,7 +161,7 @@ export default async function AdminOrdersPage({
       {pageCount > 1 ? (
         <div className="flex items-center justify-between text-sm">
           <Link
-            href={pageHref(status, query, Math.max(1, page - 1))}
+            href={ordersHref({ status, refundQueue, query, page: Math.max(1, page - 1) })}
             aria-disabled={page <= 1}
             className={cn(
               'font-medium',
@@ -157,7 +174,7 @@ export default async function AdminOrdersPage({
             Page {page} of {pageCount}
           </span>
           <Link
-            href={pageHref(status, query, Math.min(pageCount, page + 1))}
+            href={ordersHref({ status, refundQueue, query, page: Math.min(pageCount, page + 1) })}
             aria-disabled={page >= pageCount}
             className={cn(
               'font-medium',

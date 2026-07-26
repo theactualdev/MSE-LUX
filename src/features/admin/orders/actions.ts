@@ -3,7 +3,7 @@
 import { revalidatePath } from 'next/cache'
 import { Role } from '@/generated/prisma/client'
 import { getCurrentRole, roleSatisfies } from '@/features/auth/claims'
-import { shipOrder, deliverOrder, cancelOrder } from '@/features/admin/orders/transitions'
+import { shipOrder, deliverOrder, cancelOrder, markOrderRefunded } from '@/features/admin/orders/transitions'
 import { getBookingRates, bookShipment, type BookShipmentInput } from '@/features/admin/orders/booking'
 
 /**
@@ -41,6 +41,13 @@ export async function deliverOrderAction(orderNumber: string) {
 export async function cancelOrderAction(orderNumber: string) {
   if (!(await isAdmin())) return FORBIDDEN
   const result = await cancelOrder(orderNumber)
+  if (result.ok) revalidateOrder(orderNumber)
+  return result
+}
+
+export async function markOrderRefundedAction(orderNumber: string, input: { reference?: string }) {
+  if (!(await isAdmin())) return FORBIDDEN
+  const result = await markOrderRefunded(orderNumber, input)
   if (result.ok) revalidateOrder(orderNumber)
   return result
 }

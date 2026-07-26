@@ -7,17 +7,21 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { BookShipmentDialog } from '@/features/admin/orders/components/book-shipment-dialog'
-import { shipOrderAction, deliverOrderAction, cancelOrderAction } from '@/features/admin/orders/actions'
+import { shipOrderAction, deliverOrderAction, cancelOrderAction, markOrderRefundedAction } from '@/features/admin/orders/actions'
 import type { OrderStatus } from '@/generated/prisma/client'
 
 const GENERIC_ERROR = 'Something went wrong. Please try again.'
 const CONFLICT_ERROR = 'This order changed before the request went through. Refresh and try again.'
+const REFUND_CONFLICT_ERROR = 'Already recorded — refresh the page.'
 
 interface OrderActionsProps {
   orderNumber: string
   status: OrderStatus
   nigeria: boolean
   refundOwed: boolean
+  refundedAt: string | null
+  refundReference: string | null
+  paystackReference: string | null
   paidShipping: { amountMinor: number; currency: string; label: string }
 }
 
@@ -31,23 +35,38 @@ interface OrderActionsProps {
  * PROCESSING is the only status with three live actions (book shipment —
  * Nigeria only — enter tracking manually, and cancel); SHIPPED only offers
  * "Mark delivered"; PENDING only offers cancel (no restock, since stock is
- * only ever taken at payment); DELIVERED/CANCELLED offer nothing further,
- * except a CANCELLED order with `refundOwed` still gets a standing notice —
- * the actual refund is a manual, out-of-band step (8d).
+ * only ever taken at payment); DELIVERED offers nothing further. A CANCELLED
+ * order with `refundOwed` gets the refund-queue banner: the stored Paystack
+ * reference to look the charge up by, plus a guarded "Mark refunded" action
+ * that only ever RECORDS the refund (8d is dashboard-first — the app never
+ * moves money). Once `refundedAt` is set, that same slot becomes a neutral,
+ * actionless summary line.
  */
-export function OrderActions({ orderNumber, status, nigeria, refundOwed, paidShipping }: OrderActionsProps) {
+export function OrderActions({
+  orderNumber,
+  status,
+  nigeria,
+  refundOwed,
+  refundedAt,
+  refundReference,
+  paystackReference,
+  paidShipping,
+}: OrderActionsProps) {
   const router = useRouter()
   const [pending, startTransition] = useTransition()
 
   const [bookingOpen, setBookingOpen] = useState(false)
   const [manualOpen, setManualOpen] = useState(false)
   const [cancelOpen, setCancelOpen] = useState(false)
+  const [refundOpen, setRefundOpen] = useState(false)
 
   const [carrier, setCarrier] = useState('')
   const [trackingNumber, setTrackingNumber] = useState('')
   const [manualError, setManualError] = useState<string | undefined>(undefined)
   const [actionError, setActionError] = useState<string | undefined>(undefined)
   const [cancelError, setCancelError] = useState<string | undefined>(undefined)
+  const [refundReferenceInput, setRefundReferenceInput] = useState('')
+  const [refundError, setRefundError] = useState<string | undefined>(undefined)
 
   function handleShip() {
     const trimmedCarrier = carrier.trim()
@@ -101,13 +120,89 @@ export function OrderActions({ orderNumber, status, nigeria, refundOwed, paidShi
     })
   }
 
+  function handleMarkRefunded() {
+    setRefundError(undefined)
+    startTransition(async () => {
+      const trimmedReference = refundReferenceInput.trim()
+      const result = await markOrderRefundedAction(orderNumber, trimmedReference ? { reference: trimmedReference } : {})
+      if (result.ok) {
+        setRefundOpen(false)
+        setRefundReferenceInput('')
+        router.refresh()
+      } else {
+        // Same rationale as `cancelError`: rendered inside the still-open
+        // dialog so it stays reachable while the rest of the tree is
+        // `aria-hidden`.
+        setRefundError(result.error === 'conflict' ? REFUND_CONFLICT_ERROR : GENERIC_ERROR)
+      }
+    })
+  }
+
   if (status === 'DELIVERED') return null
 
   if (status === 'CANCELLED') {
+    if (refundedAt) {
+      return (
+        <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground">
+          Refunded {new Date(refundedAt).toLocaleDateString('en-NG')} &middot; ref {refundReference ?? '—'}
+        </div>
+      )
+    }
+
     if (!refundOwed) return null
+
     return (
-      <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
-        Refund owed &mdash; process this order&apos;s refund in Paystack; nothing further happens automatically.
+      <div className="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">
+        <p>
+          Find this charge in Paystack: {paystackReference ?? '—'}. Earlier refund attempts may already exist against
+          this order &mdash; check before issuing a new one.
+        </p>
+        <Button
+          type="button"
+          variant="destructive"
+          disabled={pending}
+          className="self-start"
+          onClick={() => {
+            setRefundError(undefined)
+            setRefundOpen(true)
+          }}
+        >
+          Mark refunded
+        </Button>
+
+        <Dialog open={refundOpen} onOpenChange={setRefundOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Mark this order refunded?</DialogTitle>
+              <DialogDescription>
+                This only records that you have already issued the refund from the Paystack dashboard &mdash; MSE Lux
+                never moves money automatically.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-1">
+              <Label htmlFor="order-actions-refund-reference">Reference (optional)</Label>
+              <Input
+                id="order-actions-refund-reference"
+                value={refundReferenceInput}
+                onChange={(event) => setRefundReferenceInput(event.target.value)}
+                disabled={pending}
+              />
+            </div>
+            {refundError ? (
+              <p role="alert" className="text-sm text-destructive">
+                {refundError}
+              </p>
+            ) : null}
+            <DialogFooter>
+              <Button type="button" variant="outline" disabled={pending} onClick={() => setRefundOpen(false)}>
+                Keep pending
+              </Button>
+              <Button type="button" disabled={pending} onClick={handleMarkRefunded}>
+                Confirm mark refunded
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     )
   }

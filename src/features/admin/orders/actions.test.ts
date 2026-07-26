@@ -11,10 +11,12 @@ vi.mock('@/features/auth/claims', () => ({
 const shipOrder = vi.fn()
 const deliverOrder = vi.fn()
 const cancelOrder = vi.fn()
+const markOrderRefunded = vi.fn()
 vi.mock('@/features/admin/orders/transitions', () => ({
   shipOrder: (...args: [string, unknown]) => shipOrder(...args),
   deliverOrder: (...args: [string]) => deliverOrder(...args),
   cancelOrder: (...args: [string]) => cancelOrder(...args),
+  markOrderRefunded: (...args: [string, unknown]) => markOrderRefunded(...args),
 }))
 
 const getBookingRates = vi.fn()
@@ -33,6 +35,7 @@ const {
   shipOrderAction,
   deliverOrderAction,
   cancelOrderAction,
+  markOrderRefundedAction,
   getBookingRatesAction,
   bookShipmentAction,
 } = await import('@/features/admin/orders/actions')
@@ -195,6 +198,65 @@ describe('cancelOrderAction', () => {
 
     expect(result).toEqual({ ok: false, error: 'conflict' })
     expect(revalidatePath).not.toHaveBeenCalled()
+  })
+})
+
+describe('markOrderRefundedAction', () => {
+  it('CUSTOMER role returns forbidden and never calls markOrderRefunded', async () => {
+    getCurrentRole.mockResolvedValue(Role.CUSTOMER)
+    roleSatisfies.mockReturnValue(false)
+
+    const result = await markOrderRefundedAction(ORDER_NUMBER, {})
+
+    expect(result).toEqual({ ok: false, error: 'forbidden' })
+    expect(markOrderRefunded).not.toHaveBeenCalled()
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN role delegates with exact args', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    markOrderRefunded.mockResolvedValue({ ok: true })
+
+    const input = { reference: 'RF-1' }
+    const result = await markOrderRefundedAction(ORDER_NUMBER, input)
+
+    expect(result).toEqual({ ok: true })
+    expect(markOrderRefunded).toHaveBeenCalledWith(ORDER_NUMBER, input)
+    expect(markOrderRefunded).toHaveBeenCalledTimes(1)
+  })
+
+  it('ADMIN role on ok:true revalidates both admin order paths only', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    markOrderRefunded.mockResolvedValue({ ok: true })
+
+    await markOrderRefundedAction(ORDER_NUMBER, {})
+
+    expect(revalidatePath).toHaveBeenCalledWith('/admin/orders')
+    expect(revalidatePath).toHaveBeenCalledWith(`/admin/orders/${ORDER_NUMBER}`)
+    expect(revalidatePath).toHaveBeenCalledTimes(2)
+  })
+
+  it('ADMIN role on ok:false does not revalidate', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    markOrderRefunded.mockResolvedValue({ ok: false, error: 'invalid-state' })
+
+    const result = await markOrderRefundedAction(ORDER_NUMBER, {})
+
+    expect(result).toEqual({ ok: false, error: 'invalid-state' })
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN role returns delegate result verbatim on conflict', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    markOrderRefunded.mockResolvedValue({ ok: false, error: 'conflict' })
+
+    const result = await markOrderRefundedAction(ORDER_NUMBER, {})
+
+    expect(result).toEqual({ ok: false, error: 'conflict' })
   })
 })
 

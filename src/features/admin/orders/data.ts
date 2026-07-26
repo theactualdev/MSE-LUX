@@ -30,6 +30,8 @@ export interface ListAdminOrdersInput {
   status?: OrderStatus
   query?: string
   page?: number
+  /** Restrict to the refund work queue: refund owed, not yet recorded. AND-composes with status/query. */
+  refundQueue?: boolean
 }
 
 export interface ListAdminOrdersResult {
@@ -43,11 +45,16 @@ export type AdminOrderDetail = OrderView & {
   paidAt: string | null
   paystackReference: string | null
   refundOwed: boolean
+  refundedAt: string | null
+  refundReference: string | null
   shippedAt: string | null
   deliveredAt: string | null
   cancelledAt: string | null
   shipbubbleOrderId: string | null
 }
+
+/** The refund work queue's `where`: refund owed, not yet recorded. Shared by `listAdminOrders({ refundQueue: true })` and `countRefundQueue`. */
+const REFUND_QUEUE_WHERE: Prisma.OrderWhereInput = { refundOwed: true, refundedAt: null }
 
 /**
  * List admin orders with optional filtering by status and search query.
@@ -57,7 +64,7 @@ export type AdminOrderDetail = OrderView & {
  * @returns Paginated list with total count and page count
  */
 export async function listAdminOrders(input: ListAdminOrdersInput = {}): Promise<ListAdminOrdersResult> {
-  const { status, query, page = 1 } = input
+  const { status, query, page = 1, refundQueue } = input
 
   // Clamp page to a minimum-1 INTEGER — a fractional page (?page=2.01 typed
   // into the URL) would otherwise produce a fractional `skip`, which Prisma
@@ -65,29 +72,23 @@ export async function listAdminOrders(input: ListAdminOrdersInput = {}): Promise
   const clampedPage = Math.max(1, Math.floor(page))
   const skip = (clampedPage - 1) * PAGE_SIZE
 
-  // Build where clause
-  let where: Prisma.OrderWhereInput = {}
+  // Build where clause: one condition per active filter, AND-composed when
+  // more than one is active. A single condition is used bare (not wrapped in
+  // an `AND: [...]` of one) so the no-refund-queue, single-filter shapes stay
+  // byte-for-byte identical to what they were before `refundQueue` existed.
+  const conditions: Prisma.OrderWhereInput[] = []
+  if (status) conditions.push({ status })
+  if (query) {
+    const trimmedQuery = query.trim()
+    conditions.push({ OR: [{ orderNumber: trimmedQuery }, { email: { contains: trimmedQuery, mode: 'insensitive' } }] })
+  }
+  if (refundQueue) conditions.push(REFUND_QUEUE_WHERE)
 
-  if (status && query) {
-    // Both filters: combine with AND
-    const trimmedQuery = query.trim()
-    where = {
-      AND: [
-        { status },
-        {
-          OR: [{ orderNumber: trimmedQuery }, { email: { contains: trimmedQuery, mode: 'insensitive' } }],
-        },
-      ],
-    }
-  } else if (status) {
-    // Status only
-    where = { status }
-  } else if (query) {
-    // Query only
-    const trimmedQuery = query.trim()
-    where = {
-      OR: [{ orderNumber: trimmedQuery }, { email: { contains: trimmedQuery, mode: 'insensitive' } }],
-    }
+  let where: Prisma.OrderWhereInput = {}
+  if (conditions.length === 1) {
+    where = conditions[0]
+  } else if (conditions.length > 1) {
+    where = { AND: conditions }
   }
 
   // Fetch orders and total count in parallel
@@ -133,6 +134,15 @@ export async function listAdminOrders(input: ListAdminOrdersInput = {}): Promise
 }
 
 /**
+ * Count of orders in the refund work queue (refund owed, not yet recorded) —
+ * powers the "Refund owed" tab's badge on the orders list independent of
+ * whatever filters are currently applied there.
+ */
+export async function countRefundQueue(): Promise<number> {
+  return db.order.count({ where: REFUND_QUEUE_WHERE })
+}
+
+/**
  * Get a single admin order with full detail including fulfilment tracking.
  * Returns the order augmented with payment and fulfilment state fields.
  *
@@ -156,6 +166,8 @@ export async function getAdminOrder(orderNumber: string): Promise<AdminOrderDeta
     paidAt: row.paidAt?.toISOString() ?? null,
     paystackReference: row.paystackReference ?? null,
     refundOwed: row.refundOwed,
+    refundedAt: row.refundedAt?.toISOString() ?? null,
+    refundReference: row.refundReference ?? null,
     shippedAt: row.shippedAt?.toISOString() ?? null,
     deliveredAt: row.deliveredAt?.toISOString() ?? null,
     cancelledAt: row.cancelledAt?.toISOString() ?? null,

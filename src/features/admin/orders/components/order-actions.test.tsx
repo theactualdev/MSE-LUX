@@ -2,12 +2,13 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { OrderActions } from '@/features/admin/orders/components/order-actions'
-import { shipOrderAction, deliverOrderAction, cancelOrderAction } from '@/features/admin/orders/actions'
+import { shipOrderAction, deliverOrderAction, cancelOrderAction, markOrderRefundedAction } from '@/features/admin/orders/actions'
 
 vi.mock('@/features/admin/orders/actions', () => ({
   shipOrderAction: vi.fn(),
   deliverOrderAction: vi.fn(),
   cancelOrderAction: vi.fn(),
+  markOrderRefundedAction: vi.fn(),
   getBookingRatesAction: vi.fn(),
   bookShipmentAction: vi.fn(),
 }))
@@ -24,6 +25,7 @@ vi.mock('next/navigation', async () => {
 const shipOrderActionMock = vi.mocked(shipOrderAction)
 const deliverOrderActionMock = vi.mocked(deliverOrderAction)
 const cancelOrderActionMock = vi.mocked(cancelOrderAction)
+const markOrderRefundedActionMock = vi.mocked(markOrderRefundedAction)
 
 const PAID_SHIPPING = { amountMinor: 250_000, currency: 'NGN', label: 'Standard' }
 
@@ -33,6 +35,7 @@ describe('OrderActions', () => {
     shipOrderActionMock.mockResolvedValue({ ok: true })
     deliverOrderActionMock.mockResolvedValue({ ok: true })
     cancelOrderActionMock.mockResolvedValue({ ok: true })
+    markOrderRefundedActionMock.mockResolvedValue({ ok: true })
   })
 
   it('PROCESSING + Nigeria: shows Book shipment, Enter tracking manually, and Cancel order', () => {
@@ -42,6 +45,9 @@ describe('OrderActions', () => {
         status="PROCESSING"
         nigeria={true}
         refundOwed={false}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
         paidShipping={PAID_SHIPPING}
       />,
     )
@@ -58,6 +64,9 @@ describe('OrderActions', () => {
         status="PROCESSING"
         nigeria={false}
         refundOwed={false}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
         paidShipping={PAID_SHIPPING}
       />,
     )
@@ -74,6 +83,9 @@ describe('OrderActions', () => {
         status="SHIPPED"
         nigeria={true}
         refundOwed={false}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
         paidShipping={PAID_SHIPPING}
       />,
     )
@@ -91,6 +103,9 @@ describe('OrderActions', () => {
         status="PENDING"
         nigeria={true}
         refundOwed={false}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
         paidShipping={PAID_SHIPPING}
       />,
     )
@@ -108,6 +123,9 @@ describe('OrderActions', () => {
         status="DELIVERED"
         nigeria={true}
         refundOwed={false}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
         paidShipping={PAID_SHIPPING}
       />,
     )
@@ -122,6 +140,9 @@ describe('OrderActions', () => {
         status="CANCELLED"
         nigeria={true}
         refundOwed={false}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
         paidShipping={PAID_SHIPPING}
       />,
     )
@@ -130,19 +151,176 @@ describe('OrderActions', () => {
     expect(screen.queryByText(/refund owed/i)).not.toBeInTheDocument()
   })
 
-  it('CANCELLED with refund owed: renders a Refund owed notice, no action buttons', () => {
+  it('CANCELLED with refund owed and unrecorded: shows the Paystack reference and a Mark refunded button', () => {
     render(
       <OrderActions
         orderNumber="MSE-1"
         status="CANCELLED"
         nigeria={true}
         refundOwed={true}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference="ps_ref_123"
+        paidShipping={PAID_SHIPPING}
+      />,
+    )
+
+    expect(screen.getByText(/find this charge in paystack: ps_ref_123/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /mark refunded/i })).toBeInTheDocument()
+  })
+
+  it('CANCELLED with refund owed but no stored Paystack reference: falls back to an em dash', () => {
+    render(
+      <OrderActions
+        orderNumber="MSE-1"
+        status="CANCELLED"
+        nigeria={true}
+        refundOwed={true}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
+        paidShipping={PAID_SHIPPING}
+      />,
+    )
+
+    expect(screen.getByText(/find this charge in paystack: —/i)).toBeInTheDocument()
+  })
+
+  it('CANCELLED with refundedAt set: neutral refunded line, no action buttons', () => {
+    render(
+      <OrderActions
+        orderNumber="MSE-1"
+        status="CANCELLED"
+        nigeria={true}
+        refundOwed={false}
+        refundedAt="2026-07-22T09:00:00.000Z"
+        refundReference="RF-1"
+        paystackReference="ps_ref_123"
         paidShipping={PAID_SHIPPING}
       />,
     )
 
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
-    expect(screen.getByText(/refund owed/i)).toBeInTheDocument()
+    expect(screen.getByText(/refunded/i)).toBeInTheDocument()
+    expect(screen.getByText(/ref RF-1/i)).toBeInTheDocument()
+  })
+
+  it('CANCELLED with refundedAt set and no stored reference: shows an em dash for the reference', () => {
+    render(
+      <OrderActions
+        orderNumber="MSE-1"
+        status="CANCELLED"
+        nigeria={true}
+        refundOwed={false}
+        refundedAt="2026-07-22T09:00:00.000Z"
+        refundReference={null}
+        paystackReference={null}
+        paidShipping={PAID_SHIPPING}
+      />,
+    )
+
+    expect(screen.getByText(/ref —/i)).toBeInTheDocument()
+  })
+
+  it('mark refunded: opening the dialog restates the dashboard-first flow and lets the reference be entered', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(
+      <OrderActions
+        orderNumber="MSE-1"
+        status="CANCELLED"
+        nigeria={true}
+        refundOwed={true}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference="ps_ref_123"
+        paidShipping={PAID_SHIPPING}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /mark refunded/i }))
+    const dialog = screen.getByRole('dialog')
+    expect(dialog).toHaveTextContent(/paystack dashboard/i)
+    expect(within(dialog).getByLabelText(/reference/i)).toBeInTheDocument()
+  })
+
+  it('mark refunded: confirming with an entered reference calls markOrderRefundedAction and refreshes', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(
+      <OrderActions
+        orderNumber="MSE-1"
+        status="CANCELLED"
+        nigeria={true}
+        refundOwed={true}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference="ps_ref_123"
+        paidShipping={PAID_SHIPPING}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /mark refunded/i }))
+    const dialog = screen.getByRole('dialog')
+    await user.type(within(dialog).getByLabelText(/reference/i), '  RF-2  ')
+    await user.click(within(dialog).getByRole('button', { name: /confirm mark refunded/i }))
+
+    await vi.waitFor(() => {
+      expect(markOrderRefundedActionMock).toHaveBeenCalledWith('MSE-1', { reference: 'RF-2' })
+    })
+    await vi.waitFor(() => {
+      expect(refreshMock).toHaveBeenCalled()
+    })
+  })
+
+  it('mark refunded: confirming with a blank reference calls markOrderRefundedAction with no reference key', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(
+      <OrderActions
+        orderNumber="MSE-1"
+        status="CANCELLED"
+        nigeria={true}
+        refundOwed={true}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference="ps_ref_123"
+        paidShipping={PAID_SHIPPING}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /mark refunded/i }))
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /confirm mark refunded/i }))
+
+    await vi.waitFor(() => {
+      expect(markOrderRefundedActionMock).toHaveBeenCalledWith('MSE-1', {})
+    })
+    await vi.waitFor(() => {
+      expect(refreshMock).toHaveBeenCalled()
+    })
+  })
+
+  it('mark refunded: a conflict result shows an alert and does not refresh', async () => {
+    markOrderRefundedActionMock.mockResolvedValue({ ok: false, error: 'conflict' })
+    const user = userEvent.setup({ delay: null })
+    render(
+      <OrderActions
+        orderNumber="MSE-1"
+        status="CANCELLED"
+        nigeria={true}
+        refundOwed={true}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference="ps_ref_123"
+        paidShipping={PAID_SHIPPING}
+      />,
+    )
+
+    await user.click(screen.getByRole('button', { name: /mark refunded/i }))
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('button', { name: /confirm mark refunded/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/already recorded — refresh the page/i)
+    expect(refreshMock).not.toHaveBeenCalled()
   })
 
   it('manual tracking: submitting trimmed carrier + tracking number calls shipOrderAction and refreshes', async () => {
@@ -153,6 +331,9 @@ describe('OrderActions', () => {
         status="PROCESSING"
         nigeria={true}
         refundOwed={false}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
         paidShipping={PAID_SHIPPING}
       />,
     )
@@ -178,6 +359,9 @@ describe('OrderActions', () => {
         status="PROCESSING"
         nigeria={true}
         refundOwed={false}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
         paidShipping={PAID_SHIPPING}
       />,
     )
@@ -198,6 +382,9 @@ describe('OrderActions', () => {
         status="PROCESSING"
         nigeria={true}
         refundOwed={false}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
         paidShipping={PAID_SHIPPING}
       />,
     )
@@ -216,6 +403,9 @@ describe('OrderActions', () => {
         status="PENDING"
         nigeria={true}
         refundOwed={false}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
         paidShipping={PAID_SHIPPING}
       />,
     )
@@ -234,6 +424,9 @@ describe('OrderActions', () => {
         status="PROCESSING"
         nigeria={true}
         refundOwed={false}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
         paidShipping={PAID_SHIPPING}
       />,
     )
@@ -259,6 +452,9 @@ describe('OrderActions', () => {
         status="PROCESSING"
         nigeria={true}
         refundOwed={false}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
         paidShipping={PAID_SHIPPING}
       />,
     )
@@ -279,6 +475,9 @@ describe('OrderActions', () => {
         status="SHIPPED"
         nigeria={true}
         refundOwed={false}
+        refundedAt={null}
+        refundReference={null}
+        paystackReference={null}
         paidShipping={PAID_SHIPPING}
       />,
     )

@@ -62,11 +62,6 @@ export default async function AdminOrderDetailPage({ params }: OrderDetailPagePr
           <h1 className="font-display text-2xl font-semibold text-foreground">Order {order.orderNumber}</h1>
           <StatusBadge status={order.status} />
         </div>
-        {order.refundOwed ? (
-          <div className="rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
-            Refund owed &mdash; process this order&apos;s refund in Paystack.
-          </div>
-        ) : null}
       </div>
 
       <div className="flex flex-col gap-1 rounded-xl border border-border p-4">
@@ -111,6 +106,12 @@ export default async function AdminOrderDetailPage({ params }: OrderDetailPagePr
             <div className="flex items-center justify-between gap-4 border-t border-border py-1">
               <dt>Cancelled</dt>
               <dd>{formatTimestamp(order.cancelledAt)}</dd>
+            </div>
+          ) : null}
+          {order.refundedAt ? (
+            <div className="flex items-center justify-between gap-4 border-t border-border py-1">
+              <dt>Refunded</dt>
+              <dd>{formatTimestamp(order.refundedAt)}</dd>
             </div>
           ) : null}
         </dl>
@@ -170,6 +171,9 @@ export default async function AdminOrderDetailPage({ params }: OrderDetailPagePr
         status={order.status}
         nigeria={isNigeria(order.address.country)}
         refundOwed={order.refundOwed}
+        refundedAt={order.refundedAt}
+        refundReference={order.refundReference}
+        paystackReference={order.paystackReference}
         paidShipping={{
           amountMinor: order.summary.shipping.amountMinor,
           currency: order.summary.shipping.currency,

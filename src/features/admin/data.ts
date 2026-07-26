@@ -23,10 +23,12 @@ export interface AdminMetrics {
   revenue: { ngn: number; usd: number }
   /** Sellable units at/below LOW_STOCK_THRESHOLD: variantless ACTIVE products + variants of ACTIVE products. */
   lowStock: number
+  /** Orders in the 8d refund work queue: refund owed, not yet recorded — same `where` as `countRefundQueue`. */
+  refundsOwed: number
 }
 
 export async function getAdminMetrics(): Promise<AdminMetrics> {
-  const [ordersTotal, awaitingFulfilment, revenueRows, lowStockProducts, lowStockVariants] = await Promise.all([
+  const [ordersTotal, awaitingFulfilment, revenueRows, lowStockProducts, lowStockVariants, refundsOwed] = await Promise.all([
     db.order.count(),
     db.order.count({ where: { status: OrderStatus.PROCESSING } }),
     db.order.groupBy({ by: ['currency'], where: { paidAt: { not: null } }, _sum: { totalMinor: true } }),
@@ -36,6 +38,7 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
     // each variant.
     db.product.count({ where: { status: ProductStatus.ACTIVE, variants: { none: {} }, inventory: { lte: LOW_STOCK_THRESHOLD } } }),
     db.productVariant.count({ where: { inventory: { lte: LOW_STOCK_THRESHOLD }, product: { status: ProductStatus.ACTIVE } } }),
+    db.order.count({ where: { refundOwed: true, refundedAt: null } }),
   ])
 
   const revenue = { ngn: 0, usd: 0 }
@@ -45,5 +48,5 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
     else if (row.currency === 'USD') revenue.usd = sum
   }
 
-  return { ordersTotal, awaitingFulfilment, revenue, lowStock: lowStockProducts + lowStockVariants }
+  return { ordersTotal, awaitingFulfilment, revenue, lowStock: lowStockProducts + lowStockVariants, refundsOwed }
 }
