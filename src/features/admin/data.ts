@@ -1,6 +1,7 @@
 import 'server-only'
 import { db } from '@/lib/db'
 import { OrderStatus, ProductStatus } from '@/generated/prisma/client'
+import { countRefundQueue } from '@/features/admin/orders/data'
 
 /**
  * Store-level metrics for the admin dashboard. Server-only and UNGATED on
@@ -38,7 +39,9 @@ export async function getAdminMetrics(): Promise<AdminMetrics> {
     // each variant.
     db.product.count({ where: { status: ProductStatus.ACTIVE, variants: { none: {} }, inventory: { lte: LOW_STOCK_THRESHOLD } } }),
     db.productVariant.count({ where: { inventory: { lte: LOW_STOCK_THRESHOLD }, product: { status: ProductStatus.ACTIVE } } }),
-    db.order.count({ where: { refundOwed: true, refundedAt: null } }),
+    // Delegates so the KPI can never drift from the orders list's "Refund
+    // owed" tab/badge — countRefundQueue owns the queue's where-clause.
+    countRefundQueue(),
   ])
 
   const revenue = { ngn: 0, usd: 0 }
