@@ -96,9 +96,17 @@ export default async function AdminCatalogPage({
             Collections
           </Link>
         </div>
-        <p className="text-sm text-muted-foreground">
-          {total} {total === 1 ? 'product' : 'products'}
-        </p>
+        <div className="flex items-baseline gap-3">
+          <p className="text-sm text-muted-foreground">
+            {total} {total === 1 ? 'product' : 'products'}
+          </p>
+          <Link
+            href="/admin/catalog/new"
+            className="text-sm font-medium text-muted-foreground hover:text-foreground hover:underline"
+          >
+            New product
+          </Link>
+        </div>
       </div>
 
       <nav aria-label="Filter by status" className="flex flex-wrap gap-1">
