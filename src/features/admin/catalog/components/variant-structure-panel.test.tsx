@@ -137,6 +137,23 @@ describe('VariantStructurePanel', () => {
     expect(refreshMock).toHaveBeenCalled()
   })
 
+  it('clears the "Variants saved." note as soon as the builder reports a further edit', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<VariantStructurePanel product={BASE_PRODUCT} />)
+
+    await user.click(screen.getByRole('checkbox', { name: /delete/i }))
+    await user.click(screen.getByRole('button', { name: /save variants/i }))
+    expect(await screen.findByText(/variants saved/i)).toBeInTheDocument()
+
+    // Any further edit — even toggling the same checkbox back off — must
+    // clear the stale note; otherwise it would misleadingly imply the
+    // in-progress, unsaved edit was already persisted (mirrors ImageManager's
+    // own clear-on-edit idiom).
+    await user.click(screen.getByRole('checkbox', { name: /delete/i }))
+
+    expect(screen.queryByText(/variants saved/i)).not.toBeInTheDocument()
+  })
+
   it("'variant-has-orders' shows a clear alert distinct from the generic error", async () => {
     updateProductVariantsActionMock.mockResolvedValue({ ok: false, error: 'variant-has-orders' })
     const user = userEvent.setup({ delay: null })

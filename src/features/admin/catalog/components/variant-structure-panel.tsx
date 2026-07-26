@@ -73,6 +73,15 @@ export function VariantStructurePanel({ product }: VariantStructurePanelProps) {
     ',',
   )
 
+  // Clears the stale "Variants saved." note as soon as the builder reports a
+  // new edit — same clear-on-edit idiom as `ImageManager`'s own handlers —
+  // so it doesn't linger and imply an in-progress, unsaved edit was already
+  // persisted.
+  function handleBuilderChange(next: VariantsBuilderChange) {
+    setNote(undefined)
+    setChange(next)
+  }
+
   function handleSave() {
     setNote(undefined)
     if (change.hasSkuConflict) {
@@ -110,7 +119,7 @@ export function VariantStructurePanel({ product }: VariantStructurePanelProps) {
         mode="edit"
         initialOptionTypes={initialOptionTypes}
         existingVariants={existingVariants}
-        onChange={setChange}
+        onChange={handleBuilderChange}
       />
 
       <Button type="button" className="self-start" disabled={pending} onClick={handleSave}>

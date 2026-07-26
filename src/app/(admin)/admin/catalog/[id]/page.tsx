@@ -46,7 +46,12 @@ export default async function AdminCatalogEditPage({ params }: CatalogEditPagePr
         <h1 className="font-display text-2xl font-semibold text-foreground">{product.name}</h1>
       </div>
 
-      <ProductForm product={product} taxonomy={taxonomy} />
+      {/* Remount on any variant-structure change — same idiom as
+          `VariantStructurePanel`'s own remount key. Without it, `ProductForm`'s
+          `variantRows` (a lazy `useState` initializer, never re-synced) would
+          keep submitting rows for variants a structure save just deleted,
+          failing the next scalar save server-side. */}
+      <ProductForm key={product.variants.map((v) => v.id).join('|')} product={product} taxonomy={taxonomy} />
 
       <Card>
         <CardHeader>

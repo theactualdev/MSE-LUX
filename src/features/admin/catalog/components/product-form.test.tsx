@@ -354,4 +354,40 @@ describe('ProductForm', () => {
       expect(updateProductActionMock).toHaveBeenCalledWith('prod-2', EXPECTED_PAYLOAD_VARIANTS)
     })
   })
+
+  it(
+    'a fresh mount always seeds variant rows from the CURRENT product.variants prop ' +
+      '(regression pin: the edit page remounts ProductForm via a variant-ids key after a ' +
+      'VariantStructurePanel save, so a deleted variant must never survive into the next submit)',
+    async () => {
+      const user = userEvent.setup({ delay: null })
+      const { unmount } = render(<ProductForm product={PRODUCT_VARIANTS} taxonomy={TAXONOMY} />)
+      expect(screen.getByLabelText('Small SKU')).toBeInTheDocument()
+      expect(screen.getByLabelText('Medium SKU')).toBeInTheDocument()
+      unmount()
+
+      // Simulates the post-structure-save state: the "Small" variant was
+      // deleted server-side, and the edit page's `key` change forces a fresh
+      // `ProductForm` mount (never a prop-only update on the same instance).
+      const productAfterStructureSave: AdminProductDetail = {
+        ...PRODUCT_VARIANTS,
+        variants: [PRODUCT_VARIANTS.variants[1]],
+      }
+      render(<ProductForm product={productAfterStructureSave} taxonomy={TAXONOMY} />)
+
+      expect(screen.queryByLabelText('Small SKU')).not.toBeInTheDocument()
+      expect(screen.getByLabelText('Medium SKU')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+      await vi.waitFor(() => {
+        expect(updateProductActionMock).toHaveBeenCalledWith(
+          'prod-2',
+          expect.objectContaining({
+            variants: [{ id: 'var-2', sku: 'MSE-RNG-002-M', inventory: 5, priceNgnMinor: 8_500_000, priceUsdMinor: 95_000 }],
+          }),
+        )
+      })
+    },
+  )
 })
