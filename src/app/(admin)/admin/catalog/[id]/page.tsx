@@ -51,7 +51,14 @@ export default async function AdminCatalogEditPage({ params }: CatalogEditPagePr
           `variantRows` (a lazy `useState` initializer, never re-synced) would
           keep submitting rows for variants a structure save just deleted,
           failing the next scalar save server-side. */}
-      <ProductForm key={product.variants.map((v) => v.id).join('|')} product={product} taxonomy={taxonomy} />
+      <ProductForm
+        key={product.variants
+          .map((v) => v.id)
+          .sort()
+          .join('|')}
+        product={product}
+        taxonomy={taxonomy}
+      />
 
       <Card>
         <CardHeader>
