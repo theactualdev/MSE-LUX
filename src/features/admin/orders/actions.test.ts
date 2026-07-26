@@ -26,6 +26,11 @@ vi.mock('@/features/admin/orders/booking', () => ({
   bookShipment: (...args: [string, unknown]) => bookShipment(...args),
 }))
 
+const reapAbandonedOrders = vi.fn()
+vi.mock('@/features/admin/orders/reaper', () => ({
+  reapAbandonedOrders: (...args: []) => reapAbandonedOrders(...args),
+}))
+
 const revalidatePath = vi.fn()
 vi.mock('next/cache', () => ({
   revalidatePath: (...args: [string]) => revalidatePath(...args),
@@ -38,6 +43,7 @@ const {
   markOrderRefundedAction,
   getBookingRatesAction,
   bookShipmentAction,
+  reapAbandonedOrdersAction,
 } = await import('@/features/admin/orders/actions')
 
 const ORDER_NUMBER = 'MSE-000123'
@@ -391,6 +397,53 @@ describe('bookShipmentAction', () => {
       error: 'conflict',
       shipbubbleOrderId: 'SB-ORD-1',
     })
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+})
+
+describe('reapAbandonedOrdersAction', () => {
+  it('CUSTOMER role returns forbidden and never calls reapAbandonedOrders', async () => {
+    getCurrentRole.mockResolvedValue(Role.CUSTOMER)
+    roleSatisfies.mockReturnValue(false)
+
+    const result = await reapAbandonedOrdersAction()
+
+    expect(result).toEqual({ ok: false, error: 'forbidden' })
+    expect(reapAbandonedOrders).not.toHaveBeenCalled()
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN role delegates with the default cutoff (no args)', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    reapAbandonedOrders.mockResolvedValue({ ok: true, reaped: 4 })
+
+    const result = await reapAbandonedOrdersAction()
+
+    expect(result).toEqual({ ok: true, reaped: 4 })
+    expect(reapAbandonedOrders).toHaveBeenCalledWith()
+    expect(reapAbandonedOrders).toHaveBeenCalledTimes(1)
+  })
+
+  it('ADMIN role on ok:true revalidates /admin/orders only', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    reapAbandonedOrders.mockResolvedValue({ ok: true, reaped: 0 })
+
+    await reapAbandonedOrdersAction()
+
+    expect(revalidatePath).toHaveBeenCalledWith('/admin/orders')
+    expect(revalidatePath).toHaveBeenCalledTimes(1)
+  })
+
+  it('ADMIN role on ok:false does not revalidate', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    reapAbandonedOrders.mockResolvedValue({ ok: false, error: 'error' })
+
+    const result = await reapAbandonedOrdersAction()
+
+    expect(result).toEqual({ ok: false, error: 'error' })
     expect(revalidatePath).not.toHaveBeenCalled()
   })
 })

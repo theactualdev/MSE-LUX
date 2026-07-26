@@ -3,6 +3,7 @@ import Link from 'next/link'
 import { OrderStatus } from '@/generated/prisma/client'
 import { listAdminOrders, countRefundQueue } from '@/features/admin/orders/data'
 import { StatusBadge } from '@/features/admin/orders/components/status-badge'
+import { ReapButton } from '@/features/admin/orders/components/reap-button'
 import { formatMoney } from '@/lib/money/format'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -67,11 +68,14 @@ export default async function AdminOrdersPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-baseline justify-between gap-3">
+      <div className="flex flex-wrap items-baseline justify-between gap-3">
         <h1 className="text-xl font-semibold text-foreground">Orders</h1>
-        <p className="text-sm text-muted-foreground">
-          {total} {total === 1 ? 'order' : 'orders'}
-        </p>
+        <div className="flex items-center gap-3">
+          <p className="text-sm text-muted-foreground">
+            {total} {total === 1 ? 'order' : 'orders'}
+          </p>
+          <ReapButton />
+        </div>
       </div>
 
       <nav aria-label="Filter by status" className="flex flex-wrap gap-1">

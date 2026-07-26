@@ -5,6 +5,7 @@ import { Role } from '@/generated/prisma/client'
 import { getCurrentRole, roleSatisfies } from '@/features/auth/claims'
 import { shipOrder, deliverOrder, cancelOrder, markOrderRefunded } from '@/features/admin/orders/transitions'
 import { getBookingRates, bookShipment, type BookShipmentInput } from '@/features/admin/orders/booking'
+import { reapAbandonedOrders } from '@/features/admin/orders/reaper'
 
 /**
  * The admin-order Server Actions. SECURITY: actions are public HTTP endpoints
@@ -61,5 +62,15 @@ export async function bookShipmentAction(orderNumber: string, input: BookShipmen
   if (!(await isAdmin())) return FORBIDDEN
   const result = await bookShipment(orderNumber, input)
   if (result.ok) revalidateOrder(orderNumber)
+  return result
+}
+
+/** Admin-triggered re-check of the same reaper the cron route runs — an
+ * ops-visible "run it now" alongside the scheduled sweep, not a replacement
+ * for it. */
+export async function reapAbandonedOrdersAction() {
+  if (!(await isAdmin())) return FORBIDDEN
+  const result = await reapAbandonedOrders()
+  if (result.ok) revalidatePath('/admin/orders')
   return result
 }
