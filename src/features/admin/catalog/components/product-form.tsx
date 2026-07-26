@@ -31,7 +31,10 @@ function minorToMajor(amountMinor: number): string {
   return (amountMinor / 100).toFixed(2)
 }
 
-function minorToMajorNullable(amountMinor: number | null): string {
+// Exported: `variants-builder.tsx` (T6) reuses this pair as its own money
+// boundary rather than re-deriving the `* 100` logic — see that file's
+// docblock for how it seeds/reads new-variant price inputs with them.
+export function minorToMajorNullable(amountMinor: number | null): string {
   return amountMinor === null ? '' : minorToMajor(amountMinor)
 }
 
@@ -40,7 +43,7 @@ function toMinor(value: string): number {
   return Number.isFinite(parsed) ? Math.round(parsed * 100) : 0
 }
 
-function toMinorNullable(value: string): number | null {
+export function toMinorNullable(value: string): number | null {
   const trimmed = value.trim()
   if (!trimmed) return null
   const parsed = Number.parseFloat(trimmed)
