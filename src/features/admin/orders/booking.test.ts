@@ -65,7 +65,9 @@ const BASE_ORDER = {
   shipCity: 'Victoria Island',
   shipState: 'Lagos',
   shipCountry: 'Nigeria',
-  lines: [{ quantity: 2 }, { quantity: 3 }],
+  // One weighed line, one unweighed line — exercises the same
+  // weightGrams-or-fallback formula as `shipping.test.ts`.
+  lines: [{ quantity: 2, product: { weightGrams: 250 } }, { quantity: 3, product: null }],
 }
 
 const RATES = [
@@ -103,7 +105,7 @@ describe('getBookingRates', () => {
         shipCity: true,
         shipState: true,
         shipCountry: true,
-        lines: { select: { quantity: true } },
+        lines: { select: { quantity: true, product: { select: { weightGrams: true } } } },
       },
     })
 
@@ -123,7 +125,8 @@ describe('getBookingRates', () => {
         {
           name: 'MSE Lux order',
           description: 'Jewelry order',
-          unit_weight: 300 + 150 * 5,
+          // unit_weight = base(300) + weighed line: 250*2 + unweighed line (null product): 150*3 = 1250
+          unit_weight: 300 + 250 * 2 + 150 * 3,
           unit_amount: 500_000,
           quantity: 1,
         },

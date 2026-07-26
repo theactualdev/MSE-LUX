@@ -84,6 +84,11 @@ model Product {
   // Inventory for products without variants; variant products track inventory on ProductVariant instead.
   inventory Int @default(0)
 
+  // Real shipping weight per unit, used by the ShipBubble package build.
+  // Null = not yet weighed → that line falls back to the flat
+  // WEIGHT_PER_ITEM_GRAMS estimate (Phase 7 behaviour).
+  weightGrams Int?
+
   // Optional per-product SEO overrides; the PDP falls back to name/shortDescription when null.
   seoTitle       String?
   seoDescription String?

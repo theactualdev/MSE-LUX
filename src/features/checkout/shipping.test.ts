@@ -78,6 +78,7 @@ const PRODUCT: Product = {
   },
   sku: 'SKU-1',
   inventory: 5,
+  weightGrams: 250,
   material: 'Gold',
   materialTags: [],
   categorySlug: 'rings',
@@ -108,6 +109,16 @@ const US_ADDRESS: Address = {
   state: 'CA',
   country: 'United States',
   postalCode: '95014',
+}
+
+const PRODUCT_ID_2 = 'prod-2'
+
+/** A second product with no `weightGrams` set — its line falls back to the flat per-item estimate. */
+const PRODUCT_NO_WEIGHT: Product = {
+  ...PRODUCT,
+  id: PRODUCT_ID_2,
+  sku: 'SKU-2',
+  weightGrams: undefined,
 }
 
 const EMAIL = 'buyer@example.com'
@@ -149,9 +160,9 @@ describe('getShippingRates — Nigeria, signed-in', () => {
     expect(call.senderAddressCode).toBe('origin-abc')
     expect(call.receiverAddressCode).toBe('recv-1')
     expect(call.packageDimension).toEqual({ length: 20, width: 15, height: 8 })
-    // weight = base(300) + perItem(150) * totalQuantity(2) = 600
+    // weight = base(300) + PRODUCT.weightGrams(250) * quantity(2) = 800
     expect(call.packageItems).toEqual([
-      { name: 'MSE Lux order', description: 'Jewelry order', unit_weight: 600, unit_amount: 1_000_000, quantity: 1 },
+      { name: 'MSE Lux order', description: 'Jewelry order', unit_weight: 800, unit_amount: 1_000_000, quantity: 1 },
     ])
     expect(call.pickupDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
 
@@ -200,8 +211,33 @@ describe('getShippingRates — guest', () => {
     expect(cartItem.findMany).not.toHaveBeenCalled()
 
     const call = fetchRates.mock.calls[0][0]
-    // weight = base(300) + perItem(150) * 3 = 750; value = 500_000 * 3 = 1_500_000
-    expect(call.packageItems).toEqual([{ name: 'MSE Lux order', description: 'Jewelry order', unit_weight: 750, unit_amount: 1_500_000, quantity: 1 }])
+    // weight = base(300) + PRODUCT.weightGrams(250) * 3 = 1050; value = 500_000 * 3 = 1_500_000
+    expect(call.packageItems).toEqual([{ name: 'MSE Lux order', description: 'Jewelry order', unit_weight: 1050, unit_amount: 1_500_000, quantity: 1 }])
+
+    expect(options).toHaveLength(1)
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).not.toBeNull()
+  })
+
+  it('mixes weighed and unweighed products: a weighed line uses its real weightGrams, an unweighed line falls back to the flat per-item estimate', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+    resolveProductsByIds.mockResolvedValue([PRODUCT, PRODUCT_NO_WEIGHT])
+    validateAddress.mockResolvedValue({ addressCode: 'recv-2' })
+    fetchRates.mockResolvedValue({ requestToken: 'req_tok_1', rates: [{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 400_000, currency: 'NGN', deliveryEta: '2-3 days' }] })
+
+    const options = await getShippingRates({
+      address: NG_ADDRESS,
+      email: EMAIL,
+      chargeCurrency: 'NGN',
+      guestLines: [
+        { productId: PRODUCT_ID, quantity: 2 },
+        { productId: PRODUCT_ID_2, quantity: 3 },
+      ],
+    })
+
+    const call = fetchRates.mock.calls[0][0]
+    // weight = base(300) + PRODUCT.weightGrams(250)*2 + WEIGHT_PER_ITEM_GRAMS(150)*3 = 1250
+    // value = 500_000*2 + 500_000*3 = 2_500_000
+    expect(call.packageItems).toEqual([{ name: 'MSE Lux order', description: 'Jewelry order', unit_weight: 1250, unit_amount: 2_500_000, quantity: 1 }])
 
     expect(options).toHaveLength(1)
     expect(verifyQuote(options[0].token, NG_ADDRESS)).not.toBeNull()

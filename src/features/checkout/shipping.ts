@@ -187,12 +187,14 @@ export async function getShippingRates(input: {
       const products = await resolveProductsByIds(productIds)
       const productById = new Map(products.map((p) => [p.id, p]))
 
-      // Declared/insured value and the flat weight estimate, both driven by the
-      // REAL cart — item prices are re-read from the authored NGN priceSet
-      // (never a client-supplied amount); a line whose product no longer
-      // resolves is simply skipped (mirrors `placeOrder`'s re-pricing).
-      let totalQuantity = 0
+      // Declared/insured value and the package weight, both driven by the REAL
+      // cart — item prices are re-read from the authored NGN priceSet (never a
+      // client-supplied amount); a line whose product no longer resolves is
+      // simply skipped (mirrors `placeOrder`'s re-pricing). Weight prefers each
+      // product's real `weightGrams` (Phase 8) and falls back to the flat
+      // per-item estimate for any line whose product hasn't been weighed yet.
       let totalValueMinor = 0
+      let totalWeightGrams = WEIGHT_BASE_GRAMS
       for (const line of aggregatedLines) {
         const product = productById.get(line.productId)
         if (!product) continue
@@ -200,11 +202,9 @@ export async function getShippingRates(input: {
         const variant = line.variantId ? product.variants.find((v) => v.id === line.variantId) : undefined
         const unitNgnMinor = (variant?.priceSet?.ngn ?? product.priceSet.ngn).amountMinor
 
-        totalQuantity += line.quantity
         totalValueMinor += unitNgnMinor * line.quantity
+        totalWeightGrams += (product.weightGrams ?? WEIGHT_PER_ITEM_GRAMS) * line.quantity
       }
-
-      const totalWeightGrams = WEIGHT_BASE_GRAMS + WEIGHT_PER_ITEM_GRAMS * totalQuantity
 
       const packageItems = [
         {

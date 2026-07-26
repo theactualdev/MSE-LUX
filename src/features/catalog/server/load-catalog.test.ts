@@ -37,6 +37,7 @@ const baseProductRow: ProductRowForMapping = {
   salePriceNgnMinor: null,
   salePriceUsdMinor: null,
   inventory: 5,
+  weightGrams: null,
   seoTitle: null,
   seoDescription: null,
   category: { slug: 'jewelry' },

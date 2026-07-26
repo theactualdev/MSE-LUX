@@ -86,7 +86,7 @@ export async function getBookingRates(orderNumber: string): Promise<BookingRates
       shipCity: true,
       shipState: true,
       shipCountry: true,
-      lines: { select: { quantity: true } },
+      lines: { select: { quantity: true, product: { select: { weightGrams: true } } } },
     },
   })
 
@@ -109,8 +109,15 @@ export async function getBookingRates(orderNumber: string): Promise<BookingRates
       address: addressLine,
     })
 
-    const totalQuantity = order.lines.reduce((sum, line) => sum + line.quantity, 0)
-    const unitWeight = WEIGHT_BASE_GRAMS + WEIGHT_PER_ITEM_GRAMS * totalQuantity
+    // Weight prefers each line's real product `weightGrams` (Phase 8) and
+    // falls back to the flat per-item estimate for a null-weighed product —
+    // same formula as `getShippingRates`. `line.product` is itself nullable
+    // (`SetNull` relation: a deleted product leaves the order line intact but
+    // orphaned), so a missing product also falls back to the flat estimate.
+    const unitWeight = order.lines.reduce(
+      (sum, line) => sum + (line.product?.weightGrams ?? WEIGHT_PER_ITEM_GRAMS) * line.quantity,
+      WEIGHT_BASE_GRAMS,
+    )
 
     const packageItems = [
       {

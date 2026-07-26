@@ -34,6 +34,8 @@ export interface Product {
   sku: string
   /** Inventory for products without variants. */
   inventory: number
+  /** Real per-unit shipping weight in grams; absent = not yet weighed (falls back to the flat per-item shipping estimate). */
+  weightGrams?: number
   material: string
   /** Structured, facetable material tags (curated), e.g. ['Brass','Recycled glass']. Distinct from free-text `material`. */
   materialTags: string[]

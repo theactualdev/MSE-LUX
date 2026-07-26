@@ -41,6 +41,7 @@ function simulateProductRow(product: ReturnType<typeof getAllProducts>[number]):
   const create = toProductCreate(product, CATEGORY_IDS, SUBCATEGORY_IDS)
   return {
     ...create,
+    weightGrams: product.weightGrams ?? null,
     category: { slug: product.categorySlug },
     subcategory: product.subcategorySlug ? { slug: product.subcategorySlug } : null,
     images: create.images.create,
@@ -115,6 +116,7 @@ const baseProductRow: ProductRowForMapping = {
   salePriceNgnMinor: null,
   salePriceUsdMinor: null,
   inventory: 5,
+  weightGrams: null,
   seoTitle: null,
   seoDescription: null,
   category: { slug: 'jewelry' },
@@ -272,6 +274,14 @@ describe('toDomainProduct — nullable-to-optional fields', () => {
 
   it('maps a null subcategory to subcategorySlug undefined', () => {
     expect(toDomainProduct(baseProductRow).subcategorySlug).toBeUndefined()
+  })
+
+  it('maps a weighed row (weightGrams: 250) to domain weightGrams: 250', () => {
+    expect(toDomainProduct({ ...baseProductRow, weightGrams: 250 }).weightGrams).toBe(250)
+  })
+
+  it('maps a null weightGrams to domain weightGrams undefined', () => {
+    expect(toDomainProduct({ ...baseProductRow, weightGrams: null }).weightGrams).toBeUndefined()
   })
 
   it('maps a variant with a null image to image undefined', () => {

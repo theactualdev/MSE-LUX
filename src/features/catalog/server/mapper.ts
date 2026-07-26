@@ -74,6 +74,7 @@ export interface ProductRowForMapping {
   salePriceNgnMinor: number | null
   salePriceUsdMinor: number | null
   inventory: number
+  weightGrams: number | null
   seoTitle: string | null
   seoDescription: string | null
   category: { slug: string }
@@ -191,6 +192,7 @@ export function toDomainProduct(row: ProductRowForMapping): Product {
     salePriceSet: toOptionalPriceSet(row.salePriceNgnMinor, row.salePriceUsdMinor),
     sku: row.sku,
     inventory: row.inventory,
+    weightGrams: row.weightGrams ?? undefined,
     material: row.material,
     materialTags: row.materialTags,
     categorySlug: row.category.slug,
