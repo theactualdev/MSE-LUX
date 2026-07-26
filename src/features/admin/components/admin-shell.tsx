@@ -10,15 +10,15 @@ import { siteConfig } from '@/lib/config'
 import { cn } from '@/lib/utils'
 
 /**
- * Admin nav: Dashboard and Orders are live; the remaining 8c–8d sections are
- * visible but inert so the shell reads complete and the coming slots are
- * obvious. Inert items are plain text (not links) — nothing for a
+ * Admin nav: Dashboard, Orders, and Catalog are live; the remaining 8d
+ * section is visible but inert so the shell reads complete and the coming
+ * slot is obvious. Inert items are plain text (not links) — nothing for a
  * keyboard/screen-reader user to activate.
  */
 const NAV_ITEMS: Array<{ label: string; href?: string }> = [
   { label: 'Dashboard', href: '/admin' },
   { label: 'Orders', href: '/admin/orders' },
-  { label: 'Catalog' },
+  { label: 'Catalog', href: '/admin/catalog' },
   { label: 'Customers' },
 ]
 

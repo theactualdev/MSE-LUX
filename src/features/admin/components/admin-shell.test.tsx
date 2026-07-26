@@ -13,7 +13,7 @@ describe('AdminShell', () => {
     vi.mocked(usePathname).mockReturnValue('/admin')
   })
 
-  it('renders Dashboard active and Orders as a live (inactive) link, with Catalog/Customers still coming soon', () => {
+  it('renders Dashboard active and Orders/Catalog as live (inactive) links, with Customers still coming soon', () => {
     render(<AdminShell email="admin@mse.lux">content</AdminShell>)
 
     const dashboard = screen.getByRole('link', { name: /dashboard/i })
@@ -24,12 +24,14 @@ describe('AdminShell', () => {
     expect(orders).toHaveAttribute('href', '/admin/orders')
     expect(orders).not.toHaveAttribute('aria-current')
 
-    // Catalog/Customers are still NOT links — inert, visibly disabled.
-    for (const label of ['Catalog', 'Customers']) {
-      expect(screen.queryByRole('link', { name: new RegExp(label, 'i') })).toBeNull()
-      expect(screen.getByText(label)).toBeInTheDocument()
-    }
-    expect(screen.getAllByText(/coming soon/i).length).toBe(2)
+    const catalog = screen.getByRole('link', { name: /catalog/i })
+    expect(catalog).toHaveAttribute('href', '/admin/catalog')
+    expect(catalog).not.toHaveAttribute('aria-current')
+
+    // Customers is still NOT a link — inert, visibly disabled.
+    expect(screen.queryByRole('link', { name: /customers/i })).toBeNull()
+    expect(screen.getByText('Customers')).toBeInTheDocument()
+    expect(screen.getAllByText(/coming soon/i).length).toBe(1)
   })
 
   it('marks Orders (and not Dashboard) active when the pathname is exactly /admin/orders', () => {
@@ -45,6 +47,14 @@ describe('AdminShell', () => {
     render(<AdminShell email="admin@mse.lux">content</AdminShell>)
 
     expect(screen.getByRole('link', { name: /orders/i })).toHaveAttribute('aria-current', 'page')
+    expect(screen.getByRole('link', { name: /dashboard/i })).not.toHaveAttribute('aria-current')
+  })
+
+  it('keeps Catalog active on a nested product-edit route via prefix match', () => {
+    vi.mocked(usePathname).mockReturnValue('/admin/catalog/abc-123')
+    render(<AdminShell email="admin@mse.lux">content</AdminShell>)
+
+    expect(screen.getByRole('link', { name: /catalog/i })).toHaveAttribute('aria-current', 'page')
     expect(screen.getByRole('link', { name: /dashboard/i })).not.toHaveAttribute('aria-current')
   })
 
