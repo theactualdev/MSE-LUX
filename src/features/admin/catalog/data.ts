@@ -160,6 +160,12 @@ export interface AdminProductDetail {
     priceNgnMinor: number | null
     priceUsdMinor: number | null
     options: { name: string; value: string }[]
+    /** Whether any `OrderLine` references THIS variant — drives the
+     * variant-structure panel's per-row "can't delete — has orders" UI
+     * (`VariantsBuilder`'s `ExistingVariantSummary.hasOrders`). Distinct
+     * from the product-level `hasOrderLines` below, which only guards
+     * whole-product delete. */
+    hasOrders: boolean
   }[]
   /** Whether any `OrderLine` references this product — drives the delete-vs-archive UI affordance. */
   hasOrderLines: boolean
@@ -168,7 +174,7 @@ export interface AdminProductDetail {
 const DETAIL_INCLUDE = {
   images: { orderBy: { position: 'asc' as const } },
   optionTypes: { orderBy: { position: 'asc' as const }, include: { values: { orderBy: { position: 'asc' as const } } } },
-  variants: { include: { options: { select: { name: true, value: true } } } },
+  variants: { include: { options: { select: { name: true, value: true } }, orderLines: { take: 1, select: { id: true } } } },
   collections: { select: { collectionId: true } },
   orderLines: { take: 1, select: { id: true } },
 } satisfies Prisma.ProductInclude
@@ -212,6 +218,7 @@ function mapDetailRow(row: DetailRow): AdminProductDetail {
       priceNgnMinor: variant.priceNgnMinor,
       priceUsdMinor: variant.priceUsdMinor,
       options: variant.options.map((option) => ({ name: option.name, value: option.value })),
+      hasOrders: variant.orderLines.length > 0,
     })),
     hasOrderLines: row.orderLines.length > 0,
   }

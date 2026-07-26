@@ -122,6 +122,7 @@ const PRODUCT_VARIANTS: AdminProductDetail = {
       priceNgnMinor: null,
       priceUsdMinor: null,
       options: [{ name: 'Size', value: 'Small' }],
+      hasOrders: false,
     },
     {
       id: 'var-2',
@@ -130,6 +131,7 @@ const PRODUCT_VARIANTS: AdminProductDetail = {
       priceNgnMinor: 8_500_000,
       priceUsdMinor: 95_000,
       options: [{ name: 'Size', value: 'Medium' }],
+      hasOrders: false,
     },
   ],
   hasOrderLines: false,
@@ -190,17 +192,25 @@ describe('ProductForm', () => {
     expect(screen.getByLabelText('Inventory')).toHaveValue(12)
     expect(screen.getByLabelText('Weight (g)')).toHaveValue(18)
 
-    expect(screen.getByLabelText('Status')).toHaveValue('ACTIVE')
+    expect(screen.getByRole('combobox', { name: 'Status' })).toHaveTextContent('Active')
     expect(screen.getByLabelText('SEO title')).toHaveValue('Diamond Tennis Bracelet | MSE Lux')
     expect(screen.getByLabelText('SEO description')).toHaveValue('')
 
-    expect(screen.getByLabelText('Category')).toHaveValue('cat-a')
-    expect(screen.getByLabelText('Subcategory')).toHaveValue('sub-a1')
-    expect(screen.getByRole('option', { name: 'Engagement' })).toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Wedding' })).toBeInTheDocument()
+    expect(screen.getByRole('combobox', { name: 'Category' })).toHaveTextContent('Rings')
+    expect(screen.getByRole('combobox', { name: 'Subcategory' })).toHaveTextContent('Engagement')
 
     expect(screen.getByLabelText('Spring 2026')).toBeChecked()
     expect(screen.getByLabelText('Bridal')).not.toBeChecked()
+  })
+
+  it('subcategory select lists the current category\'s subcategories', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<ProductForm product={PRODUCT_SIMPLE} taxonomy={TAXONOMY} />)
+
+    await user.click(screen.getByRole('combobox', { name: 'Subcategory' }))
+
+    expect(await screen.findByRole('option', { name: 'Engagement' })).toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Wedding' })).toBeInTheDocument()
   })
 
   it('submitting unchanged calls updateProductAction with a payload matching UpdateProductInput exactly', async () => {
@@ -275,6 +285,20 @@ describe('ProductForm', () => {
     expect(updateProductActionMock).not.toHaveBeenCalled()
   })
 
+  it('blank/invalid regular price blocks submit', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<ProductForm product={PRODUCT_SIMPLE} taxonomy={TAXONOMY} />)
+
+    await user.clear(screen.getByLabelText('Price (NGN)'))
+    await user.clear(screen.getByLabelText('Price (USD)'))
+    await user.click(screen.getByRole('button', { name: /save changes/i }))
+
+    const alerts = await screen.findAllByRole('alert')
+    expect(alerts.some((alert) => /valid ngn price is required/i.test(alert.textContent ?? ''))).toBe(true)
+    expect(alerts.some((alert) => /valid usd price is required/i.test(alert.textContent ?? ''))).toBe(true)
+    expect(updateProductActionMock).not.toHaveBeenCalled()
+  })
+
   it('sale price >= regular price blocks submit with the schema.ts copy', async () => {
     const user = userEvent.setup({ delay: null })
     render(<ProductForm product={PRODUCT_SIMPLE} taxonomy={TAXONOMY} />)
@@ -290,7 +314,10 @@ describe('ProductForm', () => {
     const user = userEvent.setup({ delay: null })
     render(<ProductForm product={PRODUCT_SIMPLE} taxonomy={TAXONOMY} />)
 
-    await user.selectOptions(screen.getByLabelText('Category'), 'cat-b')
+    await user.click(screen.getByRole('combobox', { name: 'Category' }))
+    await user.click(await screen.findByRole('option', { name: 'Bracelets' }))
+    expect(screen.getByRole('combobox', { name: 'Subcategory' })).toHaveTextContent('None')
+
     await user.click(screen.getByRole('button', { name: /save changes/i }))
 
     await vi.waitFor(() => {

@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { updateProductAction } from '@/features/admin/catalog/actions'
 import type { UpdateProductInput } from '@/features/admin/catalog/schema'
 import type { AdminProductDetail, TaxonomyOptions } from '@/features/admin/catalog/data'
@@ -16,10 +17,16 @@ const GENERIC_ERROR = 'Something went wrong. Please try again.'
 const CONFLICT_ERROR = 'Something changed — refresh and try again'
 
 /** Paths with their own inline error slot next to the field — everything else falls back to the generic issues list. */
-const INLINE_FIELD_SLOTS = new Set(['name', 'slug', 'sku', 'salePriceNgnMinor', 'salePriceUsdMinor', 'categoryId'])
-
-const SELECT_CLASS =
-  'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-foreground shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50'
+const INLINE_FIELD_SLOTS = new Set([
+  'name',
+  'slug',
+  'sku',
+  'priceNgnMinor',
+  'priceUsdMinor',
+  'salePriceNgnMinor',
+  'salePriceUsdMinor',
+  'categoryId',
+])
 
 // MONEY AT THE FORM BOUNDARY: every price field is displayed/edited in major
 // units (e.g. "45000.00") but the schema — and everything server-side —
@@ -61,6 +68,18 @@ function toIntNullable(value: string): number | null {
   const parsed = Number.parseFloat(trimmed)
   return Number.isFinite(parsed) ? Math.round(parsed) : null
 }
+
+// Base UI's `<Select.Value>` only resolves a label DIFFERENT from the raw
+// value (e.g. "Active" for "ACTIVE") via the root's `items` prop — its
+// `<Select.Item>` children aren't mounted (and so never register a
+// value→label mapping) until the popup has actually been opened once. Every
+// Select below whose value isn't already its own display label passes
+// `items` for exactly this reason; skipping it would show the raw value on
+// first paint instead of the friendly label.
+const STATUS_ITEMS = [
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'DRAFT', label: 'Draft' },
+]
 
 /** Display label for a variant row: its option values ("Small / Gold") when it has any, else its SKU. */
 function variantLabel(variant: AdminProductDetail['variants'][number]): string {
@@ -141,6 +160,8 @@ export function ProductForm({ product, taxonomy }: ProductFormProps) {
 
   const selectedCategory = taxonomy.categories.find((category) => category.id === categoryId)
   const subcategoryOptions = selectedCategory?.subcategories ?? []
+  const categoryItems = taxonomy.categories.map((category) => ({ value: category.id, label: category.name }))
+  const subcategoryItems = [{ value: '', label: 'None' }, ...subcategoryOptions.map((sub) => ({ value: sub.id, label: sub.name }))]
 
   function handleCategoryChange(nextCategoryId: string) {
     setCategoryId(nextCategoryId)
@@ -174,11 +195,14 @@ export function ProductForm({ product, taxonomy }: ProductFormProps) {
     const salePriceNgnMinor = toMinorNullable(salePriceNgnInput)
     const salePriceUsdMinor = toMinorNullable(salePriceUsdInput)
 
-    // Client-side mirrors of the two server rules most likely to be hit by
-    // typos — copy IDENTICAL to schema.ts's `superRefine` messages so the
-    // two never visibly disagree.
+    // Client-side mirrors of the server rules most likely to be hit by
+    // typos — copy IDENTICAL to schema.ts's `superRefine` messages (sale
+    // price) and `product-create-form.tsx`'s own blank-price guard (regular
+    // price), so the two forms never visibly disagree.
     const nextFieldErrors: Record<string, string> = {}
     if (!trimmedName) nextFieldErrors.name = 'Name is required.'
+    if (priceNgnMinor <= 0) nextFieldErrors.priceNgnMinor = 'A valid NGN price is required.'
+    if (priceUsdMinor <= 0) nextFieldErrors.priceUsdMinor = 'A valid USD price is required.'
     if (salePriceNgnMinor !== null && salePriceNgnMinor >= priceNgnMinor) {
       nextFieldErrors.salePriceNgnMinor = 'Sale price must be below the regular NGN price'
     }
@@ -317,16 +341,17 @@ export function ProductForm({ product, taxonomy }: ProductFormProps) {
             </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="pf-status">Status</Label>
-              <select
-                id="pf-status"
-                className={SELECT_CLASS}
-                value={status}
-                disabled={pending}
-                onChange={(e) => setStatus(e.target.value as ProductStatus)}
-              >
-                <option value="ACTIVE">Active</option>
-                <option value="DRAFT">Draft</option>
-              </select>
+              <Select value={status} items={STATUS_ITEMS} disabled={pending} onValueChange={(value) => setStatus(value as ProductStatus)}>
+                <SelectTrigger id="pf-status" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="ACTIVE">Active</SelectItem>
+                    <SelectItem value="DRAFT">Draft</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -381,6 +406,11 @@ export function ProductForm({ product, taxonomy }: ProductFormProps) {
                 onChange={(e) => setPriceNgnInput(e.target.value)}
                 disabled={pending}
               />
+              {fieldErrors.priceNgnMinor ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {fieldErrors.priceNgnMinor}
+                </p>
+              ) : null}
             </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="pf-price-usd">Price (USD)</Label>
@@ -392,6 +422,11 @@ export function ProductForm({ product, taxonomy }: ProductFormProps) {
                 onChange={(e) => setPriceUsdInput(e.target.value)}
                 disabled={pending}
               />
+              {fieldErrors.priceUsdMinor ? (
+                <p role="alert" className="text-sm text-destructive">
+                  {fieldErrors.priceUsdMinor}
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -584,19 +619,25 @@ export function ProductForm({ product, taxonomy }: ProductFormProps) {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1">
               <Label htmlFor="pf-category">Category</Label>
-              <select
-                id="pf-category"
-                className={SELECT_CLASS}
+              <Select
                 value={categoryId}
+                items={categoryItems}
                 disabled={pending}
-                onChange={(e) => handleCategoryChange(e.target.value)}
+                onValueChange={(value) => handleCategoryChange(value as string)}
               >
-                {taxonomy.categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="pf-category" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {taxonomy.categories.map((category) => (
+                      <SelectItem key={category.id} value={category.id}>
+                        {category.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
               {fieldErrors.categoryId ? (
                 <p role="alert" className="text-sm text-destructive">
                   {fieldErrors.categoryId}
@@ -605,20 +646,26 @@ export function ProductForm({ product, taxonomy }: ProductFormProps) {
             </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="pf-subcategory">Subcategory</Label>
-              <select
-                id="pf-subcategory"
-                className={SELECT_CLASS}
+              <Select
                 value={subcategoryId}
+                items={subcategoryItems}
                 disabled={pending || subcategoryOptions.length === 0}
-                onChange={(e) => setSubcategoryId(e.target.value)}
+                onValueChange={(value) => setSubcategoryId(value as string)}
               >
-                <option value="">None</option>
-                {subcategoryOptions.map((subcategory) => (
-                  <option key={subcategory.id} value={subcategory.id}>
-                    {subcategory.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="pf-subcategory" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="">None</SelectItem>
+                    {subcategoryOptions.map((subcategory) => (
+                      <SelectItem key={subcategory.id} value={subcategory.id}>
+                        {subcategory.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

@@ -240,7 +240,7 @@ describe('getCatalogProduct', () => {
   const DETAIL_INCLUDE = {
     images: { orderBy: { position: 'asc' } },
     optionTypes: { orderBy: { position: 'asc' }, include: { values: { orderBy: { position: 'asc' } } } },
-    variants: { include: { options: { select: { name: true, value: true } } } },
+    variants: { include: { options: { select: { name: true, value: true } }, orderLines: { take: 1, select: { id: true } } } },
     collections: { select: { collectionId: true } },
     orderLines: { take: 1, select: { id: true } },
   }
@@ -300,6 +300,7 @@ describe('getCatalogProduct', () => {
           priceNgnMinor: null,
           priceUsdMinor: null,
           options: [{ name: 'Size', value: '7' }],
+          orderLines: [{ id: 'line-99' }],
         },
       ],
       orderLines: [{ id: 'line-1' }],
@@ -352,6 +353,7 @@ describe('getCatalogProduct', () => {
           priceNgnMinor: null,
           priceUsdMinor: null,
           options: [{ name: 'Size', value: '7' }],
+          hasOrders: true,
         },
       ],
       hasOrderLines: true,
@@ -383,7 +385,17 @@ describe('getCatalogProduct', () => {
       collections: [],
       images: [],
       optionTypes: [],
-      variants: [],
+      variants: [
+        {
+          id: 'var-2',
+          sku: 'NECK-1-S',
+          inventory: 6,
+          priceNgnMinor: null,
+          priceUsdMinor: null,
+          options: [],
+          orderLines: [],
+        },
+      ],
       orderLines: [],
     })
 
@@ -392,6 +404,7 @@ describe('getCatalogProduct', () => {
     expect(result?.hasOrderLines).toBe(false)
     expect(result?.collectionIds).toEqual([])
     expect(result?.subcategoryId).toBeNull()
+    expect(result?.variants[0]?.hasOrders).toBe(false)
   })
 })
 

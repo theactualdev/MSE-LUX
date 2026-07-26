@@ -7,6 +7,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { createProductAction } from '@/features/admin/catalog/actions'
 import { toMinorNullable } from '@/features/admin/catalog/components/product-form'
 import { VariantsBuilder, type VariantsBuilderChange } from '@/features/admin/catalog/components/variants-builder'
@@ -39,9 +40,6 @@ const INLINE_FIELD_SLOTS = new Set([
   'variants',
 ])
 
-const SELECT_CLASS =
-  'h-8 w-full rounded-lg border border-input bg-transparent px-2.5 text-sm text-foreground shadow-xs outline-none transition-colors focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50'
-
 // Private copies of `product-form.tsx`'s money/int boundary helpers — that
 // file only exports the NULLABLE pair (`minorToMajorNullable`,
 // `toMinorNullable`), reused below for the sale-price fields. The
@@ -64,6 +62,14 @@ function toIntNullable(value: string): number | null {
   const parsed = Number.parseFloat(trimmed)
   return Number.isFinite(parsed) ? Math.round(parsed) : null
 }
+
+// Same `items` requirement as `product-form.tsx` — see that file's docblock
+// on `STATUS_ITEMS` for why Base UI's `<Select.Value>` needs it whenever a
+// value's display label differs from the value itself.
+const STATUS_ITEMS = [
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'DRAFT', label: 'Draft' },
+]
 
 const EMPTY_BUILDER_CHANGE: VariantsBuilderChange = {
   optionTypes: [],
@@ -151,6 +157,8 @@ export function ProductCreateForm({ taxonomy }: ProductCreateFormProps) {
 
   const selectedCategory = taxonomy.categories.find((category) => category.id === categoryId)
   const subcategoryOptions = selectedCategory?.subcategories ?? []
+  const categoryItems = taxonomy.categories.map((category) => ({ value: category.id, label: category.name }))
+  const subcategoryItems = [{ value: '', label: 'None' }, ...subcategoryOptions.map((sub) => ({ value: sub.id, label: sub.name }))]
 
   function handleCategoryChange(nextCategoryId: string) {
     setCategoryId(nextCategoryId)
@@ -331,16 +339,17 @@ export function ProductCreateForm({ taxonomy }: ProductCreateFormProps) {
             </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="pcf-status">Status</Label>
-              <select
-                id="pcf-status"
-                className={SELECT_CLASS}
-                value={status}
-                disabled={pending}
-                onChange={(e) => setStatus(e.target.value as ProductStatus)}
-              >
-                <option value="ACTIVE">Active</option>
-                <option value="DRAFT">Draft</option>
-              </select>
+              <Select value={status} items={STATUS_ITEMS} disabled={pending} onValueChange={(value) => setStatus(value as ProductStatus)}>
+                <SelectTrigger id="pcf-status" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="ACTIVE">Active</SelectItem>
+                    <SelectItem value="DRAFT">Draft</SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
@@ -547,19 +556,25 @@ export function ProductCreateForm({ taxonomy }: ProductCreateFormProps) {
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1">
               <Label htmlFor="pcf-category">Category</Label>
-              <select
-                id="pcf-category"
-                className={SELECT_CLASS}
+              <Select
                 value={categoryId}
+                items={categoryItems}
                 disabled={pending}
-                onChange={(e) => handleCategoryChange(e.target.value)}
+                onValueChange={(value) => handleCategoryChange(value as string)}
               >
-                {taxonomy.categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="pcf-category" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    {taxonomy.categories.map((category) => (
+                      <SelectItem key={category.id} value={category.id}>
+                        {category.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
               {fieldErrors.categoryId ? (
                 <p role="alert" className="text-sm text-destructive">
                   {fieldErrors.categoryId}
@@ -568,20 +583,26 @@ export function ProductCreateForm({ taxonomy }: ProductCreateFormProps) {
             </div>
             <div className="flex flex-col gap-1">
               <Label htmlFor="pcf-subcategory">Subcategory</Label>
-              <select
-                id="pcf-subcategory"
-                className={SELECT_CLASS}
+              <Select
                 value={subcategoryId}
+                items={subcategoryItems}
                 disabled={pending || subcategoryOptions.length === 0}
-                onChange={(e) => setSubcategoryId(e.target.value)}
+                onValueChange={(value) => setSubcategoryId(value as string)}
               >
-                <option value="">None</option>
-                {subcategoryOptions.map((subcategory) => (
-                  <option key={subcategory.id} value={subcategory.id}>
-                    {subcategory.name}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger id="pcf-subcategory" className="w-full">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectItem value="">None</SelectItem>
+                    {subcategoryOptions.map((subcategory) => (
+                      <SelectItem key={subcategory.id} value={subcategory.id}>
+                        {subcategory.name}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

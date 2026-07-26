@@ -122,7 +122,7 @@ describe('ProductCreateForm', () => {
   it('defaults: status DRAFT preselected, everything else empty', () => {
     render(<ProductCreateForm taxonomy={TAXONOMY} />)
 
-    expect(screen.getByLabelText('Status')).toHaveValue('DRAFT')
+    expect(screen.getByRole('combobox', { name: 'Status' })).toHaveTextContent('Draft')
     expect(screen.getByLabelText('Name')).toHaveValue('')
     expect(screen.getByLabelText('Slug')).toHaveValue('')
     expect(screen.getByLabelText('SKU')).toHaveValue('')
@@ -145,8 +145,8 @@ describe('ProductCreateForm', () => {
     expect(screen.getByLabelText('SEO title')).toHaveValue('')
     expect(screen.getByLabelText('SEO description')).toHaveValue('')
 
-    expect(screen.getByLabelText('Category')).toHaveValue('cat-a')
-    expect(screen.getByLabelText('Subcategory')).toHaveValue('')
+    expect(screen.getByRole('combobox', { name: 'Category' })).toHaveTextContent('Rings')
+    expect(screen.getByRole('combobox', { name: 'Subcategory' })).toHaveTextContent('None')
     expect(screen.getByLabelText('Spring 2026')).not.toBeChecked()
     expect(screen.getByLabelText('Bridal')).not.toBeChecked()
 
@@ -265,7 +265,8 @@ describe('ProductCreateForm', () => {
     await user.type(screen.getByLabelText('SEO title'), 'Diamond Ring | MSE Lux')
     await user.type(screen.getByLabelText('SEO description'), 'Shop the Diamond Ring.')
 
-    await user.selectOptions(screen.getByLabelText('Subcategory'), 'sub-a1')
+    await user.click(screen.getByRole('combobox', { name: 'Subcategory' }))
+    await user.click(await screen.findByRole('option', { name: 'Engagement' }))
     await user.click(screen.getByLabelText('Spring 2026'))
 
     await user.click(screen.getByRole('button', { name: /add option type/i }))
