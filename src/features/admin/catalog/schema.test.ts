@@ -118,6 +118,84 @@ describe('updateProductSchema', () => {
     const result = updateProductSchema.safeParse(validPayload({ inventory: 1_000_000_000 }))
     expect(result.success).toBe(true)
   })
+
+  it('rejects a priceUsdMinor above the 1,000,000,000 bound with a friendly message', () => {
+    const result = updateProductSchema.safeParse(validPayload({ priceUsdMinor: 1_000_000_001 }))
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const issue = result.error.issues.find((issue) => issue.path.join('.') === 'priceUsdMinor')
+      expect(issue).toBeDefined()
+      expect(issue?.message).toBe('Price is too large')
+    }
+  })
+
+  it('accepts a priceUsdMinor exactly at the 1,000,000,000 bound', () => {
+    const result = updateProductSchema.safeParse(validPayload({ priceUsdMinor: 1_000_000_000 }))
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a weightGrams above the 1,000,000,000 bound with a friendly message', () => {
+    const result = updateProductSchema.safeParse(validPayload({ weightGrams: 1_000_000_001 }))
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const issue = result.error.issues.find((issue) => issue.path.join('.') === 'weightGrams')
+      expect(issue).toBeDefined()
+      expect(issue?.message).toBe('Weight is too large')
+    }
+  })
+
+  it('accepts a weightGrams exactly at the 1,000,000,000 bound', () => {
+    const result = updateProductSchema.safeParse(validPayload({ weightGrams: 1_000_000_000 }))
+    expect(result.success).toBe(true)
+  })
+
+  // salePriceNgnMinor/salePriceUsdMinor share the same 1,000,000,000 bound as
+  // their regular-price counterpart, but the sale<regular superRefine rule
+  // also requires the sale price to sit strictly below the regular price —
+  // and the regular price can never exceed 1,000,000,000 either. So a sale
+  // price can never legitimately equal the bound in a valid payload; the
+  // "accept" half below instead pins the largest value the bound actually
+  // permits once the regular price sits at ITS bound (999,999,999, one below
+  // 1,000,000,000), and the "reject" half confirms the .max() check still
+  // fires (alongside the sale<regular issue, since both conditions are
+  // violated at once by a value that far over).
+  it('rejects a salePriceNgnMinor above the 1,000,000,000 bound with a friendly message', () => {
+    const result = updateProductSchema.safeParse(validPayload({ salePriceNgnMinor: 1_000_000_001 }))
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(
+        result.error.issues.some(
+          (issue) => issue.path.join('.') === 'salePriceNgnMinor' && issue.message === 'Sale price is too large',
+        ),
+      ).toBe(true)
+    }
+  })
+
+  it('accepts a salePriceNgnMinor one below the bound when priceNgnMinor sits at the 1,000,000,000 bound', () => {
+    const result = updateProductSchema.safeParse(
+      validPayload({ priceNgnMinor: 1_000_000_000, salePriceNgnMinor: 999_999_999 }),
+    )
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a salePriceUsdMinor above the 1,000,000,000 bound with a friendly message', () => {
+    const result = updateProductSchema.safeParse(validPayload({ salePriceUsdMinor: 1_000_000_001 }))
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      expect(
+        result.error.issues.some(
+          (issue) => issue.path.join('.') === 'salePriceUsdMinor' && issue.message === 'Sale price is too large',
+        ),
+      ).toBe(true)
+    }
+  })
+
+  it('accepts a salePriceUsdMinor one below the bound when priceUsdMinor sits at the 1,000,000,000 bound', () => {
+    const result = updateProductSchema.safeParse(
+      validPayload({ priceUsdMinor: 1_000_000_000, salePriceUsdMinor: 999_999_999 }),
+    )
+    expect(result.success).toBe(true)
+  })
 })
 
 function validCreatePayload(overrides: Partial<Record<string, unknown>> = {}) {
@@ -298,11 +376,14 @@ describe('createProductSchema', () => {
     expect(result.success).toBe(false)
   })
 
-  it('does not accept a `variants` field (edit-only, absent from creation payload)', () => {
-    const parsed = createProductSchema.safeParse(validCreatePayload())
+  it('strips a `variants` field when present, since createProductSchema has no such field (edit-only; zod objects strip unknown keys by default here — not a strict/passthrough schema)', () => {
+    const parsed = createProductSchema.safeParse({
+      ...validCreatePayload(),
+      variants: [{ id: 'v1', sku: 'MSE-BRC-001-S', inventory: 1, priceNgnMinor: null, priceUsdMinor: null }],
+    })
     expect(parsed.success).toBe(true)
     if (parsed.success) {
-      expect((parsed.data as Record<string, unknown>).variants).toBeUndefined()
+      expect(Object.prototype.hasOwnProperty.call(parsed.data, 'variants')).toBe(false)
     }
   })
 })
