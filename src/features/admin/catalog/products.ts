@@ -33,6 +33,7 @@ export type CatalogWriteError =
   | 'conflict-sku'
   | 'invalid-taxonomy'
   | 'has-orders'
+  | 'variant-has-orders'
   | 'conflict'
   | 'error'
 
