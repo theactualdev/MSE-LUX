@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { VariantsBuilder, type VariantsBuilderChange } from '@/features/admin/catalog/components/variants-builder'
 
@@ -174,6 +174,71 @@ describe('VariantsBuilder', () => {
     expect(lastChange(onChange).newVariants).toHaveLength(0)
   })
 
+  it('renaming an option type purges every generated row that referenced the old name', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<VariantsBuilder mode="create" initialOptionTypes={[{ name: 'Size', values: ['Small', 'Large'] }]} existingVariants={[]} onChange={onChange} />)
+    await user.click(screen.getByRole('button', { name: /generate variants/i }))
+    expect(lastChange(onChange).newVariants).toHaveLength(2)
+
+    const nameInput = screen.getByLabelText(/option name/i)
+    fireEvent.change(nameInput, { target: { value: 'Length' } })
+
+    const change = lastChange(onChange)
+    expect(change.optionTypes).toEqual([{ name: 'Length', values: ['Small', 'Large'] }])
+    expect(change.newVariants).toHaveLength(0)
+  })
+
+  it('removing a single value from the comma list purges only the rows using it — others survive', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<VariantsBuilder mode="create" initialOptionTypes={[{ name: 'Size', values: ['Small', 'Large'] }]} existingVariants={[]} onChange={onChange} />)
+    await user.click(screen.getByRole('button', { name: /generate variants/i }))
+    expect(lastChange(onChange).newVariants).toHaveLength(2)
+
+    const valuesInput = screen.getByLabelText(/^values$/i)
+    fireEvent.change(valuesInput, { target: { value: 'Small' } })
+
+    const change = lastChange(onChange)
+    expect(change.optionTypes).toEqual([{ name: 'Size', values: ['Small'] }])
+    expect(change.newVariants).toHaveLength(1)
+    expect(change.newVariants[0].options).toEqual([{ name: 'Size', value: 'Small' }])
+  })
+
+  it('removing an option type entirely purges every row that used it', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<VariantsBuilder mode="create" initialOptionTypes={SIZE_COLOR_TYPES} existingVariants={[]} onChange={onChange} />)
+    await user.click(screen.getByRole('button', { name: /generate variants/i }))
+    expect(lastChange(onChange).newVariants).toHaveLength(4)
+
+    const groups = getGroups()
+    await user.click(within(groups[0]).getByRole('button', { name: /remove option/i }))
+
+    const change = lastChange(onChange)
+    expect(change.optionTypes).toHaveLength(1)
+    expect(change.newVariants).toHaveLength(0)
+  })
+
+  it('rows generated purely from an untouched type survive an edit to a different type', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<VariantsBuilder mode="create" initialOptionTypes={[{ name: 'Size', values: ['Small', 'Large'] }]} existingVariants={[]} onChange={onChange} />)
+    await user.click(screen.getByRole('button', { name: /generate variants/i }))
+    expect(lastChange(onChange).newVariants).toHaveLength(2)
+
+    await user.click(screen.getByRole('button', { name: /add option type/i }))
+    const newTypeGroup = getGroups()[1]
+    fireEvent.change(within(newTypeGroup).getByLabelText(/option name/i), { target: { value: 'Color' } })
+    fireEvent.change(within(newTypeGroup).getByLabelText(/^values$/i), { target: { value: 'Gold, Silver' } })
+
+    const change = lastChange(onChange)
+    expect(change.optionTypes).toEqual([
+      { name: 'Size', values: ['Small', 'Large'] },
+      { name: 'Color', values: ['Gold', 'Silver'] },
+    ])
+    // The Size-only rows generated before Color existed never referenced it, so
+    // building out the unrelated Color type doesn't purge them.
+    expect(change.newVariants).toHaveLength(2)
+    expect(change.newVariants.every((v) => v.options.every((o) => o.name === 'Size'))).toBe(true)
+  })
+
   it('duplicate SKUs across new rows (case-insensitive, blanks ignored) show an inline error but still emit the full state', async () => {
     const user = userEvent.setup({ delay: null })
     render(
@@ -193,6 +258,27 @@ describe('VariantsBuilder', () => {
     expect(change.hasSkuConflict).toBe(true)
     expect(change.newVariants).toHaveLength(2)
     expect(change.newVariants.map((v) => v.sku)).toEqual(['RING-1', 'ring-1'])
+    expect(screen.getAllByText(/duplicate sku/i).length).toBeGreaterThan(0)
+  })
+
+  it("a new row's SKU colliding with an existing variant's SKU (case-insensitive) is flagged the same way", async () => {
+    const user = userEvent.setup({ delay: null })
+    render(
+      <VariantsBuilder
+        mode="edit"
+        initialOptionTypes={[{ name: 'Size', values: ['Small'] }]}
+        existingVariants={[{ id: 'v1', sku: 'RING-1', options: [{ name: 'Size', value: 'Large' }] }]}
+        onChange={onChange}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /generate variants/i }))
+
+    await user.type(screen.getByLabelText(/small sku/i), 'ring-1')
+
+    const change = lastChange(onChange)
+    expect(change.hasSkuConflict).toBe(true)
+    expect(change.newVariants).toHaveLength(1)
+    expect(change.newVariants[0].sku).toBe('ring-1')
     expect(screen.getAllByText(/duplicate sku/i).length).toBeGreaterThan(0)
   })
 

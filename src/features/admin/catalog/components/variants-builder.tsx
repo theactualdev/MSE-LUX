@@ -41,6 +41,42 @@ function suggestedSku(options: { name: string; value: string }[]): string {
   return options.map((option) => option.value.trim().toUpperCase().replace(/\s+/g, '-')).join('-')
 }
 
+/** Keys a set of SKUs (existing-variant SKUs + in-progress new-row SKUs,
+ * case-insensitive, blanks ignored) that appear more than once across the
+ * combined set — used both for the top-level `hasSkuConflict` flag and to
+ * highlight the specific offending row(s), regardless of whether the
+ * collision is against another new row or an already-saved variant. */
+function duplicateSkuKeysFor(newSkus: string[], existingSkus: string[]): Set<string> {
+  const counts = new Map<string, number>()
+  for (const sku of [...existingSkus, ...newSkus]) {
+    const key = sku.trim().toLowerCase()
+    if (!key) continue
+    counts.set(key, (counts.get(key) ?? 0) + 1)
+  }
+  const duplicates = new Set<string>()
+  for (const [key, count] of counts) if (count > 1) duplicates.add(key)
+  return duplicates
+}
+
+/** After an option-type is renamed, has a value removed, or is deleted
+ * outright, any already-generated `newVariantRows` referencing a name/value
+ * combo that no longer exists in `optionTypeRows` are desynced — submitting
+ * them would fail `createProductSchema`'s superRefine ("not listed in
+ * optionTypes") with a confusing server-side rejection. Purged here instead:
+ * a row survives only if EVERY one of its options still names a current
+ * option type and one of its current values (same membership rule the
+ * schema enforces). The user just regenerates — there's no way to "repair"
+ * a stale row's options automatically without guessing intent. */
+function purgeDesyncedRows(newVariantRows: NewVariantRowState[], optionTypeRows: OptionTypeRowState[]): NewVariantRowState[] {
+  const valuesByName = new Map<string, Set<string>>()
+  for (const row of optionTypeRows) {
+    const name = row.name.trim()
+    if (!name) continue
+    valuesByName.set(name, new Set(parseValuesInput(row.valuesInput)))
+  }
+  return newVariantRows.filter((row) => row.options.every((option) => valuesByName.get(option.name)?.has(option.value)))
+}
+
 /** Cartesian product of every option type's values, one `{name, value}` per
  * type per combo, in `types` order. Types with zero values contribute
  * nothing (multiplying the accumulator by an empty array collapses it to
@@ -97,10 +133,12 @@ export interface VariantsBuilderChange {
   optionTypes: { name: string; values: string[] }[]
   newVariants: NewVariantRow[]
   deleteVariantIds: string[]
-  /** True when two or more `newVariants` rows share a SKU
-   * (case-insensitive, blanks ignored). The FORM decides whether that
-   * blocks submit — this component only reports it, alongside the full
-   * state (still emitted, not filtered), and shows its own inline hint. */
+  /** True when two or more `newVariants` rows share a SKU, OR a
+   * `newVariants` row's SKU collides with an `existingVariants[].sku`
+   * (case-insensitive, blanks ignored either way). The FORM decides
+   * whether that blocks submit — this component only reports it, alongside
+   * the full state (still emitted, not filtered), and shows its own inline
+   * hint. The server (`conflict-sku`) stays authoritative regardless. */
   hasSkuConflict: boolean
 }
 
@@ -126,7 +164,7 @@ function initialOptionTypeRows(optionTypes: { name: string; values: string[] }[]
   }))
 }
 
-function deriveChange(state: BuilderState): VariantsBuilderChange {
+function deriveChange(state: BuilderState, existingVariants: ExistingVariantSummary[]): VariantsBuilderChange {
   const optionTypes = state.optionTypeRows.map((row) => ({
     name: row.name.trim(),
     values: parseValuesInput(row.valuesInput),
@@ -139,15 +177,12 @@ function deriveChange(state: BuilderState): VariantsBuilderChange {
     options: row.options,
   }))
 
-  const skuCounts = new Map<string, number>()
-  for (const variant of newVariants) {
-    const key = variant.sku.toLowerCase()
-    if (!key) continue
-    skuCounts.set(key, (skuCounts.get(key) ?? 0) + 1)
-  }
-  const hasSkuConflict = [...skuCounts.values()].some((count) => count > 1)
+  const duplicateKeys = duplicateSkuKeysFor(
+    newVariants.map((variant) => variant.sku),
+    existingVariants.map((variant) => variant.sku),
+  )
 
-  return { optionTypes, newVariants, deleteVariantIds: state.deleteVariantIds, hasSkuConflict }
+  return { optionTypes, newVariants, deleteVariantIds: state.deleteVariantIds, hasSkuConflict: duplicateKeys.size > 0 }
 }
 
 /**
@@ -180,24 +215,34 @@ export function VariantsBuilder({ mode, initialOptionTypes, existingVariants, on
 
   function commit(next: BuilderState) {
     setState(next)
-    onChange(deriveChange(next))
+    onChange(deriveChange(next, existingVariants))
+  }
+
+  /** Shared by the three option-type edits below: applies the option-type
+   * change, then purges any `newVariantRows` that edit desynced (see
+   * `purgeDesyncedRows`), and commits both together in one state update /
+   * one `onChange`. */
+  function commitOptionTypeRows(optionTypeRows: OptionTypeRowState[]) {
+    commit({ ...state, optionTypeRows, newVariantRows: purgeDesyncedRows(state.newVariantRows, optionTypeRows) })
   }
 
   function addOptionType() {
     if (state.optionTypeRows.length >= MAX_OPTION_TYPES) return
+    // Adding a type can't desync any existing row's options, so this one
+    // skips the purge and goes straight through `commit`.
     commit({ ...state, optionTypeRows: [...state.optionTypeRows, { id: nextId('ot'), name: '', valuesInput: '' }] })
   }
 
   function removeOptionType(id: string) {
-    commit({ ...state, optionTypeRows: state.optionTypeRows.filter((row) => row.id !== id) })
+    commitOptionTypeRows(state.optionTypeRows.filter((row) => row.id !== id))
   }
 
   function updateOptionTypeName(id: string, name: string) {
-    commit({ ...state, optionTypeRows: state.optionTypeRows.map((row) => (row.id === id ? { ...row, name } : row)) })
+    commitOptionTypeRows(state.optionTypeRows.map((row) => (row.id === id ? { ...row, name } : row)))
   }
 
   function updateOptionTypeValues(id: string, valuesInput: string) {
-    commit({ ...state, optionTypeRows: state.optionTypeRows.map((row) => (row.id === id ? { ...row, valuesInput } : row)) })
+    commitOptionTypeRows(state.optionTypeRows.map((row) => (row.id === id ? { ...row, valuesInput } : row)))
   }
 
   function handleGenerate() {
@@ -242,16 +287,10 @@ export function VariantsBuilder({ mode, initialOptionTypes, existingVariants, on
     commit({ ...state, deleteVariantIds })
   }
 
-  const duplicateSkuKeys = new Set<string>()
-  {
-    const counts = new Map<string, number>()
-    for (const row of state.newVariantRows) {
-      const key = row.sku.trim().toLowerCase()
-      if (!key) continue
-      counts.set(key, (counts.get(key) ?? 0) + 1)
-    }
-    for (const [key, count] of counts) if (count > 1) duplicateSkuKeys.add(key)
-  }
+  const duplicateSkuKeys = duplicateSkuKeysFor(
+    state.newVariantRows.map((row) => row.sku),
+    existingVariants.map((variant) => variant.sku),
+  )
 
   return (
     <div className="flex flex-col gap-6">
