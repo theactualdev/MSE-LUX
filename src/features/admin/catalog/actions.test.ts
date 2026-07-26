@@ -28,6 +28,23 @@ vi.mock('@/features/admin/catalog/collections', () => ({
   deleteCollection: (...args: [string]) => deleteCollection(...args),
 }))
 
+const uploadProductImage = vi.fn()
+vi.mock('@/features/admin/catalog/images', () => ({
+  uploadProductImage: (...args: [string, File]) => uploadProductImage(...args),
+}))
+
+const createProduct = vi.fn()
+vi.mock('@/features/admin/catalog/create', () => ({
+  createProduct: (...args: [unknown]) => createProduct(...args),
+}))
+
+const updateProductImages = vi.fn()
+const updateProductVariants = vi.fn()
+vi.mock('@/features/admin/catalog/structure', () => ({
+  updateProductImages: (...args: [string, unknown]) => updateProductImages(...args),
+  updateProductVariants: (...args: [string, unknown]) => updateProductVariants(...args),
+}))
+
 const revalidatePath = vi.fn()
 vi.mock('next/cache', () => ({
   revalidatePath: (...args: [string]) => revalidatePath(...args),
@@ -41,6 +58,10 @@ const {
   createCollectionAction,
   updateCollectionAction,
   deleteCollectionAction,
+  uploadProductImageAction,
+  createProductAction,
+  updateProductImagesAction,
+  updateProductVariantsAction,
 } = await import('@/features/admin/catalog/actions')
 
 const PRODUCT_ID = 'prod-123'
@@ -418,6 +439,224 @@ describe('deleteCollectionAction', () => {
     const result = await deleteCollectionAction(COLLECTION_ID)
 
     expect(result).toEqual({ ok: false, error: 'conflict' })
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+})
+
+describe('uploadProductImageAction', () => {
+  it('CUSTOMER role returns forbidden and never calls uploadProductImage', async () => {
+    getCurrentRole.mockResolvedValue(Role.CUSTOMER)
+    roleSatisfies.mockReturnValue(false)
+
+    const formData = new FormData()
+    formData.append('file', new File([''], 'test.jpg', { type: 'image/jpeg' }))
+    const result = await uploadProductImageAction(PRODUCT_ID, formData)
+
+    expect(result).toEqual({ ok: false, error: 'forbidden' })
+    expect(uploadProductImage).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN role with File in FormData delegates with exact args', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    uploadProductImage.mockResolvedValue({ ok: true, src: 'https://storage.url/image.jpg' })
+
+    const file = new File([''], 'test.jpg', { type: 'image/jpeg' })
+    const formData = new FormData()
+    formData.append('file', file)
+    const result = await uploadProductImageAction(PRODUCT_ID, formData)
+
+    expect(result).toEqual({ ok: true, src: 'https://storage.url/image.jpg' })
+    expect(uploadProductImage).toHaveBeenCalledWith(PRODUCT_ID, file)
+    expect(uploadProductImage).toHaveBeenCalledTimes(1)
+  })
+
+  it('ADMIN role with non-File field returns invalid-input and never calls uploadProductImage', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+
+    const formData = new FormData()
+    formData.append('file', 'not-a-file')
+    const result = await uploadProductImageAction(PRODUCT_ID, formData)
+
+    expect(result).toEqual({ ok: false, error: 'invalid-input' })
+    expect(uploadProductImage).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN role returns delegate result verbatim on storage error', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    uploadProductImage.mockResolvedValue({ ok: false, error: 'invalid-type' })
+
+    const formData = new FormData()
+    formData.append('file', new File([''], 'test.txt', { type: 'text/plain' }))
+    const result = await uploadProductImageAction(PRODUCT_ID, formData)
+
+    expect(result).toEqual({ ok: false, error: 'invalid-type' })
+  })
+
+  it('uploads never revalidate any paths', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    uploadProductImage.mockResolvedValue({ ok: true, src: 'https://storage.url/image.jpg' })
+
+    const formData = new FormData()
+    formData.append('file', new File([''], 'test.jpg', { type: 'image/jpeg' }))
+    await uploadProductImageAction(PRODUCT_ID, formData)
+
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+})
+
+describe('createProductAction', () => {
+  it('CUSTOMER role returns forbidden and never calls createProduct', async () => {
+    getCurrentRole.mockResolvedValue(Role.CUSTOMER)
+    roleSatisfies.mockReturnValue(false)
+
+    const result = await createProductAction({ name: 'New Product' })
+
+    expect(result).toEqual({ ok: false, error: 'forbidden' })
+    expect(createProduct).not.toHaveBeenCalled()
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN role delegates with exact args', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    createProduct.mockResolvedValue({ ok: true, revalidate: [], productId: 'prod-new' })
+
+    const input = { name: 'New Product' }
+    const result = await createProductAction(input)
+
+    expect(result).toEqual({ ok: true, revalidate: [], productId: 'prod-new' })
+    expect(createProduct).toHaveBeenCalledWith(input)
+    expect(createProduct).toHaveBeenCalledTimes(1)
+  })
+
+  it('ADMIN role on ok:true revalidates all targets plus admin list', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    createProduct.mockResolvedValue({ ok: true, revalidate: REVALIDATE_TARGETS_3, productId: 'prod-new' })
+
+    await createProductAction({ name: 'New Product' })
+
+    expect(revalidatePath).toHaveBeenCalledWith('/products/classic-ring')
+    expect(revalidatePath).toHaveBeenCalledWith('/collections/engagement')
+    expect(revalidatePath).toHaveBeenCalledWith('/')
+    expect(revalidatePath).toHaveBeenCalledWith('/admin/catalog')
+    expect(revalidatePath).toHaveBeenCalledTimes(4)
+  })
+
+  it('ADMIN role on ok:false does not revalidate', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    createProduct.mockResolvedValue({ ok: false, error: 'conflict-slug' })
+
+    const result = await createProductAction({ name: 'New Product' })
+
+    expect(result).toEqual({ ok: false, error: 'conflict-slug' })
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+})
+
+describe('updateProductImagesAction', () => {
+  it('CUSTOMER role returns forbidden and never calls updateProductImages', async () => {
+    getCurrentRole.mockResolvedValue(Role.CUSTOMER)
+    roleSatisfies.mockReturnValue(false)
+
+    const result = await updateProductImagesAction(PRODUCT_ID, { images: [] })
+
+    expect(result).toEqual({ ok: false, error: 'forbidden' })
+    expect(updateProductImages).not.toHaveBeenCalled()
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN role delegates with exact args', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    updateProductImages.mockResolvedValue({ ok: true, revalidate: [] })
+
+    const input = { images: [{ src: 'https://example.com/image.jpg', alt: 'Product' }] }
+    const result = await updateProductImagesAction(PRODUCT_ID, input)
+
+    expect(result).toEqual({ ok: true, revalidate: [] })
+    expect(updateProductImages).toHaveBeenCalledWith(PRODUCT_ID, input)
+    expect(updateProductImages).toHaveBeenCalledTimes(1)
+  })
+
+  it('ADMIN role on ok:true revalidates all targets plus admin list', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    updateProductImages.mockResolvedValue({ ok: true, revalidate: REVALIDATE_TARGETS_3 })
+
+    await updateProductImagesAction(PRODUCT_ID, { images: [{ src: 'https://example.com/image.jpg', alt: 'Product' }] })
+
+    expect(revalidatePath).toHaveBeenCalledWith('/products/classic-ring')
+    expect(revalidatePath).toHaveBeenCalledWith('/collections/engagement')
+    expect(revalidatePath).toHaveBeenCalledWith('/')
+    expect(revalidatePath).toHaveBeenCalledWith('/admin/catalog')
+    expect(revalidatePath).toHaveBeenCalledTimes(4)
+  })
+
+  it('ADMIN role on ok:false does not revalidate', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    updateProductImages.mockResolvedValue({ ok: false, error: 'not-found' })
+
+    const result = await updateProductImagesAction(PRODUCT_ID, { images: [] })
+
+    expect(result).toEqual({ ok: false, error: 'not-found' })
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+})
+
+describe('updateProductVariantsAction', () => {
+  it('CUSTOMER role returns forbidden and never calls updateProductVariants', async () => {
+    getCurrentRole.mockResolvedValue(Role.CUSTOMER)
+    roleSatisfies.mockReturnValue(false)
+
+    const result = await updateProductVariantsAction(PRODUCT_ID, { addVariants: [], deleteVariantIds: [], optionTypes: [] })
+
+    expect(result).toEqual({ ok: false, error: 'forbidden' })
+    expect(updateProductVariants).not.toHaveBeenCalled()
+    expect(revalidatePath).not.toHaveBeenCalled()
+  })
+
+  it('ADMIN role delegates with exact args', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    updateProductVariants.mockResolvedValue({ ok: true, revalidate: [] })
+
+    const input = { addVariants: [], deleteVariantIds: [], optionTypes: [] }
+    const result = await updateProductVariantsAction(PRODUCT_ID, input)
+
+    expect(result).toEqual({ ok: true, revalidate: [] })
+    expect(updateProductVariants).toHaveBeenCalledWith(PRODUCT_ID, input)
+    expect(updateProductVariants).toHaveBeenCalledTimes(1)
+  })
+
+  it('ADMIN role on ok:true revalidates all targets plus admin list', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    updateProductVariants.mockResolvedValue({ ok: true, revalidate: REVALIDATE_TARGETS_3 })
+
+    await updateProductVariantsAction(PRODUCT_ID, { addVariants: [], deleteVariantIds: [], optionTypes: [] })
+
+    expect(revalidatePath).toHaveBeenCalledWith('/products/classic-ring')
+    expect(revalidatePath).toHaveBeenCalledWith('/collections/engagement')
+    expect(revalidatePath).toHaveBeenCalledWith('/')
+    expect(revalidatePath).toHaveBeenCalledWith('/admin/catalog')
+    expect(revalidatePath).toHaveBeenCalledTimes(4)
+  })
+
+  it('ADMIN role on ok:false does not revalidate', async () => {
+    getCurrentRole.mockResolvedValue(Role.ADMIN)
+    roleSatisfies.mockReturnValue(true)
+    updateProductVariants.mockResolvedValue({ ok: false, error: 'variant-has-orders' })
+
+    const result = await updateProductVariantsAction(PRODUCT_ID, { addVariants: [], deleteVariantIds: ['variant-123'], optionTypes: [] })
+
+    expect(result).toEqual({ ok: false, error: 'variant-has-orders' })
     expect(revalidatePath).not.toHaveBeenCalled()
   })
 })

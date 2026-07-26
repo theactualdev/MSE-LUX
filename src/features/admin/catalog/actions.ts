@@ -15,6 +15,9 @@ import {
   updateCollection,
   deleteCollection,
 } from '@/features/admin/catalog/collections'
+import { uploadProductImage } from '@/features/admin/catalog/images'
+import { createProduct } from '@/features/admin/catalog/create'
+import { updateProductImages, updateProductVariants } from '@/features/admin/catalog/structure'
 
 /**
  * The admin-catalog Server Actions. SECURITY: actions are public HTTP endpoints
@@ -82,6 +85,37 @@ export async function updateCollectionAction(id: string, input: unknown) {
 export async function deleteCollectionAction(id: string) {
   if (!(await isAdmin())) return FORBIDDEN
   const result = await deleteCollection(id)
+  revalidateCatalogTargets(result)
+  return result
+}
+
+export async function uploadProductImageAction(productId: string, formData: FormData) {
+  if (!(await isAdmin())) return FORBIDDEN
+  const file = formData.get('file')
+  if (!(file instanceof File)) {
+    return { ok: false as const, error: 'invalid-input' as const }
+  }
+  const result = await uploadProductImage(productId, file)
+  return result
+}
+
+export async function createProductAction(input: unknown) {
+  if (!(await isAdmin())) return FORBIDDEN
+  const result = await createProduct(input)
+  revalidateCatalogTargets(result)
+  return result
+}
+
+export async function updateProductImagesAction(id: string, input: unknown) {
+  if (!(await isAdmin())) return FORBIDDEN
+  const result = await updateProductImages(id, input)
+  revalidateCatalogTargets(result)
+  return result
+}
+
+export async function updateProductVariantsAction(id: string, input: unknown) {
+  if (!(await isAdmin())) return FORBIDDEN
+  const result = await updateProductVariants(id, input)
   revalidateCatalogTargets(result)
   return result
 }
