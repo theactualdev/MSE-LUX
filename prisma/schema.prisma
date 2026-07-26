@@ -416,6 +416,10 @@ model Order {
   shipbubbleOrderId String?
   // Set when a PAID (PROCESSING) order is cancelled — the 8d refund flow's work queue.
   refundOwed        Boolean   @default(false)
+  // Set by markOrderRefunded once the operator has issued the refund in the
+  // Paystack dashboard (8d records; the app never moves money).
+  refundedAt        DateTime?
+  refundReference   String?
 
   // Row-audit timestamp (when this record was created/last touched), distinct
   // from `placedAt`, the business event timestamp.

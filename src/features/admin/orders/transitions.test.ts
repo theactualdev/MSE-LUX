@@ -38,7 +38,7 @@ vi.mock('@/lib/db', () => ({
   },
 }))
 
-const { shipOrder, deliverOrder, cancelOrder } = await import('@/features/admin/orders/transitions')
+const { shipOrder, deliverOrder, cancelOrder, markOrderRefunded } = await import('@/features/admin/orders/transitions')
 
 const ORDER_NUMBER = 'MSE-000123'
 const ORDER_ID = 'order-1'
@@ -285,6 +285,96 @@ describe('cancelOrder', () => {
     order.findUnique.mockRejectedValue(new Error('boom'))
 
     const result = await cancelOrder(ORDER_NUMBER)
+
+    expect(result).toEqual({ ok: false, error: 'error' })
+  })
+})
+
+describe('markOrderRefunded', () => {
+  it('happy path: refundOwed order flips to refunded with the given reference', async () => {
+    order.findUnique.mockResolvedValue({ id: ORDER_ID, refundOwed: true, refundedAt: null })
+
+    const result = await markOrderRefunded(ORDER_NUMBER, { reference: 'RF-1' })
+
+    expect(result).toEqual({ ok: true })
+    expect(order.findUnique).toHaveBeenCalledWith({
+      where: { orderNumber: ORDER_NUMBER },
+      select: { id: true, refundOwed: true, refundedAt: true },
+    })
+    expect(order.updateMany).toHaveBeenCalledWith({
+      where: { id: ORDER_ID, refundOwed: true, refundedAt: null },
+      data: { refundOwed: false, refundedAt: expect.any(Date), refundReference: 'RF-1' },
+    })
+    expect(productVariant.update).not.toHaveBeenCalled()
+    expect(product.update).not.toHaveBeenCalled()
+  })
+
+  it('a blank/whitespace reference is stored as null', async () => {
+    order.findUnique.mockResolvedValue({ id: ORDER_ID, refundOwed: true, refundedAt: null })
+
+    const result = await markOrderRefunded(ORDER_NUMBER, { reference: '   ' })
+
+    expect(result).toEqual({ ok: true })
+    expect(order.updateMany).toHaveBeenCalledWith({
+      where: { id: ORDER_ID, refundOwed: true, refundedAt: null },
+      data: { refundOwed: false, refundedAt: expect.any(Date), refundReference: null },
+    })
+  })
+
+  it('an omitted reference is stored as null', async () => {
+    order.findUnique.mockResolvedValue({ id: ORDER_ID, refundOwed: true, refundedAt: null })
+
+    const result = await markOrderRefunded(ORDER_NUMBER, {})
+
+    expect(result).toEqual({ ok: true })
+    expect(order.updateMany).toHaveBeenCalledWith({
+      where: { id: ORDER_ID, refundOwed: true, refundedAt: null },
+      data: { refundOwed: false, refundedAt: expect.any(Date), refundReference: null },
+    })
+  })
+
+  it('returns conflict when the guarded updateMany affects zero rows (never throws)', async () => {
+    order.findUnique.mockResolvedValue({ id: ORDER_ID, refundOwed: true, refundedAt: null })
+    order.updateMany.mockResolvedValue({ count: 0 })
+
+    const result = await markOrderRefunded(ORDER_NUMBER, { reference: 'RF-1' })
+
+    expect(result).toEqual({ ok: false, error: 'conflict' })
+    expect(productVariant.update).not.toHaveBeenCalled()
+    expect(product.update).not.toHaveBeenCalled()
+  })
+
+  it('returns not-found for an unknown order', async () => {
+    order.findUnique.mockResolvedValue(null)
+
+    const result = await markOrderRefunded(ORDER_NUMBER, { reference: 'RF-1' })
+
+    expect(result).toEqual({ ok: false, error: 'not-found' })
+    expect(order.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('rejects an order that is not owed a refund (refundOwed: false)', async () => {
+    order.findUnique.mockResolvedValue({ id: ORDER_ID, refundOwed: false, refundedAt: null })
+
+    const result = await markOrderRefunded(ORDER_NUMBER, { reference: 'RF-1' })
+
+    expect(result).toEqual({ ok: false, error: 'invalid-state' })
+    expect(order.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('rejects an order already refunded (refundedAt set)', async () => {
+    order.findUnique.mockResolvedValue({ id: ORDER_ID, refundOwed: false, refundedAt: new Date() })
+
+    const result = await markOrderRefunded(ORDER_NUMBER, { reference: 'RF-1' })
+
+    expect(result).toEqual({ ok: false, error: 'invalid-state' })
+    expect(order.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('returns error and never throws when the db throws', async () => {
+    order.findUnique.mockRejectedValue(new Error('boom'))
+
+    const result = await markOrderRefunded(ORDER_NUMBER, { reference: 'RF-1' })
 
     expect(result).toEqual({ ok: false, error: 'error' })
   })

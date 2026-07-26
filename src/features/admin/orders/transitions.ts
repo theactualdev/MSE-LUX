@@ -8,6 +8,15 @@ import { OrderStatus } from '@/generated/prisma/client'
  * payment) and PROCESSING (restock + refundOwed; the actual refund is 8d).
  * markOrderPaid (Phase 6) remains the ONLY PENDING→PROCESSING path.
  *
+ * Refunds (8d) are dashboard-first: the app never moves money. The operator
+ * issues the refund directly in the Paystack dashboard, looking the payment
+ * up by the order's stored `paystackReference`, then `markOrderRefunded`
+ * merely records that fact against the order (`refundOwed` flips false,
+ * `refundedAt`/`refundReference` are set). The guarded `updateMany` below
+ * exists for the same reason as everywhere else in this file: so a
+ * double-click (or two admins acting on the same order) can't double-record
+ * the refund.
+ *
  * Ungated by design — every caller reaches this through actions.ts, which
  * re-checks ADMIN (server actions are public endpoints; the (admin) layout
  * gate covers rendering only).
@@ -117,6 +126,29 @@ export async function cancelOrder(orderNumber: string): Promise<TransitionResult
     return { ok: false, error: 'invalid-state' }
   } catch (error) {
     console.error('[cancelOrder] unexpected error', error)
+    return { ok: false, error: 'error' }
+  }
+}
+
+export async function markOrderRefunded(orderNumber: string, input: { reference?: string }): Promise<TransitionResult> {
+  const refundReference = input.reference?.trim() || null
+
+  try {
+    const order = await db.order.findUnique({
+      where: { orderNumber },
+      select: { id: true, refundOwed: true, refundedAt: true },
+    })
+    if (!order) return { ok: false, error: 'not-found' }
+    if (order.refundOwed !== true || order.refundedAt !== null) return { ok: false, error: 'invalid-state' }
+
+    const { count } = await db.order.updateMany({
+      where: { id: order.id, refundOwed: true, refundedAt: null },
+      data: { refundOwed: false, refundedAt: new Date(), refundReference },
+    })
+    if (count === 0) return { ok: false, error: 'conflict' }
+    return { ok: true }
+  } catch (error) {
+    console.error('[markOrderRefunded] unexpected error', error)
     return { ok: false, error: 'error' }
   }
 }
