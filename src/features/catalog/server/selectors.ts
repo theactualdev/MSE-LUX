@@ -1,11 +1,10 @@
 import 'server-only'
 
-// Async, DB-backed mirrors of `src/features/catalog/lib/selectors.ts` (the mock-data selectors
-// the catalog pages currently render). The bodies below deliberately duplicate that file's
-// filtering/sorting semantics rather than sharing code with it: `lib/selectors.ts` operates on
-// the synchronous in-memory mock catalog and is retired in Phase 5c once every page reads from
-// here instead, and until then Task 5's parity test pins each sync/async pair equal so the two
-// can never silently drift. Do not "DRY" the two files together before that retirement.
+// Async, DB-backed catalog selectors — the storefront's only catalog read
+// surface. Their mock-data predecessor (`lib/selectors.ts`) and its parity
+// test were retired in Phase 8d once the last consumer (the search overlay)
+// moved to `searchCatalog`; the historical mock survives only as declared
+// test-fixture data in `data/products.ts`.
 //
 // `getProductById` and `getFeaturedProducts` are intentionally not mirrored here — no in-scope
 // page (Tasks 6-7) calls them, so mirroring them now would be speculative (YAGNI).

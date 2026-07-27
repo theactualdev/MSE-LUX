@@ -1,6 +1,13 @@
 import type { Product } from '@/types/catalog'
 
 /**
+ * TEST FIXTURE DATA ONLY. No production module may import this file — the
+ * storefront reads the database via `server/selectors.ts` (Phase 5a), and the
+ * last production consumer (the search overlay) moved to `searchCatalog` in
+ * Phase 8d. Only `*.test.*` files may import it as a realistic catalog
+ * fixture; migrating it under a test-fixtures directory is tracked for
+ * Phase 9.
+ *
  * Mock product catalog for MSE Lux (Lagos handmade beads/jewelry/accessories brand).
  *
  * The first two entries are fully-worked reference examples:
