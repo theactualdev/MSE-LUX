@@ -19,6 +19,8 @@ describe('robots', () => {
     const rules = Array.isArray(result.rules) ? result.rules[0] : result.rules
 
     expect(rules.disallow).toEqual([
+      // The internal component showcase — never customer content.
+      '/_design',
       '/admin/',
       '/api/',
       '/checkout',

@@ -7,6 +7,9 @@ import { SITE_URL } from '@/lib/seo'
  * login/signup/password-reset) — none of that is meant to be indexed or is
  * useful to a crawler. Everything else (product, category, collection, and
  * static content pages) stays open.
+ *
+ * `/_design` is the internal component showcase — not customer content, and
+ * indexing it would surface raw design-system fragments in search results.
  */
 export default function robots(): MetadataRoute.Robots {
   return {
@@ -14,6 +17,7 @@ export default function robots(): MetadataRoute.Robots {
       userAgent: '*',
       allow: '/',
       disallow: [
+        '/_design',
         '/admin/',
         '/api/',
         '/checkout',
