@@ -6,7 +6,8 @@ import { resolveProductPrice } from '@/features/catalog/lib/pricing'
 import type { Product, ProductVariant } from '@/types/catalog'
 
 interface PriceDisplayProps {
-  product: Product
+  /** Only `priceSet`/`salePriceSet` are read — callers with a slim (non-full-`Product`) result can pass just those. */
+  product: Pick<Product, 'priceSet' | 'salePriceSet'>
   variant?: ProductVariant
   className?: string
 }

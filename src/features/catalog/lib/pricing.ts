@@ -4,7 +4,7 @@ import type { Product, ProductVariant } from '@/types/catalog'
 
 /** Resolves the display price (and optional sale price) for a product/variant in the given currency, using the supplied FX rates. */
 export function resolveProductPrice(
-  product: Product,
+  product: Pick<Product, 'priceSet' | 'salePriceSet'>,
   variant: ProductVariant | undefined,
   currency: Currency,
   rates: FxRates,
