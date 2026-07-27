@@ -1,3 +1,4 @@
+import type { Metadata } from 'next'
 import { env } from '@/lib/env'
 import { siteConfig } from '@/lib/config'
 import type { CatalogCurrency, Product } from '@/types/catalog'
@@ -11,6 +12,49 @@ export function absoluteUrl(path: string): string {
   if (/^https?:\/\//i.test(path)) return path
   const normalizedPath = path.startsWith('/') ? path : `/${path}`
   return `${SITE_URL}${normalizedPath}`
+}
+
+/**
+ * Shared `openGraph`/`twitter` builder for per-page metadata. Next merges
+ * `generateMetadata`'s return SHALLOWLY onto the layout's `metadata` — the
+ * layout's `openGraph` deliberately carries only `type`/`siteName` (see its
+ * comment) so this per-page object, once spread into a page's `openGraph`,
+ * both backfills the page's own title/description into og:* AND regains
+ * `og:site_name` from the merge.
+ *
+ * The conditional-images invariant lives HERE: no `/og-default.png` fallback
+ * exists yet (see the storefront layout's comment on why), so `images` is
+ * included only when the caller has a real one — never referencing that path.
+ */
+export function pageCards({
+  title,
+  description,
+  path,
+  image,
+}: {
+  title: string
+  description: string
+  path: string
+  image?: string
+}): Pick<Metadata, 'openGraph' | 'twitter'> {
+  const absoluteImage = image ? absoluteUrl(image) : undefined
+
+  return {
+    openGraph: {
+      type: 'website',
+      siteName: siteConfig.name,
+      title,
+      description,
+      url: absoluteUrl(path),
+      ...(absoluteImage ? { images: [absoluteImage] } : {}),
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      ...(absoluteImage ? { images: [absoluteImage] } : {}),
+    },
+  }
 }
 
 /** Minor units → JSON-LD decimal string, e.g. 4_500_000 → '45000.00'. Derived from integer minor units, never floats. */
@@ -43,7 +87,11 @@ export function productJsonLd(product: Product, currency: CatalogCurrency): Reco
     name: product.name,
     description: product.shortDescription,
     sku: product.sku,
-    image: product.images.map((image) => absoluteUrl(image.src)),
+    // Omit `image` entirely for an image-less product rather than emitting
+    // `image: []` — Google's structured-data validator treats an empty array
+    // as a present-but-invalid value, not as "field absent".
+    ...(product.images.length > 0 ? { image: product.images.map((image) => absoluteUrl(image.src)) } : {}),
+    brand: { '@type': 'Brand', name: siteConfig.name },
     offers: {
       '@type': 'Offer',
       price: priceString(priceSet[key].amountMinor),

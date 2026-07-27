@@ -21,10 +21,13 @@ describe('robots', () => {
     expect(rules.disallow).toEqual([
       // The internal component showcase — never customer content.
       '/_design',
-      '/admin/',
+      // Bare routes (unslashed): a trailing slash would leave the real
+      // `/admin` and `/account` pages themselves crawlable, since disallow
+      // matches on literal path prefix, not a directory glob.
+      '/admin',
       '/api/',
       '/checkout',
-      '/account/',
+      '/account',
       '/order/',
       '/login',
       '/signup',

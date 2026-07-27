@@ -6,6 +6,7 @@ import {
   absoluteUrl,
   breadcrumbJsonLd,
   organizationJsonLd,
+  pageCards,
   priceString,
   productJsonLd,
 } from '@/lib/seo'
@@ -82,6 +83,55 @@ describe('absoluteUrl', () => {
   })
 })
 
+describe('pageCards', () => {
+  it('builds openGraph/twitter with site_name, absolute url, and no images key when image is omitted', () => {
+    const result = pageCards({ title: 'Rings', description: 'Shop rings.', path: '/rings' })
+
+    expect(result).toEqual({
+      openGraph: {
+        type: 'website',
+        siteName: siteConfig.name,
+        title: 'Rings',
+        description: 'Shop rings.',
+        url: `${SITE_URL}/rings`,
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: 'Rings',
+        description: 'Shop rings.',
+      },
+    })
+    expect(result.openGraph).not.toHaveProperty('images')
+    expect(result.twitter).not.toHaveProperty('images')
+  })
+
+  it('includes an absolute images array on both openGraph and twitter when image is provided', () => {
+    const result = pageCards({
+      title: 'Bridal',
+      description: 'Shop bridal.',
+      path: '/collections/bridal',
+      image: '/bridal.jpg',
+    })
+
+    expect(result).toEqual({
+      openGraph: {
+        type: 'website',
+        siteName: siteConfig.name,
+        title: 'Bridal',
+        description: 'Shop bridal.',
+        url: `${SITE_URL}/collections/bridal`,
+        images: [`${SITE_URL}/bridal.jpg`],
+      },
+      twitter: {
+        card: 'summary_large_image',
+        title: 'Bridal',
+        description: 'Shop bridal.',
+        images: [`${SITE_URL}/bridal.jpg`],
+      },
+    })
+  })
+})
+
 describe('priceString', () => {
   it('formats minor units as a two-decimal string, without float artefacts', () => {
     expect(priceString(4_500_000)).toBe('45000.00')
@@ -113,6 +163,7 @@ describe('productJsonLd', () => {
       description: 'A handcrafted gold signet ring.',
       sku: 'SKU-1',
       image: [`${SITE_URL}/gold-ring.jpg`, 'https://picsum.photos/seed/gold-ring/800'],
+      brand: { '@type': 'Brand', name: siteConfig.name },
       offers: {
         '@type': 'Offer',
         price: '50000.00',
@@ -121,6 +172,22 @@ describe('productJsonLd', () => {
         url: `${SITE_URL}/products/gold-signet-ring`,
       },
     })
+  })
+
+  // Pins the fix: an image-less product must not emit `image: []` — Google's
+  // structured-data validator treats an empty array as present-but-invalid,
+  // not as "field absent". The `image` key must be missing entirely.
+  it('omits the image key entirely when the product has no images', () => {
+    const imageless: Product = { ...PRODUCT, images: [] }
+    const result = productJsonLd(imageless, 'NGN')
+
+    expect(result).not.toHaveProperty('image')
+  })
+
+  it('includes a Brand node built from siteConfig.name', () => {
+    const result = productJsonLd(PRODUCT, 'NGN')
+
+    expect(result.brand).toEqual({ '@type': 'Brand', name: siteConfig.name })
   })
 
   it('prices in USD from the usd leg of priceSet when currency is USD', () => {

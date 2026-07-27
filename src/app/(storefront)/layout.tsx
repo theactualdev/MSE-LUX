@@ -28,11 +28,21 @@ export const metadata: Metadata = {
   // after the real file lands. TODO(seo/pre-launch): produce a 1200x630
   // on-palette ivory/gold wordmark at public/og-default.png and add it here
   // (Phase 9d runbook item).
+  // `title`/`description` are deliberately absent here (unlike the top-level
+  // `title`/`description` above, which stay sitewide defaults for pages with
+  // no metadata of their own). Next merges a page's `generateMetadata`/
+  // `metadata` SHALLOWLY onto this object: an `openGraph.title` set here
+  // would win over a page's own `openGraph.title` only when the page didn't
+  // set one, but since Next's non-OG `title`/`description` don't backfill
+  // into `openGraph.title`/`openGraph.description` on their own, leaving
+  // these set here meant every static page's og:title/og:description stayed
+  // the generic site copy regardless of its own title. Removing them lets
+  // each page's own openGraph (via `pageCards` in `@/lib/seo`) carry its
+  // title/description straight through, while `type`/`siteName` — genuinely
+  // sitewide — still merge in under every page's own values.
   openGraph: {
     type: 'website',
     siteName: siteConfig.name,
-    title: siteConfig.name,
-    description: siteConfig.description,
   },
   twitter: {
     card: 'summary_large_image',

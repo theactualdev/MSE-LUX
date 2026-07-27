@@ -3,9 +3,16 @@ import { Container } from '@/components/brand/container'
 import { AuthCard } from '@/features/account/components/auth-card'
 import { ResetPasswordForm } from '@/features/account/components/reset-password-form'
 
+// `robots.txt` disallows `/reset-password`, but a disallow only stops
+// crawling — it can't stop indexing of a URL Google already discovered via a
+// link (Supabase's recovery email links here), and a disallowed page's own
+// `noindex` is never even seen since the crawler is blocked from fetching
+// it. The page-level directive here is what actually keeps this linked page
+// out of the index.
 export const metadata: Metadata = {
   title: 'Set a new password',
   description: 'Set a new password for your MSE Lux account.',
+  robots: { index: false },
 }
 
 /**

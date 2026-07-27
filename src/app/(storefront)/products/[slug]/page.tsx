@@ -13,7 +13,7 @@ import {
   getRelatedProducts,
   getSubcategory,
 } from '@/features/catalog/server/selectors'
-import { absoluteUrl, breadcrumbJsonLd, productJsonLd } from '@/lib/seo'
+import { breadcrumbJsonLd, pageCards, productJsonLd } from '@/lib/seo'
 import type { Product } from '@/types/catalog'
 
 /** Number of related products shown below the PDP. */
@@ -39,37 +39,19 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
 
   const title = product.seo.title ?? product.name
   const description = product.seo.description ?? product.shortDescription
-  const url = absoluteUrl(`/products/${slug}`)
   // `images` (product) is a 0..n relation, so an image-less product is
-  // possible. No `/og-default.png` fallback here — the storefront layout
-  // (see its comment) deliberately stopped referencing that path because it
-  // doesn't exist yet, and Facebook/LinkedIn cache a 404 image per-URL, so a
-  // pre-launch share would stay broken long after the real file lands. When
-  // there's no hero image, omit `images` entirely and let platforms fall
-  // back to their own unfurl heuristics.
+  // possible; `pageCards` omits `images` entirely rather than falling back
+  // to a nonexistent `/og-default.png` (see its comment for why).
   const heroImageSrc = product.images[0]?.src
-  const heroImage = heroImageSrc ? absoluteUrl(heroImageSrc) : undefined
 
   return {
     title,
     description,
     // Per-page override of the storefront layout's OG defaults — the layout
-    // deliberately omits `url`/`images` (see its comment) because those are
-    // meaningful only per-page, not per-site.
+    // deliberately omits `title`/`description` (see its comment) because
+    // those are meaningful only per-page, not per-site.
     alternates: { canonical: `/products/${slug}` },
-    openGraph: {
-      type: 'website',
-      title,
-      description,
-      url,
-      ...(heroImage ? { images: [heroImage] } : {}),
-    },
-    twitter: {
-      card: 'summary_large_image',
-      title,
-      description,
-      ...(heroImage ? { images: [heroImage] } : {}),
-    },
+    ...pageCards({ title, description, path: `/products/${slug}`, image: heroImageSrc }),
   }
 }
 

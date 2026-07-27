@@ -17,7 +17,7 @@ import {
 import { parseSearchCriteria } from '@/features/catalog/lib/search-params'
 import { computeFacetCounts, searchAndFilterProducts } from '@/features/catalog/lib/search'
 import { allColors, allMaterialTags } from '@/features/catalog/lib/facets'
-import { absoluteUrl, breadcrumbJsonLd } from '@/lib/seo'
+import { breadcrumbJsonLd, pageCards } from '@/lib/seo'
 
 interface SubcategoryPageProps {
   params: Promise<{ category: string; subcategory: string }>
@@ -38,7 +38,8 @@ export async function generateMetadata({ params }: SubcategoryPageProps): Promis
   const category = await getCategoryBySlug(categorySlug)
   const title = `${subcategory.name} · ${category?.name ?? ''}`.trim()
   const description = `Shop ${subcategory.name} at MSE Lux.`
-  const url = absoluteUrl(`/${categorySlug}/${subcategorySlug}`)
+  // Subcategory has no `image` field (unlike Category/Collection), so there's
+  // never a hero image to pass to `pageCards` here.
 
   return {
     title,
@@ -46,21 +47,7 @@ export async function generateMetadata({ params }: SubcategoryPageProps): Promis
     // The bare path only — see the category page's canonical comment: this
     // page also takes filter/sort `searchParams` that must never be folded in.
     alternates: { canonical: `/${categorySlug}/${subcategorySlug}` },
-    openGraph: {
-      type: 'website',
-      title,
-      description,
-      url,
-      // Subcategory has no `image` field (unlike Category/Collection), so
-      // there's never a hero to include here. No `/og-default.png` fallback
-      // either — see the storefront layout's comment on why that path is
-      // deliberately unreferenced pre-launch.
-    },
-    twitter: {
-      card: 'summary_large_image',
-      title,
-      description,
-    },
+    ...pageCards({ title, description, path: `/${categorySlug}/${subcategorySlug}` }),
   }
 }
 

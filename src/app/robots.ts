@@ -18,10 +18,17 @@ export default function robots(): MetadataRoute.Robots {
       allow: '/',
       disallow: [
         '/_design',
-        '/admin/',
+        // `robots.txt` disallow entries match on literal path prefix, not as
+        // a directory glob — a trailing slash means the bare route
+        // (`/admin`, `/account`) is NOT covered and stays crawlable. `/admin`
+        // and `/account` are both real, unslashed routes, so the slash is
+        // dropped here. `/api/` keeps its slash: there's no bare `/api`
+        // route (every handler lives under a subpath), so it's already
+        // covering everything that exists.
+        '/admin',
         '/api/',
         '/checkout',
-        '/account/',
+        '/account',
         '/order/',
         '/login',
         '/signup',

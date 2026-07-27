@@ -12,7 +12,7 @@ import { getAllCategories, getCategoryBySlug, getProductsByCategory } from '@/fe
 import { parseSearchCriteria } from '@/features/catalog/lib/search-params'
 import { computeFacetCounts, searchAndFilterProducts } from '@/features/catalog/lib/search'
 import { allColors, allMaterialTags } from '@/features/catalog/lib/facets'
-import { absoluteUrl, breadcrumbJsonLd } from '@/lib/seo'
+import { breadcrumbJsonLd, pageCards } from '@/lib/seo'
 
 interface CategoryPageProps {
   params: Promise<{ category: string }>
@@ -30,13 +30,9 @@ export async function generateMetadata({ params }: CategoryPageProps): Promise<M
 
   const title = category.name
   const description = category.description ?? `Shop ${category.name} at MSE Lux.`
-  const url = absoluteUrl(`/${categorySlug}`)
-  // A category's `image` is optional. No `/og-default.png` fallback here —
-  // the storefront layout (see its comment) deliberately stopped referencing
-  // that path because it doesn't exist yet, and Facebook/LinkedIn cache a 404
-  // image per-URL, so a pre-launch share would stay broken long after the
-  // real file lands. When there's no image, omit `images` entirely.
-  const heroImage = category.image ? absoluteUrl(category.image) : undefined
+  // A category's `image` is optional; `pageCards` omits `images` entirely
+  // rather than falling back to a nonexistent `/og-default.png` (see its
+  // comment for why).
 
   return {
     title,
@@ -46,19 +42,7 @@ export async function generateMetadata({ params }: CategoryPageProps): Promise<M
     // canonicals across facet combinations and, since `generateMetadata`
     // doesn't receive `searchParams` here, force the route dynamic to read them).
     alternates: { canonical: `/${categorySlug}` },
-    openGraph: {
-      type: 'website',
-      title,
-      description,
-      url,
-      ...(heroImage ? { images: [heroImage] } : {}),
-    },
-    twitter: {
-      card: 'summary_large_image',
-      title,
-      description,
-      ...(heroImage ? { images: [heroImage] } : {}),
-    },
+    ...pageCards({ title, description, path: `/${categorySlug}`, image: category.image }),
   }
 }
 

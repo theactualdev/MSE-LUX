@@ -6,9 +6,15 @@ import { LoginForm } from '@/features/account/components/login-form'
 import { redirectIfAuthenticated } from '@/features/auth/redirect-if-authed'
 import { callbackErrorMessage } from '@/features/auth/callback-errors'
 
+// `robots.txt` disallows `/login`, but a disallow only stops crawling — it
+// can't stop indexing of a URL Google already discovered via a link (e.g.
+// the "Sign in" nav item), and a disallowed page's own `noindex` is never
+// even seen since the crawler is blocked from fetching it. The page-level
+// directive here is what actually keeps this linked page out of the index.
 export const metadata: Metadata = {
   title: 'Sign in',
   description: 'Sign in to your MSE Lux account.',
+  robots: { index: false },
 }
 
 interface LoginPageProps {

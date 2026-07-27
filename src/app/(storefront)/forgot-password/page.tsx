@@ -5,9 +5,16 @@ import { AuthCard } from '@/features/account/components/auth-card'
 import { ForgotPasswordForm } from '@/features/account/components/forgot-password-form'
 import { redirectIfAuthenticated } from '@/features/auth/redirect-if-authed'
 
+// `robots.txt` disallows `/forgot-password`, but a disallow only stops
+// crawling — it can't stop indexing of a URL Google already discovered via a
+// link (e.g. the "Forgot your password?" link on `/login`), and a disallowed
+// page's own `noindex` is never even seen since the crawler is blocked from
+// fetching it. The page-level directive here is what actually keeps this
+// linked page out of the index.
 export const metadata: Metadata = {
   title: 'Reset your password',
   description: 'Request a password reset link for your MSE Lux account.',
+  robots: { index: false },
 }
 
 /**

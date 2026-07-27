@@ -11,8 +11,14 @@ import { parseSearchCriteria } from '@/features/catalog/lib/search-params'
 import { computeFacetCounts, searchAndFilterProducts } from '@/features/catalog/lib/search'
 import { allColors, allMaterialTags } from '@/features/catalog/lib/facets'
 
+// Not indexed: search results are thin/duplicate content (they surface the
+// same products already indexed on their own product/category pages), and
+// the facet UI (materials, colors, price, sort) turns this route into a
+// combinatorial, crawlable URL space that would otherwise waste crawl budget.
 export const metadata: Metadata = {
   title: 'Search',
+  description: 'Search the MSE Lux catalog by name, material, or category.',
+  robots: { index: false, follow: true },
 }
 
 interface SearchPageProps {
