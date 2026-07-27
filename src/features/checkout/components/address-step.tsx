@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Button } from '@/components/ui/button'
@@ -9,7 +10,10 @@ import { addressSchema, type Address } from '@/features/checkout/schema'
 
 interface AddressStepProps {
   defaultValues?: Partial<Address>
-  onSubmit: (values: Address) => void
+  /** Only a signed-in caller can save an address to their account — the checkbox renders only when this is true. */
+  isSignedIn?: boolean
+  /** `saveAddress` rides alongside the validated address rather than inside it: it isn't an `Address` field, so it isn't part of `addressSchema`/react-hook-form's managed state. */
+  onSubmit: (values: Address, saveAddress: boolean) => void
 }
 
 const DEFAULT_VALUES: Address = {
@@ -24,7 +28,7 @@ const DEFAULT_VALUES: Address = {
 }
 
 /** Shipping address form. Validates with `addressSchema` before calling `onSubmit`. */
-export function AddressStep({ defaultValues, onSubmit }: AddressStepProps) {
+export function AddressStep({ defaultValues, isSignedIn, onSubmit }: AddressStepProps) {
   const {
     register,
     handleSubmit,
@@ -34,11 +38,15 @@ export function AddressStep({ defaultValues, onSubmit }: AddressStepProps) {
     defaultValues: { ...DEFAULT_VALUES, ...defaultValues },
   })
 
+  // Unchecked by default — saving to the account is opt-in, never implied by
+  // filling out the form.
+  const [saveAddress, setSaveAddress] = useState(false)
+
   return (
     <form
       className="flex flex-col gap-4"
       noValidate
-      onSubmit={handleSubmit((values) => onSubmit(values))}
+      onSubmit={handleSubmit((values) => onSubmit(values, saveAddress))}
     >
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="address-full-name">Full name</Label>
@@ -150,6 +158,18 @@ export function AddressStep({ defaultValues, onSubmit }: AddressStepProps) {
           <Input id="address-postal-code" autoComplete="postal-code" {...register('postalCode')} />
         </div>
       </div>
+
+      {isSignedIn ? (
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input
+            type="checkbox"
+            id="address-save-to-account"
+            checked={saveAddress}
+            onChange={(e) => setSaveAddress(e.target.checked)}
+          />
+          Save this address to my account
+        </label>
+      ) : null}
 
       <Button type="submit" className="mt-2 w-full">
         Continue

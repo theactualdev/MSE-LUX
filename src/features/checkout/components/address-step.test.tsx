@@ -40,6 +40,8 @@ describe('AddressStep', () => {
         state: 'Lagos',
         country: 'Nigeria',
       }),
+      // Unchecked/absent by default — nothing checked the save-to-account box.
+      false,
     )
   })
 
@@ -47,5 +49,38 @@ describe('AddressStep', () => {
     render(<AddressStep onSubmit={vi.fn()} />)
 
     expect(screen.getByLabelText(/country/i)).toHaveValue('Nigeria')
+  })
+
+  it('does not render the save-to-account checkbox for a guest (isSignedIn absent)', () => {
+    render(<AddressStep onSubmit={vi.fn()} />)
+
+    expect(screen.queryByLabelText(/save this address to my account/i)).not.toBeInTheDocument()
+  })
+
+  it('renders the save-to-account checkbox, unchecked by default, when signed in', () => {
+    render(<AddressStep isSignedIn onSubmit={vi.fn()} />)
+
+    const checkbox = screen.getByLabelText(/save this address to my account/i)
+    expect(checkbox).toBeInTheDocument()
+    expect(checkbox).not.toBeChecked()
+  })
+
+  it('calls onSubmit with saveAddress: true when the box is checked before submitting', async () => {
+    const user = userEvent.setup({ delay: null })
+    const onSubmit = vi.fn()
+
+    render(<AddressStep isSignedIn onSubmit={onSubmit} />)
+
+    await user.type(screen.getByLabelText(/full name/i), 'Ada Lovelace')
+    await user.type(screen.getByLabelText(/phone/i), '08012345678')
+    await user.type(screen.getByLabelText(/address line 1/i), '1 Marina Street')
+    await user.type(screen.getByLabelText(/^city/i), 'Lagos')
+    await user.type(screen.getByLabelText(/^state/i), 'Lagos')
+    await user.click(screen.getByLabelText(/save this address to my account/i))
+
+    await user.click(screen.getByRole('button', { name: /continue/i }))
+
+    expect(onSubmit).toHaveBeenCalledTimes(1)
+    expect(onSubmit).toHaveBeenCalledWith(expect.objectContaining({ fullName: 'Ada Lovelace' }), true)
   })
 })

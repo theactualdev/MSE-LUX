@@ -197,6 +197,9 @@ describe('CheckoutFlow', () => {
       shippingToken: SHIPPING_OPTIONS[0].token,
       chargeCurrency: 'NGN',
       guestLines: [{ productId: 'p1', variantId: undefined, quantity: 2 }],
+      // isSignedIn was not passed (defaults false), so AddressStep never
+      // rendered the checkbox and saveAddress stays at its unchecked default.
+      saveAddress: false,
     })
 
     await waitFor(() => expect(initializePaymentMock).toHaveBeenCalledWith('MSE-123456'))
@@ -206,6 +209,30 @@ describe('CheckoutFlow', () => {
     await waitFor(() => expect(push).toHaveBeenCalledWith('/order/MSE-123456'))
     expect(setOrder).toHaveBeenCalledWith(order)
     expect(clear).toHaveBeenCalledTimes(1)
+  })
+
+  it('includes saveAddress: true in the placeOrder input when a signed-in user checks the save-address box', async () => {
+    const user = userEvent.setup({ delay: null })
+    placeOrderMock.mockResolvedValue({ ok: true, order: { orderNumber: 'MSE-123456' } as never })
+    initializePaymentMock.mockResolvedValue({ ok: true, accessCode: 'code_1', publicKey: 'pk_test_1' })
+    verifyPaymentMock.mockResolvedValue({ ok: true, status: 'paid' })
+    resumeTransaction.mockImplementation((_accessCode: string, opts: { onSuccess: (t: { reference: string }) => void }) => {
+      opts.onSuccess({ reference: 'ref_1' })
+    })
+
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} isSignedIn />)
+
+    await user.click(await screen.findByRole('button', { name: /continue/i })) // contact -> address
+    await user.click(screen.getByLabelText(/save this address to my account/i))
+    await user.click(screen.getByRole('button', { name: /continue/i })) // address -> shipping
+    await user.click(await screen.findByRole('button', { name: /continue/i })) // shipping -> payment
+    await user.click(await screen.findByRole('button', { name: /continue to review/i })) // payment -> review
+    await screen.findByRole('button', { name: /place order/i })
+
+    await user.click(screen.getByRole('button', { name: /place order/i }))
+
+    await waitFor(() => expect(placeOrderMock).toHaveBeenCalledTimes(1))
+    expect(placeOrderMock).toHaveBeenCalledWith(expect.objectContaining({ saveAddress: true }))
   })
 
   it('shows the error and does not navigate or clear the cart when placeOrder fails', async () => {

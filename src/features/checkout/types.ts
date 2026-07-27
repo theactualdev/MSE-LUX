@@ -20,6 +20,14 @@ export interface PlaceOrderInput {
   chargeCurrency: 'NGN' | 'USD'
   /** Used ONLY when there is no signed-in user — a signed-in caller's persisted server cart is authoritative instead. */
   guestLines?: GuestOrderLine[]
+  /**
+   * "Save this address to my account" — best-effort, checked only by a
+   * signed-in caller's checkout UI (see `AddressStep`). Never affects order
+   * placement itself: `placeOrder` only attempts the save-back after the
+   * order transaction has already committed, and swallows any failure. See
+   * `placeOrder`'s doc comment for the full contract.
+   */
+  saveAddress?: boolean
 }
 
 export type PlaceOrderResult = { ok: true; order: OrderView } | { error: string }

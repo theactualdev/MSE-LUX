@@ -9,8 +9,13 @@ import type { CartItem } from '@/features/cart/store'
 import { TAX_RATE } from '@/features/cart/lib/shipping'
 import { verifyQuote } from '@/features/checkout/lib/shipping-quote'
 import { contactSchema, addressSchema } from '@/features/checkout/schema'
+import type { Address } from '@/features/checkout/schema'
 import { mapOrderRow } from '@/features/checkout/lib/order-view'
 import type { PlaceOrderInput, PlaceOrderResult, GuestOrderLine } from '@/features/checkout/types'
+// `account/data.ts` carries `import 'server-only'`, not `'use server'` — it's
+// an ordinary server module (not a Server Actions module restricted to async
+// function exports), so its constant is importable directly here.
+import { MAX_ADDRESSES_PER_PROFILE } from '@/features/account/data'
 
 /**
  * Order placement: re-prices server-side and creates a **PENDING** order —
@@ -92,6 +97,72 @@ function generateOrderNumber(): string {
 /** `line2`/`postalCode` collapse empty strings to `null` for the DB — the schema fields are optional strings, not "" placeholders. */
 function toNullable(value: string | undefined): string | null {
   return value && value.length > 0 ? value : null
+}
+
+/**
+ * Normalizes an address's location fields for duplicate comparison: trim,
+ * lowercase, and collapse missing/`null`/`undefined` to `''` before joining —
+ * the same normalization idiom `addressHash` uses to bind a shipping quote to
+ * a destination (`lib/shipping-quote.ts`), reused here as a plain string key
+ * instead of a hash since this comparison never leaves the process.
+ */
+function normalizeAddressKey(fields: {
+  line1: string
+  city: string
+  state: string
+  country: string
+  postalCode?: string | null
+}): string {
+  const normalize = (value: string | null | undefined) => (value ?? '').trim().toLowerCase()
+  return [fields.line1, fields.city, fields.state, fields.country, fields.postalCode].map(normalize).join('|')
+}
+
+/**
+ * Best-effort "save this address to my account", called ONLY after the order
+ * transaction above has already committed, and ONLY when `userId &&
+ * input.saveAddress === true` (see the call site). This function must NEVER
+ * affect what `placeOrder` returns — its own try/catch swallows and logs any
+ * failure rather than letting it propagate, and its caller doesn't await it
+ * into the result.
+ *
+ * One `findMany` covers both checks: the cap (`.length` against
+ * `MAX_ADDRESSES_PER_PROFILE`) and the duplicate scan (normalized comparison
+ * against each existing row). A separate `address.count` before the
+ * `findMany` would just be a second round-trip for the same information —
+ * the fields needed for duplicate detection already include every row that
+ * counting would, so `.length` on that same result is enough for the cap
+ * too.
+ */
+async function saveAddressBestEffort(userId: string, address: Address): Promise<void> {
+  try {
+    const existing = await db.address.findMany({
+      where: { profileId: userId },
+      select: { line1: true, city: true, state: true, country: true, postalCode: true },
+    })
+
+    if (existing.length >= MAX_ADDRESSES_PER_PROFILE) return
+
+    const incomingKey = normalizeAddressKey(address)
+    const isDuplicate = existing.some((row) => normalizeAddressKey(row) === incomingKey)
+    if (isDuplicate) return
+
+    await db.address.create({
+      data: {
+        profileId: userId,
+        fullName: address.fullName,
+        phone: address.phone,
+        line1: address.line1,
+        line2: toNullable(address.line2),
+        city: address.city,
+        state: address.state,
+        country: address.country,
+        postalCode: toNullable(address.postalCode),
+        isDefault: false,
+      },
+    })
+  } catch (error) {
+    console.error('[placeOrder] address save-back failed', error)
+  }
 }
 
 /**
@@ -261,7 +332,18 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
         })
       }
 
-      return { ok: true, order: mapOrderRow(order) }
+      const result: PlaceOrderResult = { ok: true, order: mapOrderRow(order) }
+
+      // Best-effort save-back, strictly AFTER the order transaction (and the
+      // guest-order cookie above) have already resolved. `result` is already
+      // fixed at this point and is returned unchanged below regardless of
+      // what happens inside `saveAddressBestEffort` — see that function's
+      // doc comment for why it can never throw out of here.
+      if (userId && input.saveAddress === true) {
+        await saveAddressBestEffort(userId, parsedAddress.data)
+      }
+
+      return result
     } catch (error) {
       if (isUniqueViolation(error)) continue // fresh orderNumber, fresh transaction, next attempt
       if (isRecordNotFound(error)) return GENERIC_ERROR

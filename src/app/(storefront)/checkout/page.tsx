@@ -37,10 +37,16 @@ export default async function CheckoutPage() {
       }
     : undefined
 
+  // `isSignedIn` is derived from `email` above rather than a separate
+  // `getCurrentUserId()` call: every signed-in session carries an email
+  // claim, so `Boolean(email)` is equivalent to "there is a signed-in user"
+  // without a second auth fetch on this already-dynamic route.
+  const isSignedIn = Boolean(email)
+
   return (
     <Container className="flex flex-col gap-8 py-12 sm:py-16">
       <SectionHeading title="Checkout" as="h1" />
-      <CheckoutFlow initialContact={initialContact} initialAddress={initialAddress} />
+      <CheckoutFlow initialContact={initialContact} initialAddress={initialAddress} isSignedIn={isSignedIn} />
     </Container>
   )
 }

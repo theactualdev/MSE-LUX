@@ -64,13 +64,22 @@ const STEP_LABELS: Record<Step, string> = {
  * returned access code. The popup's `onSuccess` is only a fast-path hint —
  * the order isn't trusted paid until the server `verifyPayment` call
  * confirms it (the webhook is the backstop if that call never lands).
+ *
+ * `saveAddress` — whether the address step's "save this address to my
+ * account" checkbox was checked — is captured from `AddressStep`'s `onSubmit`
+ * alongside the address itself, and rides along in the `placeOrder` call.
+ * It's opt-in UI sugar only: `placeOrder` treats the save-back as best-effort
+ * and it can never affect order placement (see that function's doc comment).
  */
 export function CheckoutFlow({
   initialContact,
   initialAddress,
+  isSignedIn = false,
 }: {
   initialContact?: Contact
   initialAddress?: Address
+  /** Threaded down to `AddressStep`, which renders the "save to account" checkbox only for a signed-in caller. */
+  isSignedIn?: boolean
 }) {
   const router = useRouter()
   const hydrated = useHydrated()
@@ -79,6 +88,7 @@ export function CheckoutFlow({
   const [step, setStep] = useState<Step>('contact')
   const [contact, setContact] = useState<Contact | undefined>(initialContact)
   const [address, setAddress] = useState<Address | undefined>(initialAddress)
+  const [saveAddress, setSaveAddress] = useState(false)
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([])
   const [selectedShipping, setSelectedShipping] = useState<ShippingOption>()
   const [shippingLoading, setShippingLoading] = useState(false)
@@ -145,6 +155,7 @@ export function CheckoutFlow({
         variantId: line.variant?.id,
         quantity: line.quantity,
       })),
+      saveAddress,
     })
 
     if (!('ok' in placed)) {
@@ -210,10 +221,12 @@ export function CheckoutFlow({
         {step === 'address' ? (
           <AddressStep
             defaultValues={address}
-            onSubmit={async (values) => {
+            isSignedIn={isSignedIn}
+            onSubmit={async (values, checkedSaveAddress) => {
               if (!contact) return
 
               setAddress(values)
+              setSaveAddress(checkedSaveAddress)
               setShippingLoading(true)
 
               const opts = await getShippingRates({

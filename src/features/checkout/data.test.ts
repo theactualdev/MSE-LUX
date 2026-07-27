@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { signQuote, addressHash } from '@/features/checkout/lib/shipping-quote'
+import { MAX_ADDRESSES_PER_PROFILE } from '@/features/account/data'
 import type { Product } from '@/types/catalog'
 import type { Contact, Address } from '@/features/checkout/schema'
 
@@ -34,6 +35,14 @@ const productVariant = {
   update: vi.fn(),
 }
 
+// Address save-back reads/writes go straight through top-level `db`, never
+// through `tx` — the save-back runs strictly AFTER `$transaction` above has
+// already resolved (see `data.ts`'s call site comment).
+const address = {
+  findMany: vi.fn(),
+  create: vi.fn(),
+}
+
 // The transaction callback receives the same spies as top-level `db` — see
 // `cart/data.test.ts` for why assertions don't need to care whether a call
 // happened inside or outside `$transaction`.
@@ -54,6 +63,9 @@ vi.mock('@/lib/db', () => ({
     },
     get productVariant() {
       return productVariant
+    },
+    get address() {
+      return address
     },
     $transaction: (...args: [(client: typeof tx) => unknown]) => $transaction(...args),
   },
@@ -186,6 +198,8 @@ beforeEach(() => {
   getCurrentUserId.mockResolvedValue(null)
   resolveProductsByIds.mockResolvedValue([PRODUCT])
   order.create.mockResolvedValue(createdRow())
+  address.findMany.mockResolvedValue([])
+  address.create.mockResolvedValue({})
 })
 
 describe('placeOrder — guest checkout', () => {
@@ -531,5 +545,154 @@ describe('placeOrder — signed-in checkout', () => {
 
     expect(order.create).not.toHaveBeenCalled()
     expect(cartItem.deleteMany).not.toHaveBeenCalled()
+  })
+
+  it('makes no address queries when saveAddress is absent', async () => {
+    await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+    })
+
+    expect(address.findMany).not.toHaveBeenCalled()
+    expect(address.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('placeOrder — address save-back (best-effort, never affects the order result)', () => {
+  beforeEach(() => {
+    getCurrentUserId.mockResolvedValue(USER_ID)
+    cartItem.findMany.mockResolvedValue([{ productId: PRODUCT_ID, variantId: null, quantity: 1 }])
+  })
+
+  it('makes zero address queries for a guest even when saveAddress is true', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+      saveAddress: true,
+    })
+
+    expect(result).toEqual({ ok: true, order: expect.objectContaining({ orderNumber: 'MSE-123456' }) })
+    expect(address.findMany).not.toHaveBeenCalled()
+    expect(address.create).not.toHaveBeenCalled()
+  })
+
+  it('saves the parsed address, called only after the order transaction has resolved, when signed in and saveAddress is true', async () => {
+    const callOrder: string[] = []
+    order.create.mockImplementation(async () => {
+      callOrder.push('order.create')
+      return createdRow()
+    })
+    address.create.mockImplementation(async () => {
+      callOrder.push('address.create')
+      return {}
+    })
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      saveAddress: true,
+    })
+
+    expect(result).toEqual({ ok: true, order: expect.objectContaining({ orderNumber: 'MSE-123456' }) })
+    expect(address.create).toHaveBeenCalledWith({
+      data: {
+        profileId: USER_ID,
+        fullName: ADDRESS.fullName,
+        phone: ADDRESS.phone,
+        line1: ADDRESS.line1,
+        line2: null,
+        city: ADDRESS.city,
+        state: ADDRESS.state,
+        country: ADDRESS.country,
+        postalCode: null,
+        isDefault: false,
+      },
+    })
+    expect(callOrder).toEqual(['order.create', 'address.create'])
+  })
+
+  it('does not save, and does not affect the order result, when the profile is already at the address cap', async () => {
+    address.findMany.mockResolvedValue(
+      Array.from({ length: MAX_ADDRESSES_PER_PROFILE }, () => ({
+        line1: 'Some other street',
+        city: 'Abuja',
+        state: 'FCT',
+        country: 'Nigeria',
+        postalCode: null,
+      })),
+    )
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      saveAddress: true,
+    })
+
+    expect(result).toEqual({ ok: true, order: expect.objectContaining({ orderNumber: 'MSE-123456' }) })
+    expect(address.create).not.toHaveBeenCalled()
+  })
+
+  it('does not save a duplicate address that differs from an existing one only by case/whitespace', async () => {
+    address.findMany.mockResolvedValue([
+      {
+        line1: `  ${ADDRESS.line1.toUpperCase()}  `,
+        city: ADDRESS.city.toUpperCase(),
+        state: ADDRESS.state.toUpperCase(),
+        country: ADDRESS.country.toUpperCase(),
+        postalCode: null,
+      },
+    ])
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      saveAddress: true,
+    })
+
+    expect(result).toEqual({ ok: true, order: expect.objectContaining({ orderNumber: 'MSE-123456' }) })
+    expect(address.create).not.toHaveBeenCalled()
+  })
+
+  it('still returns the ok order result, logging instead of throwing, when address.create rejects', async () => {
+    address.create.mockRejectedValue(new Error('boom'))
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      saveAddress: true,
+    })
+
+    expect(result).toEqual({ ok: true, order: expect.objectContaining({ orderNumber: 'MSE-123456' }) })
+    expect(consoleErrorSpy).toHaveBeenCalledWith('[placeOrder] address save-back failed', expect.any(Error))
+
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('makes no address queries when signed in but saveAddress is absent', async () => {
+    await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+    })
+
+    expect(address.findMany).not.toHaveBeenCalled()
+    expect(address.create).not.toHaveBeenCalled()
   })
 })
