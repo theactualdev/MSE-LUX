@@ -40,7 +40,15 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
   const title = product.seo.title ?? product.name
   const description = product.seo.description ?? product.shortDescription
   const url = absoluteUrl(`/products/${slug}`)
-  const heroImage = absoluteUrl(product.images[0]?.src ?? '/og-default.png')
+  // `images` (product) is a 0..n relation, so an image-less product is
+  // possible. No `/og-default.png` fallback here — the storefront layout
+  // (see its comment) deliberately stopped referencing that path because it
+  // doesn't exist yet, and Facebook/LinkedIn cache a 404 image per-URL, so a
+  // pre-launch share would stay broken long after the real file lands. When
+  // there's no hero image, omit `images` entirely and let platforms fall
+  // back to their own unfurl heuristics.
+  const heroImageSrc = product.images[0]?.src
+  const heroImage = heroImageSrc ? absoluteUrl(heroImageSrc) : undefined
 
   return {
     title,
@@ -54,13 +62,13 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
       title,
       description,
       url,
-      images: [heroImage],
+      ...(heroImage ? { images: [heroImage] } : {}),
     },
     twitter: {
       card: 'summary_large_image',
       title,
       description,
-      images: [heroImage],
+      ...(heroImage ? { images: [heroImage] } : {}),
     },
   }
 }
@@ -69,7 +77,7 @@ export async function generateMetadata({ params }: ProductPageProps): Promise<Me
  * Home → category → (subcategory) → product, skipping any crumb whose
  * category/subcategory lookup misses rather than rendering an "undefined" name.
  */
-async function buildBreadcrumbTrail(product: Product): Promise<Array<{ name: string; path: string }>> {
+export async function buildBreadcrumbTrail(product: Product): Promise<Array<{ name: string; path: string }>> {
   const trail: Array<{ name: string; path: string }> = [{ name: 'Home', path: '/' }]
 
   const category = await getCategoryBySlug(product.categorySlug)
