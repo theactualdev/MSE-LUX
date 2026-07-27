@@ -1,8 +1,10 @@
+import { env } from '@/lib/env'
 import { siteConfig } from '@/lib/config'
 import type { CatalogCurrency, Product } from '@/types/catalog'
 
 /** Canonical site origin, no trailing slash. `NEXT_PUBLIC_SITE_URL` in prod; localhost in dev. */
-export const SITE_URL: string = (process.env.NEXT_PUBLIC_SITE_URL ?? 'http://localhost:3000').replace(/\/+$/, '')
+// `env.ts`'s Zod schema owns validation and the localhost default; this only normalises a trailing slash so every SITE_URL consumer can safely concatenate paths.
+export const SITE_URL: string = env.NEXT_PUBLIC_SITE_URL.replace(/\/+$/, '')
 
 /** `absoluteUrl('/products/x')` → `${SITE_URL}/products/x`; passes through absolute inputs unchanged. */
 export function absoluteUrl(path: string): string {

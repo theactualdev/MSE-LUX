@@ -38,6 +38,12 @@ const PRODUCT: Product = {
 }
 
 describe('SITE_URL', () => {
+  // `SITE_URL` now derives from `env.NEXT_PUBLIC_SITE_URL` (`@/lib/env`'s
+  // Zod-validated, module-scope-parsed constant) rather than a raw
+  // `process.env` read. `vi.resetModules()` clears the whole module
+  // registry, so the dynamic `import('@/lib/seo')` below re-resolves its
+  // `@/lib/env` dependency fresh too — both modules re-parse against the
+  // currently stubbed env, no separate re-import of `@/lib/env` needed.
   const ORIGINAL_ENV = process.env.NEXT_PUBLIC_SITE_URL
 
   afterEach(() => {
