@@ -29,6 +29,18 @@ export interface SendEmailInput {
 
 export type SendEmailResult = { ok: true; id: string | null } | { ok: false; error: 'not-configured' | 'send-failed' }
 
+/**
+ * Hard cap on how long `sendEmail` may take before it gives up and resolves
+ * to `send-failed`. This function now sits, awaited, on three
+ * latency-sensitive paths: the Paystack webhook's HTTP response, the
+ * customer's post-payment `verifyPayment` spinner, and the admin's ship
+ * action — a hung Resend request with no cap would block all three
+ * indefinitely. Implemented with `Promise.race` against a `setTimeout`
+ * rather than an `AbortSignal` so it doesn't depend on the Resend SDK
+ * actually honoring abort.
+ */
+const EMAIL_TIMEOUT_MS = 5000
+
 export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult> {
   try {
     const apiKey = process.env.RESEND_API_KEY
@@ -41,12 +53,29 @@ export async function sendEmail(input: SendEmailInput): Promise<SendEmailResult>
 
     const resend = new Resend(apiKey)
 
-    const { data, error } = await resend.emails.send({
-      from,
-      to: input.to,
-      subject: input.subject,
-      html: input.html,
+    let timeoutId: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<'timeout'>((resolve) => {
+      timeoutId = setTimeout(() => resolve('timeout'), EMAIL_TIMEOUT_MS)
     })
+
+    const result = await Promise.race([
+      resend.emails.send({
+        from,
+        to: input.to,
+        subject: input.subject,
+        html: input.html,
+      }),
+      timeout,
+    ])
+
+    clearTimeout(timeoutId)
+
+    if (result === 'timeout') {
+      console.error(`[sendEmail] timed out after ${EMAIL_TIMEOUT_MS}ms`)
+      return { ok: false, error: 'send-failed' }
+    }
+
+    const { data, error } = result
 
     if (error) {
       console.error('[sendEmail] Resend returned an error', error)

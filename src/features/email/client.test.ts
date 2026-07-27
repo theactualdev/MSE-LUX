@@ -98,4 +98,40 @@ describe('sendEmail', () => {
     expect(result).toEqual({ ok: false, error: 'send-failed' })
     expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
   })
+
+  it('returns send-failed (logged) within the 5s cap when emails.send never resolves', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubEnv('RESEND_API_KEY', API_KEY)
+      vi.stubEnv('EMAIL_FROM', FROM)
+      sendMock.mockImplementation(() => new Promise(() => {})) // never settles
+
+      const pending = sendEmail(INPUT)
+
+      await vi.advanceTimersByTimeAsync(5000)
+
+      const result = await pending
+
+      expect(result).toEqual({ ok: false, error: 'send-failed' })
+      expect(consoleErrorSpy).toHaveBeenCalledWith('[sendEmail] timed out after 5000ms')
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('clears the timeout on the happy path so no timer is left pending', async () => {
+    vi.useFakeTimers()
+    try {
+      vi.stubEnv('RESEND_API_KEY', API_KEY)
+      vi.stubEnv('EMAIL_FROM', FROM)
+      sendMock.mockResolvedValue({ data: { id: 'email_123' }, error: null })
+
+      const result = await sendEmail(INPUT)
+
+      expect(result).toEqual({ ok: true, id: 'email_123' })
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 })

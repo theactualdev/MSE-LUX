@@ -31,7 +31,16 @@ const cartItem = {
 
 const tx = { order, product, productVariant, cartItem }
 
-const $transaction = vi.fn(async (fn: (client: typeof tx) => unknown) => fn(tx))
+// Asserts, immediately after the callback resolves (i.e. while still
+// "inside" the transaction from the caller's perspective), that the send has
+// NOT happened yet — this is what actually catches a send moved inside the
+// `$transaction` callback (which would hold a DB connection across a network
+// call), unlike merely comparing invocation-call-order.
+const $transaction = vi.fn(async (fn: (client: typeof tx) => unknown) => {
+  const result = await fn(tx)
+  expect(sendOrderConfirmationMock).not.toHaveBeenCalled()
+  return result
+})
 
 vi.mock('@/lib/db', () => ({
   db: {
@@ -118,10 +127,13 @@ describe('markOrderPaid', () => {
     expect(cartItem.deleteMany).toHaveBeenCalledWith({ where: { cart: { profileId: PROFILE_ID } } })
 
     // The confirmation is sent exactly once, and strictly AFTER the
-    // fulfilment transaction resolves — never interleaved with it.
+    // fulfilment transaction resolves — never interleaved with it. The
+    // "never interleaved" half is pinned inside the `$transaction` mock
+    // itself (see its definition above), which asserts no-call immediately
+    // after the callback resolves; that catches a send moved inside the
+    // callback, which a call-order comparison alone would not.
     expect(sendOrderConfirmationMock).toHaveBeenCalledTimes(1)
     expect(sendOrderConfirmationMock).toHaveBeenCalledWith(ORDER_NUMBER)
-    expect($transaction.mock.invocationCallOrder[0]).toBeLessThan(sendOrderConfirmationMock.mock.invocationCallOrder[0])
   })
 
   it('fulfils a guest order but does not clear a cart', async () => {
@@ -210,6 +222,7 @@ describe('markOrderPaid', () => {
     expect(product.update).not.toHaveBeenCalled()
     expect(productVariant.update).not.toHaveBeenCalled()
     expect(cartItem.deleteMany).not.toHaveBeenCalled()
+    expect(sendOrderConfirmationMock).not.toHaveBeenCalled()
   })
 
   it('rejects a currency mismatch: mismatch, no writes', async () => {
@@ -219,6 +232,7 @@ describe('markOrderPaid', () => {
 
     expect(result).toBe('mismatch')
     expect(order.updateMany).not.toHaveBeenCalled()
+    expect(sendOrderConfirmationMock).not.toHaveBeenCalled()
   })
 
   it('ignores a charge with no metadata.orderNumber, without reading the db', async () => {
@@ -226,6 +240,7 @@ describe('markOrderPaid', () => {
 
     expect(result).toBe('ignored')
     expect(order.findUnique).not.toHaveBeenCalled()
+    expect(sendOrderConfirmationMock).not.toHaveBeenCalled()
   })
 
   it('ignores a charge whose order cannot be found', async () => {
@@ -235,6 +250,16 @@ describe('markOrderPaid', () => {
 
     expect(result).toBe('ignored')
     expect(order.updateMany).not.toHaveBeenCalled()
+    expect(sendOrderConfirmationMock).not.toHaveBeenCalled()
+  })
+
+  it('an unexpected db error is swallowed: returns ignored, no confirmation sent', async () => {
+    order.findUnique.mockRejectedValue(new Error('connection reset'))
+
+    const result = await markOrderPaid(charge())
+
+    expect(result).toBe('ignored')
+    expect(sendOrderConfirmationMock).not.toHaveBeenCalled()
   })
 
   it('a sender rejection on the genuine fulfilment path leaves the return value unchanged', async () => {
