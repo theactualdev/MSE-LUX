@@ -15,12 +15,13 @@ export function absoluteUrl(path: string): string {
 }
 
 /**
- * Shared `openGraph`/`twitter` builder for per-page metadata. Next merges
- * `generateMetadata`'s return SHALLOWLY onto the layout's `metadata` — the
- * layout's `openGraph` deliberately carries only `type`/`siteName` (see its
- * comment) so this per-page object, once spread into a page's `openGraph`,
- * both backfills the page's own title/description into og:* AND regains
- * `og:site_name` from the merge.
+ * Shared `openGraph`/`twitter` builder for per-page metadata. A page that
+ * sets `openGraph` REPLACES the layout's object wholesale (Next does not
+ * merge those per-field), so this builder restates `siteName` itself — do
+ * not delete that line expecting the layout's value to survive. Pages that
+ * call this therefore ship their own title/description AND `og:site_name`;
+ * pages that set no `openGraph` at all inherit the layout's
+ * `{ type, siteName }` and let Next backfill their own copy into `og:*`.
  *
  * The conditional-images invariant lives HERE: no `/og-default.png` fallback
  * exists yet (see the storefront layout's comment on why), so `images` is

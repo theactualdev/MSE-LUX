@@ -29,17 +29,19 @@ export const metadata: Metadata = {
   // on-palette ivory/gold wordmark at public/og-default.png and add it here
   // (Phase 9d runbook item).
   // `title`/`description` are deliberately absent here (unlike the top-level
-  // `title`/`description` above, which stay sitewide defaults for pages with
-  // no metadata of their own). Next merges a page's `generateMetadata`/
-  // `metadata` SHALLOWLY onto this object: an `openGraph.title` set here
-  // would win over a page's own `openGraph.title` only when the page didn't
-  // set one, but since Next's non-OG `title`/`description` don't backfill
-  // into `openGraph.title`/`openGraph.description` on their own, leaving
-  // these set here meant every static page's og:title/og:description stayed
-  // the generic site copy regardless of its own title. Removing them lets
-  // each page's own openGraph (via `pageCards` in `@/lib/seo`) carry its
-  // title/description straight through, while `type`/`siteName` — genuinely
-  // sitewide — still merge in under every page's own values.
+  // `title`/`description` above, which stay sitewide defaults). Two Next
+  // behaviours make that necessary:
+  //
+  //   1. Any page that sets `openGraph` REPLACES this object wholesale —
+  //      there is no per-field merge. That's why `pageCards` (@/lib/seo)
+  //      restates `siteName` itself rather than relying on inheritance.
+  //   2. For pages that set NO `openGraph`, Next backfills their own
+  //      resolved title/description into `og:*` — but only when the
+  //      inherited object has no title of its own. Setting one here
+  //      suppressed that backfill, so every static page unfurled with the
+  //      generic site copy instead of its own.
+  //
+  // Keeping only `type`/`siteName` leaves the backfill free to fire.
   openGraph: {
     type: 'website',
     siteName: siteConfig.name,
