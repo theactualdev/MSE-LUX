@@ -9,17 +9,12 @@ import { handleSignOut } from '@/features/auth/sign-out'
 import { siteConfig } from '@/lib/config'
 import { cn } from '@/lib/utils'
 
-/**
- * Admin nav: Dashboard, Orders, and Catalog are live; the remaining 8d
- * section is visible but inert so the shell reads complete and the coming
- * slot is obvious. Inert items are plain text (not links) — nothing for a
- * keyboard/screen-reader user to activate.
- */
-const NAV_ITEMS: Array<{ label: string; href?: string }> = [
+/** Admin nav: every section is a live link. */
+const NAV_ITEMS: Array<{ label: string; href: string }> = [
   { label: 'Dashboard', href: '/admin' },
   { label: 'Orders', href: '/admin/orders' },
   { label: 'Catalog', href: '/admin/catalog' },
-  { label: 'Customers' },
+  { label: 'Customers', href: '/admin/customers' },
 ]
 
 /**
@@ -46,8 +41,8 @@ export function AdminShell({ email, children }: { email: string | null; children
   const nav = (
     <nav aria-label="Admin" className="flex flex-col gap-1 p-4">
       {NAV_ITEMS.map((item) => {
-        const active = item.href ? isNavItemActive(pathname ?? '', item.href) : false
-        return item.href ? (
+        const active = isNavItemActive(pathname ?? '', item.href)
+        return (
           <Link
             key={item.label}
             href={item.href}
@@ -62,14 +57,6 @@ export function AdminShell({ email, children }: { email: string | null; children
           >
             {item.label}
           </Link>
-        ) : (
-          <span
-            key={item.label}
-            className="flex items-baseline justify-between rounded-lg px-3 py-2 text-sm font-medium text-muted-foreground/70"
-          >
-            {item.label}
-            <span className="text-[10px] font-normal uppercase tracking-wide">Coming soon</span>
-          </span>
         )
       })}
     </nav>
