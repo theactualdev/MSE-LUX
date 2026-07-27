@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { WishlistView } from '@/features/wishlist/components/wishlist-view'
 import { useWishlistStore } from '@/features/wishlist/store'
 import { useServerWishlistStore } from '@/features/wishlist/server-wishlist-store'
-import { getAllProducts } from '@/features/catalog/lib/selectors'
+import { products } from '@/features/catalog/data/products'
 import { useSession } from '@/features/auth/use-session'
 import { getServerWishlistIds } from '@/features/wishlist/data'
 
@@ -17,7 +17,7 @@ import { getServerWishlistIds } from '@/features/wishlist/data'
 // mocked the same way `use-wishlist.test.tsx` mocks them.
 vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, loading: false })) }))
 vi.mock('@/features/catalog/server/resolve-products', () => ({
-  resolveProductsByIds: vi.fn(async (ids: string[]) => getAllProducts().filter((p) => ids.includes(p.id))),
+  resolveProductsByIds: vi.fn(async (ids: string[]) => products.filter((p) => ids.includes(p.id))),
 }))
 vi.mock('@/features/wishlist/data', () => ({
   getServerWishlistIds: vi.fn(),
@@ -46,7 +46,7 @@ describe('WishlistView', () => {
   })
 
   it('renders saved products resolved from the DB catalog', async () => {
-    const product = getAllProducts()[0]
+    const product = products[0]
     useWishlistStore.getState().toggle(product.id)
 
     render(<WishlistView />)
@@ -65,7 +65,7 @@ describe('WishlistView', () => {
 
   it('"Clear wishlist" empties the store and shows the empty state', async () => {
     const user = userEvent.setup()
-    const product = getAllProducts()[0]
+    const product = products[0]
     useWishlistStore.getState().toggle(product.id)
 
     render(<WishlistView />)
@@ -78,7 +78,7 @@ describe('WishlistView', () => {
   })
 
   it('renders an "Add to bag" control for a variantless saved product', async () => {
-    const product = getAllProducts().find((p) => p.variants.length === 0)
+    const product = products.find((p) => p.variants.length === 0)
     if (!product) throw new Error('fixture expects at least one variantless product')
     useWishlistStore.getState().toggle(product.id)
 
@@ -88,7 +88,7 @@ describe('WishlistView', () => {
   })
 
   it('renders a "Select options" link to the PDP for a saved product with variants', async () => {
-    const product = getAllProducts().find((p) => p.variants.length > 0)
+    const product = products.find((p) => p.variants.length > 0)
     if (!product) throw new Error('fixture expects at least one product with variants')
     useWishlistStore.getState().toggle(product.id)
 
@@ -101,7 +101,7 @@ describe('WishlistView', () => {
   it('shows the loading skeleton while signed-in ids are still loading, then renders resolved products', async () => {
     useSessionMock.mockReturnValue({ signedIn: true, loading: false })
 
-    const product = getAllProducts()[0]
+    const product = products[0]
     let resolveIds!: (ids: string[]) => void
     getServerWishlistIdsMock.mockReturnValue(
       new Promise((resolve) => {

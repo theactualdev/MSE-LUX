@@ -2,12 +2,12 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CartView } from '@/features/cart/components/cart-view'
-import { getAllProducts } from '@/features/catalog/lib/selectors'
+import { products } from '@/features/catalog/data/products'
 import { useCartStore } from '@/features/cart/store'
 
 vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, loading: false })) }))
 vi.mock('@/features/catalog/server/resolve-products', () => ({
-  resolveProductsByIds: vi.fn(async (ids: string[]) => getAllProducts().filter((p) => ids.includes(p.id))),
+  resolveProductsByIds: vi.fn(async (ids: string[]) => products.filter((p) => ids.includes(p.id))),
 }))
 
 describe('CartView', () => {
@@ -25,7 +25,7 @@ describe('CartView', () => {
 
   it('lists cart lines, a checkout link, and updates the total when quantity changes', async () => {
     const user = userEvent.setup()
-    const product = getAllProducts()[0]
+    const product = products[0]
     const variantId = product.variants[0]?.id
     useCartStore.getState().addItem(product.id, variantId, 1)
 
@@ -43,7 +43,7 @@ describe('CartView', () => {
 
   it('removes a line and falls back to the empty state once the bag is cleared', async () => {
     const user = userEvent.setup()
-    const product = getAllProducts()[0]
+    const product = products[0]
     const variantId = product.variants[0]?.id
     useCartStore.getState().addItem(product.id, variantId, 1)
 

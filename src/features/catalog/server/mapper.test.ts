@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import type { Category, Collection } from '@/types/catalog'
-import { getAllCategories, getAllCollections, getAllProducts } from '@/features/catalog/lib/selectors'
+import { products } from '@/features/catalog/data/products'
+import { categories } from '@/features/catalog/data/categories'
+import { collections } from '@/features/catalog/data/collections'
 import { toProductCreate, toVariantCreate } from '../../../../prisma/seed-mappers'
 import {
   toDomainCategory,
@@ -37,7 +39,7 @@ const SUBCATEGORY_IDS: Record<string, string> = {
  * Simulates what Prisma returns for a seeded product: flattens the nested-create shapes from
  * `seed-mappers.ts` into included-relation rows, adding the relation slugs the real query includes.
  */
-function simulateProductRow(product: ReturnType<typeof getAllProducts>[number]): ProductRowForMapping {
+function simulateProductRow(product: (typeof products)[number]): ProductRowForMapping {
   const create = toProductCreate(product, CATEGORY_IDS, SUBCATEGORY_IDS)
   return {
     ...create,
@@ -55,7 +57,7 @@ function simulateProductRow(product: ReturnType<typeof getAllProducts>[number]):
 }
 
 describe('toDomainProduct is the inverse of the seed mappers', () => {
-  it.each(getAllProducts().map((p) => [p.slug, p] as const))('round-trips %s losslessly', (_slug, product) => {
+  it.each(products.map((p) => [p.slug, p] as const))('round-trips %s losslessly', (_slug, product) => {
     expect(toDomainProduct(simulateProductRow(product))).toEqual(product)
   })
 })
@@ -72,7 +74,7 @@ function simulateCategoryRow(category: Category): CategoryRowForMapping {
 }
 
 describe('toDomainCategory is the inverse of the seed mappers (given the authored subcategory order)', () => {
-  it.each(getAllCategories().map((c) => [c.slug, c] as const))('round-trips %s losslessly', (_slug, category) => {
+  it.each(categories.map((c) => [c.slug, c] as const))('round-trips %s losslessly', (_slug, category) => {
     const subcategoryOrder = category.subcategories.map((s) => s.slug)
     expect(toDomainCategory(simulateCategoryRow(category), subcategoryOrder)).toEqual(category)
   })
@@ -93,7 +95,7 @@ function simulateCollectionRow(collection: Collection): CollectionRowForMapping 
 }
 
 describe('toDomainCollection is the inverse of the seed mappers', () => {
-  it.each(getAllCollections().map((c) => [c.slug, c] as const))('round-trips %s losslessly', (_slug, collection) => {
+  it.each(collections.map((c) => [c.slug, c] as const))('round-trips %s losslessly', (_slug, collection) => {
     expect(toDomainCollection(simulateCollectionRow(collection), collection.productSlugs)).toEqual(collection)
   })
 })

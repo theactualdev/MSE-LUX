@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ProductCard } from '@/features/catalog/components/product-card'
-import { getAllProducts } from '@/features/catalog/lib/selectors'
+import { products } from '@/features/catalog/data/products'
 import { useWishlistStore } from '@/features/wishlist/store'
 
 // `ProductCard`'s heart now reads `useWishlist()`, which pulls in
@@ -11,7 +11,7 @@ import { useWishlistStore } from '@/features/wishlist/store'
 // the other wishlist/cart consumer suites.
 vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, loading: false })) }))
 
-const product = getAllProducts()[0]
+const product = products[0]
 
 describe('ProductCard', () => {
   beforeEach(() => useWishlistStore.getState().clear())

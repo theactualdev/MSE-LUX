@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { RecentlyViewedShelf } from '@/features/catalog/components/recently-viewed-shelf'
 import { useRecentlyViewedStore } from '@/features/catalog/hooks/use-recently-viewed'
-import { getAllProducts } from '@/features/catalog/lib/selectors'
+import { products } from '@/features/catalog/data/products'
 
 // Each rendered `ProductCard` reads `useWishlist()`, which reads
 // `useSession()` (the real Supabase browser client, which throws when
@@ -15,7 +15,7 @@ vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signe
 // the real catalog loader, mirroring `wishlist-view.test.tsx`.
 vi.mock('@/features/catalog/server/resolve-products', () => ({
   resolveProductsByIds: vi.fn(async (ids: string[]) => {
-    const byId = new Map(getAllProducts().map((p) => [p.id, p]))
+    const byId = new Map(products.map((p) => [p.id, p]))
     const out = []
     for (const id of ids) {
       const p = byId.get(id)
@@ -39,7 +39,7 @@ describe('RecentlyViewedShelf', () => {
   })
 
   it('renders the resolved products in recency (most-recent-first) order', async () => {
-    const [productA, productB] = getAllProducts()
+    const [productA, productB] = products
     // Store adds most-recent-first: viewing A then B leaves ids = [B, A].
     useRecentlyViewedStore.getState().add(productA.id)
     useRecentlyViewedStore.getState().add(productB.id)
@@ -55,7 +55,7 @@ describe('RecentlyViewedShelf', () => {
   })
 
   it('omits the excluded product id', async () => {
-    const [productA, productB] = getAllProducts()
+    const [productA, productB] = products
     useRecentlyViewedStore.getState().add(productA.id)
     useRecentlyViewedStore.getState().add(productB.id)
 

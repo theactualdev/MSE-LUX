@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MiniCartDrawer } from '@/features/cart/components/mini-cart-drawer'
-import { getAllProducts } from '@/features/catalog/lib/selectors'
+import { products } from '@/features/catalog/data/products'
 import { useCartStore } from '@/features/cart/store'
 import { useUiStore } from '@/stores/ui'
 
 vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, loading: false })) }))
 vi.mock('@/features/catalog/server/resolve-products', () => ({
-  resolveProductsByIds: vi.fn(async (ids: string[]) => getAllProducts().filter((p) => ids.includes(p.id))),
+  resolveProductsByIds: vi.fn(async (ids: string[]) => products.filter((p) => ids.includes(p.id))),
 }))
 
 describe('MiniCartDrawer', () => {
@@ -22,7 +22,7 @@ describe('MiniCartDrawer', () => {
   })
 
   it('shows the drawer and lists cart items once opened', async () => {
-    const product = getAllProducts()[0]
+    const product = products[0]
     useCartStore.getState().addItem(product.id, undefined, 2)
 
     const { rerender } = render(<MiniCartDrawer />)
