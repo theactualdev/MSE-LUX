@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { Container } from '@/components/brand/container'
 import { SectionHeading } from '@/components/brand/section-heading'
+import { JsonLd } from '@/components/seo/json-ld'
 import { ProductGrid } from '@/features/catalog/components/product-grid'
 import { FacetPanel, type FacetVocab } from '@/features/catalog/components/facet-panel'
 import { ActiveFilterChips } from '@/features/catalog/components/active-filter-chips'
@@ -16,6 +17,7 @@ import {
 import { parseSearchCriteria } from '@/features/catalog/lib/search-params'
 import { computeFacetCounts, searchAndFilterProducts } from '@/features/catalog/lib/search'
 import { allColors, allMaterialTags } from '@/features/catalog/lib/facets'
+import { absoluteUrl, breadcrumbJsonLd } from '@/lib/seo'
 
 interface SubcategoryPageProps {
   params: Promise<{ category: string; subcategory: string }>
@@ -34,9 +36,31 @@ export async function generateMetadata({ params }: SubcategoryPageProps): Promis
   if (!subcategory) return {}
 
   const category = await getCategoryBySlug(categorySlug)
+  const title = `${subcategory.name} · ${category?.name ?? ''}`.trim()
+  const description = `Shop ${subcategory.name} at MSE Lux.`
+  const url = absoluteUrl(`/${categorySlug}/${subcategorySlug}`)
+
   return {
-    title: `${subcategory.name} · ${category?.name ?? ''}`.trim(),
-    description: `Shop ${subcategory.name} at MSE Lux.`,
+    title,
+    description,
+    // The bare path only — see the category page's canonical comment: this
+    // page also takes filter/sort `searchParams` that must never be folded in.
+    alternates: { canonical: `/${categorySlug}/${subcategorySlug}` },
+    openGraph: {
+      type: 'website',
+      title,
+      description,
+      url,
+      // Subcategory has no `image` field (unlike Category/Collection), so
+      // there's never a hero to include here. No `/og-default.png` fallback
+      // either — see the storefront layout's comment on why that path is
+      // deliberately unreferenced pre-launch.
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+    },
   }
 }
 
@@ -62,8 +86,16 @@ export default async function SubcategoryPage({ params, searchParams }: Subcateg
     colors: allColors(scoped),
   }
 
+  const breadcrumbTrail = [
+    { name: 'Home', path: '/' },
+    { name: category.name, path: `/${category.slug}` },
+    { name: subcategory.name, path: `/${category.slug}/${subcategory.slug}` },
+  ]
+
   return (
     <Container className="flex flex-col gap-8 py-12 sm:py-16">
+      <JsonLd data={breadcrumbJsonLd(breadcrumbTrail)} />
+
       <SectionHeading title={subcategory.name} subtitle={`Part of ${category.name}`} as="h1" />
       <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
         {products.length} item{products.length === 1 ? '' : 's'}

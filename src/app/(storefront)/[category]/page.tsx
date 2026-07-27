@@ -3,6 +3,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { Container } from '@/components/brand/container'
 import { SectionHeading } from '@/components/brand/section-heading'
+import { JsonLd } from '@/components/seo/json-ld'
 import { ProductGrid } from '@/features/catalog/components/product-grid'
 import { FacetPanel, type FacetVocab } from '@/features/catalog/components/facet-panel'
 import { ActiveFilterChips } from '@/features/catalog/components/active-filter-chips'
@@ -11,6 +12,7 @@ import { getAllCategories, getCategoryBySlug, getProductsByCategory } from '@/fe
 import { parseSearchCriteria } from '@/features/catalog/lib/search-params'
 import { computeFacetCounts, searchAndFilterProducts } from '@/features/catalog/lib/search'
 import { allColors, allMaterialTags } from '@/features/catalog/lib/facets'
+import { absoluteUrl, breadcrumbJsonLd } from '@/lib/seo'
 
 interface CategoryPageProps {
   params: Promise<{ category: string }>
@@ -26,9 +28,37 @@ export async function generateMetadata({ params }: CategoryPageProps): Promise<M
   const category = await getCategoryBySlug(categorySlug)
   if (!category) return {}
 
+  const title = category.name
+  const description = category.description ?? `Shop ${category.name} at MSE Lux.`
+  const url = absoluteUrl(`/${categorySlug}`)
+  // A category's `image` is optional. No `/og-default.png` fallback here —
+  // the storefront layout (see its comment) deliberately stopped referencing
+  // that path because it doesn't exist yet, and Facebook/LinkedIn cache a 404
+  // image per-URL, so a pre-launch share would stay broken long after the
+  // real file lands. When there's no image, omit `images` entirely.
+  const heroImage = category.image ? absoluteUrl(category.image) : undefined
+
   return {
-    title: category.name,
-    description: category.description ?? `Shop ${category.name} at MSE Lux.`,
+    title,
+    description,
+    // The bare path only — this page also takes filter/sort `searchParams`,
+    // which must never be folded into the canonical (it would fragment
+    // canonicals across facet combinations and, since `generateMetadata`
+    // doesn't receive `searchParams` here, force the route dynamic to read them).
+    alternates: { canonical: `/${categorySlug}` },
+    openGraph: {
+      type: 'website',
+      title,
+      description,
+      url,
+      ...(heroImage ? { images: [heroImage] } : {}),
+    },
+    twitter: {
+      card: 'summary_large_image',
+      title,
+      description,
+      ...(heroImage ? { images: [heroImage] } : {}),
+    },
   }
 }
 
@@ -50,8 +80,15 @@ export default async function CategoryPage({ params, searchParams }: CategoryPag
     subcategories: category.subcategories.map((sub) => ({ slug: sub.slug, name: sub.name })),
   }
 
+  const breadcrumbTrail = [
+    { name: 'Home', path: '/' },
+    { name: category.name, path: `/${category.slug}` },
+  ]
+
   return (
     <Container className="flex flex-col gap-8 py-12 sm:py-16">
+      <JsonLd data={breadcrumbJsonLd(breadcrumbTrail)} />
+
       <SectionHeading title={category.name} subtitle={category.description} as="h1" />
       <p role="status" aria-live="polite" className="text-sm text-muted-foreground">
         {products.length} item{products.length === 1 ? '' : 's'}

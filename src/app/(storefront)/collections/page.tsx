@@ -3,11 +3,29 @@ import { Container } from '@/components/brand/container'
 import { SectionHeading } from '@/components/brand/section-heading'
 import { CollectionCard } from '@/features/catalog/components/collection-card'
 import { getAllCollections } from '@/features/catalog/server/selectors'
+import { absoluteUrl } from '@/lib/seo'
+
+const title = 'Collections'
+const description = 'Explore MSE Lux collections — bridal, everyday, and statement pieces curated by occasion.'
 
 export const metadata: Metadata = {
-  title: 'Collections',
-  description: 'Explore MSE Lux collections — bridal, everyday, and statement pieces curated by occasion.',
+  title,
+  description,
   alternates: { canonical: '/collections' },
+  // No `images` here — this is an index page with no single representative
+  // image, and (per the storefront layout's comment) there's no
+  // `/og-default.png` yet to fall back to.
+  openGraph: {
+    type: 'website',
+    title,
+    description,
+    url: absoluteUrl('/collections'),
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title,
+    description,
+  },
 }
 
 // ISR: catalog is effectively static until the Phase 8 admin exists; hourly

@@ -1,8 +1,9 @@
 import type { Metadata } from 'next'
 import { Playfair_Display, Inter } from 'next/font/google'
 import { AppShell } from '@/components/layout/app-shell'
+import { JsonLd } from '@/components/seo/json-ld'
 import { siteConfig } from '@/lib/config'
-import { SITE_URL } from '@/lib/seo'
+import { organizationJsonLd, SITE_URL } from '@/lib/seo'
 import '../globals.css'
 
 const playfair = Playfair_Display({ subsets: ['latin'], variable: '--font-display', display: 'swap' })
@@ -42,6 +43,8 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" className={`${playfair.variable} ${inter.variable}`}>
       <body>
+        {/* Sitewide Organization JSON-LD, emitted once here rather than per-page. */}
+        <JsonLd data={organizationJsonLd()} />
         <AppShell>{children}</AppShell>
       </body>
     </html>
