@@ -15,16 +15,23 @@ export const metadata: Metadata = {
   metadataBase: new URL(SITE_URL),
   title: { default: siteConfig.name, template: `%s · ${siteConfig.name}` },
   description: siteConfig.description,
+  // `url` is deliberately absent: Next resolves a page's openGraph against
+  // this parent object, so a layout-level `url` would make EVERY page claim
+  // the homepage as its og:url — social platforms key unfurls and engagement
+  // off that, so shares of /about would be attributed to /. Pages that care
+  // set their own openGraph.url (the PDP and listings do).
+  //
+  // `images` is likewise absent until the asset exists: referencing a missing
+  // /og-default.png would hand scrapers a 404 that Facebook/LinkedIn cache
+  // per-URL, so a pre-launch share would keep showing a broken image well
+  // after the real file lands. TODO(seo/pre-launch): produce a 1200x630
+  // on-palette ivory/gold wordmark at public/og-default.png and add it here
+  // (Phase 9d runbook item).
   openGraph: {
     type: 'website',
     siteName: siteConfig.name,
     title: siteConfig.name,
     description: siteConfig.description,
-    url: SITE_URL,
-    // TODO(seo/pre-launch): /og-default.png is a placeholder reference — no
-    // asset exists yet in public/. A 1200x630 on-palette ivory/gold wordmark
-    // image must be produced and added before launch (Phase 9d runbook item).
-    images: ['/og-default.png'],
   },
   twitter: {
     card: 'summary_large_image',
