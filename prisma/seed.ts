@@ -34,7 +34,8 @@
 import 'dotenv/config'
 
 import { db } from '@/lib/db'
-import { getAllCategories, getAllCollections } from '@/features/catalog/lib/selectors'
+import { categories } from '@/features/catalog/data/categories'
+import { collections } from '@/features/catalog/data/collections'
 // Deliberately the raw fixture array, not `getAllProducts()` — see the header comment above.
 import { products } from '@/features/catalog/data/products'
 import { toProductCreate } from './seed-mappers'
@@ -42,7 +43,7 @@ import { toProductCreate } from './seed-mappers'
 async function seedCategories(): Promise<Record<string, string>> {
   const categoryIdBySlug: Record<string, string> = {}
 
-  for (const category of getAllCategories()) {
+  for (const category of categories) {
     const row = await db.category.upsert({
       where: { slug: category.slug },
       create: {
@@ -67,7 +68,7 @@ async function seedCategories(): Promise<Record<string, string>> {
 async function seedSubcategories(categoryIdBySlug: Record<string, string>): Promise<Record<string, string>> {
   const subcategoryIdByKey: Record<string, string> = {}
 
-  for (const category of getAllCategories()) {
+  for (const category of categories) {
     const categoryId = categoryIdBySlug[category.slug]
     if (!categoryId) {
       throw new Error(`seedSubcategories: missing category id for slug "${category.slug}"`)
@@ -89,7 +90,7 @@ async function seedSubcategories(categoryIdBySlug: Record<string, string>): Prom
 async function seedCollections(): Promise<Record<string, string>> {
   const collectionIdBySlug: Record<string, string> = {}
 
-  for (const collection of getAllCollections()) {
+  for (const collection of collections) {
     const row = await db.collection.upsert({
       where: { slug: collection.slug },
       create: {

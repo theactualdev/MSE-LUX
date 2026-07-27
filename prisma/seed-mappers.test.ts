@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Product, ProductVariant as CatalogVariant } from '@/types/catalog'
-import { getAllProducts } from '@/features/catalog/lib/selectors'
+import { products } from '@/features/catalog/data/products'
 import {
   toBadges,
   toImageCreate,
@@ -13,7 +13,8 @@ import {
 // Real fixtures, picked because their authored option order is deliberately
 // non-alphabetical (per the task brief) so alphabetisation would fail the
 // order assertions below.
-const allProducts = getAllProducts()
+// The retired mock selector filtered to active — preserved here so the fixture set is unchanged.
+const allProducts = products.filter((p) => p.status === 'active')
 const colorwayNecklace = allProducts.find((p) => p.slug === 'beaded-layered-necklace-multicolor') // optionTypes: Color: Turquoise|Coral|Ivory, badges: ['new']
 const waistBeads = allProducts.find((p) => p.slug === 'traditional-waist-beads-single-strand') // optionTypes: Size: S|M|L|XL, badges: ['best-seller']
 const saleProduct = allProducts.find((p) => p.slug === 'gold-accent-waist-beads-double-strand') // salePriceSet present, no variants/optionTypes
@@ -253,13 +254,13 @@ describe('toProductCreate — subcategory connection', () => {
 
 describe('toProductCreate / toVariantCreate — authored id parity (Phase 5a)', () => {
   it('carries the authored product id through — identity parity for Phase 5a', () => {
-    const real = getAllProducts()[0]
+    const real = allProducts[0]
     const row = toProductCreate(real, categoryIdBySlug, subcategoryIdByKey)
     expect(row.id).toBe(real.id)
   })
 
   it('carries the authored variant id through — identity parity for Phase 5a', () => {
-    const variantProduct = getAllProducts().find((p) => p.variants.length > 0)!
+    const variantProduct = allProducts.find((p) => p.variants.length > 0)!
     const row = toVariantCreate(variantProduct.variants[0])
     expect(row.id).toBe(variantProduct.variants[0].id)
   })
