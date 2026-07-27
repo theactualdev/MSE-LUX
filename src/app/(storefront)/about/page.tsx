@@ -6,6 +6,7 @@ import { ABOUT_PAGE } from '@/features/content/data/about'
 export const metadata: Metadata = {
   title: 'About',
   description: 'The story behind MSE Lux — a Lagos-based studio making handmade beads, jewelry, and accessories.',
+  alternates: { canonical: '/about' },
 }
 
 export default function AboutPage() {

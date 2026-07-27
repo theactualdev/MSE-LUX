@@ -6,6 +6,7 @@ import { POLICY_PAGES } from '@/features/content/data/policies'
 export const metadata: Metadata = {
   title: 'Terms of Service',
   description: 'The terms that apply when you browse or place an order with MSE Lux.',
+  alternates: { canonical: '/policies/terms' },
 }
 
 export default function TermsPage() {

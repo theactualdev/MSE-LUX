@@ -6,6 +6,7 @@ import { CONTACT_INFO } from '@/features/content/data/contact'
 export const metadata: Metadata = {
   title: 'Contact',
   description: 'Get in touch with MSE Lux — email, Instagram DM, or send us a message directly.',
+  alternates: { canonical: '/contact' },
 }
 
 export default function ContactPage() {

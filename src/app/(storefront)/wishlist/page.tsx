@@ -6,6 +6,7 @@ import { WishlistView } from '@/features/wishlist/components/wishlist-view'
 export const metadata: Metadata = {
   title: 'Wishlist',
   description: 'Review the pieces you have saved to your wishlist.',
+  robots: { index: false },
 }
 
 export default function WishlistPage() {

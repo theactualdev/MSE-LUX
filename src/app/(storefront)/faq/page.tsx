@@ -6,6 +6,7 @@ import { FAQ_GROUPS } from '@/features/content/data/faq'
 export const metadata: Metadata = {
   title: 'FAQ',
   description: 'Answers to common questions about orders, shipping, product care, and returns at MSE Lux.',
+  alternates: { canonical: '/faq' },
 }
 
 export default function FaqPage() {

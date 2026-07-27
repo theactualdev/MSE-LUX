@@ -7,6 +7,7 @@ import { getAllCollections } from '@/features/catalog/server/selectors'
 export const metadata: Metadata = {
   title: 'Collections',
   description: 'Explore MSE Lux collections — bridal, everyday, and statement pieces curated by occasion.',
+  alternates: { canonical: '/collections' },
 }
 
 // ISR: catalog is effectively static until the Phase 8 admin exists; hourly

@@ -6,6 +6,7 @@ import { CartView } from '@/features/cart/components/cart-view'
 export const metadata: Metadata = {
   title: 'Your bag',
   description: 'Review your bag, adjust quantities, and proceed to checkout.',
+  robots: { index: false },
 }
 
 export default function CartPage() {

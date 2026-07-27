@@ -18,6 +18,7 @@ export const metadata: Metadata = {
   title: 'Handmade Jewelry, Beads & Accessories',
   description:
     'MSE Lux — handmade beads, jewelry, and accessories crafted in Lagos. Shop best sellers, new arrivals, and curated collections.',
+  alternates: { canonical: '/' },
 }
 
 export default function Home() {

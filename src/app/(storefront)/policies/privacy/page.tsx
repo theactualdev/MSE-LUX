@@ -6,6 +6,7 @@ import { POLICY_PAGES } from '@/features/content/data/policies'
 export const metadata: Metadata = {
   title: 'Privacy Policy',
   description: 'What information MSE Lux collects when you shop with us, and how we use it.',
+  alternates: { canonical: '/policies/privacy' },
 }
 
 export default function PrivacyPage() {
