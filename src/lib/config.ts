@@ -1,4 +1,4 @@
-import { categories } from '@/features/catalog/data'
+import { categories } from '@/features/catalog/data/categories'
 import type { NavItem } from '@/types/nav'
 
 /** Category/subcategory taxonomy, mapped into the nav shape Header/MegaMenu/MobileDrawer consume. */

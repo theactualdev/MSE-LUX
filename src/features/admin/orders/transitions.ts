@@ -139,10 +139,10 @@ export async function markOrderRefunded(orderNumber: string, input: { reference?
       select: { id: true, refundOwed: true, refundedAt: true },
     })
     if (!order) return { ok: false, error: 'not-found' }
-    if (order.refundOwed !== true || order.refundedAt !== null) return { ok: false, error: 'invalid-state' }
+    if (order.refundOwed !== true) return { ok: false, error: 'invalid-state' }
 
     const { count } = await db.order.updateMany({
-      where: { id: order.id, refundOwed: true, refundedAt: null },
+      where: { id: order.id, refundOwed: true },
       data: { refundOwed: false, refundedAt: new Date(), refundReference },
     })
     if (count === 0) return { ok: false, error: 'conflict' }

@@ -25,10 +25,12 @@ export const PRODUCT_INCLUDE = {
 
 // Authored taxonomy order. Category/Subcategory/Collection have no `position` (or `createdAt`)
 // column — only Product does — and cuid primary keys are not sortable into authoring order, so
-// until Phase 8's admin adds a real `position` column, the authored order is pinned here as a
-// literal copy of the file order in `src/features/catalog/data/{categories,collections}.ts`.
-// Task 5's parity check (which pins the sync `lib/selectors.ts` output equal to these async
-// selectors) fails loudly on any drift between this list and those data files.
+// the authored order is pinned here as a literal copy of the file order in
+// `src/features/catalog/data/{categories,collections}.ts`. The old parity test and the sync
+// `lib/selectors.ts` it pinned against were both retired in Phase 8d (the mock catalog is no
+// longer wired into production), so these ORDER constants are now the sole authority for
+// taxonomy ordering — there is no automated drift guard against the data files above. That's
+// acceptable: taxonomy isn't admin-editable, so the two can only drift via a manual edit here.
 const CATEGORY_ORDER = ['jewelry', 'beads', 'accessories'] as const
 const SUBCATEGORY_ORDER = [
   'necklaces',

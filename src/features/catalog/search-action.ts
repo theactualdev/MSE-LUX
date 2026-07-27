@@ -12,6 +12,7 @@ export interface SearchOverlayResult {
   slug: string
   name: string
   priceSet: PriceSet
+  salePriceSet?: PriceSet
   image: { src: string; alt: string }
 }
 
@@ -39,6 +40,7 @@ export async function searchCatalog(query: string): Promise<SearchOverlayResult[
       slug: product.slug,
       name: product.name,
       priceSet: product.priceSet,
+      salePriceSet: product.salePriceSet,
       image: product.images[0] ?? { src: '', alt: '' },
     }))
   } catch (error) {

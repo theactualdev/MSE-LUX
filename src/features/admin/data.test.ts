@@ -85,12 +85,12 @@ describe('getAdminMetrics', () => {
     })
   })
 
-  it('counts refundsOwed as refund-owed, not-yet-recorded orders', async () => {
+  it('counts refundsOwed as refund-owed orders (refundOwed: true alone)', async () => {
     order.count.mockResolvedValueOnce(0).mockResolvedValueOnce(0).mockResolvedValueOnce(7)
 
     const metrics = await getAdminMetrics()
 
-    expect(order.count).toHaveBeenNthCalledWith(3, { where: { refundOwed: true, refundedAt: null } })
+    expect(order.count).toHaveBeenNthCalledWith(3, { where: { refundOwed: true } })
     expect(metrics.refundsOwed).toBe(7)
   })
 })

@@ -24,7 +24,7 @@ export interface AdminMetrics {
   revenue: { ngn: number; usd: number }
   /** Sellable units at/below LOW_STOCK_THRESHOLD: variantless ACTIVE products + variants of ACTIVE products. */
   lowStock: number
-  /** Orders in the 8d refund work queue: refund owed, not yet recorded — same `where` as `countRefundQueue`. */
+  /** Orders in the 8d refund work queue: `refundOwed: true` — same `where` as `countRefundQueue`. */
   refundsOwed: number
 }
 

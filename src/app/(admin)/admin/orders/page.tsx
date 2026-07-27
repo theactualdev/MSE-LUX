@@ -78,7 +78,7 @@ export default async function AdminOrdersPage({
         </div>
       </div>
 
-      <nav aria-label="Filter by status" className="flex flex-wrap gap-1">
+      <nav aria-label="Filter orders" className="flex flex-wrap gap-1">
         {STATUS_TABS.map((tab) => {
           const active = !refundQueue && tab === status
           return (

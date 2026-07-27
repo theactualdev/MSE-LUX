@@ -39,7 +39,10 @@ interface OrderActionsProps {
  * order with `refundOwed` gets the refund-queue banner: the stored Paystack
  * reference to look the charge up by, plus a guarded "Mark refunded" action
  * that only ever RECORDS the refund (8d is dashboard-first — the app never
- * moves money). Once `refundedAt` is set, that same slot becomes a neutral,
+ * moves money). `refundOwed` takes priority over `refundedAt` — a re-flagged
+ * order (e.g. a late chargeback) must show the owed banner again even though
+ * `refundedAt` still holds a value from an earlier record. Only once
+ * `refundOwed` is false does a set `refundedAt` render as a neutral,
  * actionless summary line.
  */
 export function OrderActions({
@@ -141,15 +144,21 @@ export function OrderActions({
   if (status === 'DELIVERED') return null
 
   if (status === 'CANCELLED') {
-    if (refundedAt) {
-      return (
-        <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground">
-          Refunded {new Date(refundedAt).toLocaleDateString('en-NG')} &middot; ref {refundReference ?? '—'}
-        </div>
-      )
-    }
+    // `refundOwed` wins over `refundedAt`: a re-flagged order (a late charge
+    // that flips `refundOwed` back to true after an earlier refund was
+    // recorded) must show the owed banner again, even though `refundedAt`
+    // still holds a value from that earlier record.
+    if (!refundOwed) {
+      if (refundedAt) {
+        return (
+          <div className="rounded-xl border border-border p-4 text-sm text-muted-foreground">
+            Refunded {new Date(refundedAt).toLocaleDateString('en-NG')} &middot; ref {refundReference ?? '—'}
+          </div>
+        )
+      }
 
-    if (!refundOwed) return null
+      return null
+    }
 
     return (
       <div className="flex flex-col gap-3 rounded-xl border border-destructive/30 bg-destructive/5 p-4 text-sm text-destructive">

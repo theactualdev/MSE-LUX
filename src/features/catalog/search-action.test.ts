@@ -54,9 +54,25 @@ describe('searchCatalog', () => {
         slug: 'brass-pendant',
         name: 'Brass Pendant Necklace',
         priceSet: BRASS.priceSet,
+        salePriceSet: undefined,
         image: { src: '/img/brass-pendant.jpg', alt: 'Brass Pendant Necklace' },
       },
     ])
+  })
+
+  it('maps a product with a sale price through as salePriceSet', async () => {
+    const salePriceSet = { ngn: { amountMinor: 80_000, currency: 'NGN' as const }, usd: { amountMinor: 400, currency: 'USD' as const } }
+    getAllProducts.mockResolvedValue([{ ...BRASS, salePriceSet }])
+
+    const results = await searchCatalog('brass')
+
+    expect(results[0].salePriceSet).toEqual(salePriceSet)
+  })
+
+  it('a product with no sale price maps salePriceSet to undefined', async () => {
+    const results = await searchCatalog('brass')
+
+    expect(results[0].salePriceSet).toBeUndefined()
   })
 
   it('returns [] for a query with no matches', async () => {

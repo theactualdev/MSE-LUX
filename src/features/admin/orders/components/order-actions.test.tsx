@@ -186,6 +186,25 @@ describe('OrderActions', () => {
     expect(screen.getByText(/find this charge in paystack: —/i)).toBeInTheDocument()
   })
 
+  it('CANCELLED re-flagged (refundOwed: true with a past refundedAt): shows the owed banner, not the neutral line', () => {
+    render(
+      <OrderActions
+        orderNumber="MSE-1"
+        status="CANCELLED"
+        nigeria={true}
+        refundOwed={true}
+        refundedAt="2026-01-01T00:00:00.000Z"
+        refundReference="RF-1"
+        paystackReference="ps_ref_123"
+        paidShipping={PAID_SHIPPING}
+      />,
+    )
+
+    expect(screen.getByText(/find this charge in paystack: ps_ref_123/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /mark refunded/i })).toBeInTheDocument()
+    expect(screen.queryByText(/^refunded /i)).not.toBeInTheDocument()
+  })
+
   it('CANCELLED with refundedAt set: neutral refunded line, no action buttons', () => {
     render(
       <OrderActions

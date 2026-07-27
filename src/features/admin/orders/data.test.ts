@@ -273,9 +273,9 @@ describe('listAdminOrders', () => {
     await listAdminOrders({ refundQueue: true })
 
     expect(order.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({ where: { refundOwed: true, refundedAt: null } })
+      expect.objectContaining({ where: { refundOwed: true } })
     )
-    expect(order.count).toHaveBeenCalledWith({ where: { refundOwed: true, refundedAt: null } })
+    expect(order.count).toHaveBeenCalledWith({ where: { refundOwed: true } })
   })
 
   it('refundQueue: false or omitted never adds the refund condition', async () => {
@@ -291,7 +291,7 @@ describe('listAdminOrders', () => {
 
     expect(order.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { AND: [{ status: 'CANCELLED' }, { refundOwed: true, refundedAt: null }] },
+        where: { AND: [{ status: 'CANCELLED' }, { refundOwed: true }] },
       })
     )
   })
@@ -302,7 +302,7 @@ describe('listAdminOrders', () => {
     expect(order.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: {
-          AND: [{ OR: [{ orderNumber: 'MSE-1' }, { email: { contains: 'MSE-1', mode: 'insensitive' } }] }, { refundOwed: true, refundedAt: null }],
+          AND: [{ OR: [{ orderNumber: 'MSE-1' }, { email: { contains: 'MSE-1', mode: 'insensitive' } }] }, { refundOwed: true }],
         },
       })
     )
@@ -317,7 +317,7 @@ describe('listAdminOrders', () => {
           AND: [
             { status: 'CANCELLED' },
             { OR: [{ orderNumber: 'MSE-1' }, { email: { contains: 'MSE-1', mode: 'insensitive' } }] },
-            { refundOwed: true, refundedAt: null },
+            { refundOwed: true },
           ],
         },
       })
@@ -331,7 +331,7 @@ describe('countRefundQueue', () => {
 
     const result = await countRefundQueue()
 
-    expect(order.count).toHaveBeenCalledWith({ where: { refundOwed: true, refundedAt: null } })
+    expect(order.count).toHaveBeenCalledWith({ where: { refundOwed: true } })
     expect(result).toBe(4)
   })
 })

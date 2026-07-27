@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { SearchOverlay } from '@/features/catalog/components/search-overlay'
 import { searchCatalog } from '@/features/catalog/search-action'
 import { useUiStore } from '@/stores/ui'
+import { formatMoney } from '@/lib/money'
 
 const push = vi.fn()
 
@@ -27,6 +28,16 @@ const RESULT = {
     usd: { amountMinor: 1_900, currency: 'USD' as const },
   },
   image: { src: '/img/brass.jpg', alt: 'Brass pendant necklace' },
+}
+
+const RESULT_WITH_SALE = {
+  ...RESULT,
+  slug: 'silver-ring',
+  name: 'Silver Ring, On Sale',
+  salePriceSet: {
+    ngn: { amountMinor: 1_200_000, currency: 'NGN' as const },
+    usd: { amountMinor: 1_500, currency: 'USD' as const },
+  },
 }
 
 describe('SearchOverlay', () => {
@@ -67,6 +78,19 @@ describe('SearchOverlay', () => {
     // No ArrowDown — nothing highlighted — so Enter falls through to the "see all results" route.
     await user.keyboard('{Enter}')
     expect(push).toHaveBeenCalledWith('/search?q=brass')
+  })
+
+  it('renders a sale price (struck-through regular price + sale price) when the result has salePriceSet', async () => {
+    mockSearchCatalog.mockResolvedValue([RESULT_WITH_SALE])
+    useUiStore.setState({ searchOpen: true })
+    const user = userEvent.setup({ delay: null })
+    render(<SearchOverlay />)
+
+    await user.type(screen.getByRole('combobox'), 'silver')
+
+    expect(await screen.findByText('Silver Ring, On Sale')).toBeInTheDocument()
+    expect(screen.getByText(formatMoney(RESULT_WITH_SALE.salePriceSet.ngn))).toBeInTheDocument()
+    expect(screen.getByText(formatMoney(RESULT_WITH_SALE.priceSet.ngn))).toBeInTheDocument()
   })
 
   it('shows a no-results message when the action resolves empty', async () => {

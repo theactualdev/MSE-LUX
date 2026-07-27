@@ -338,9 +338,18 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
       // guest-order cookie above) have already resolved. `result` is already
       // fixed at this point and is returned unchanged below regardless of
       // what happens inside `saveAddressBestEffort` — see that function's
-      // doc comment for why it can never throw out of here.
+      // doc comment for why it can never throw out of here. Belt-and-suspenders:
+      // this call sits inside the orderNumber-retry `try`, so a future escape
+      // from the helper would masquerade as a unique-violation retry and
+      // create a second order — wrap it in its own `try/catch` so that can
+      // never happen even if `saveAddressBestEffort` stops holding its
+      // never-throws contract.
       if (userId && input.saveAddress === true) {
-        await saveAddressBestEffort(userId, parsedAddress.data)
+        try {
+          await saveAddressBestEffort(userId, parsedAddress.data)
+        } catch (error) {
+          console.error('[placeOrder] saveAddressBestEffort unexpectedly threw', error)
+        }
       }
 
       return result

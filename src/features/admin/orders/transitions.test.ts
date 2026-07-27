@@ -302,7 +302,7 @@ describe('markOrderRefunded', () => {
       select: { id: true, refundOwed: true, refundedAt: true },
     })
     expect(order.updateMany).toHaveBeenCalledWith({
-      where: { id: ORDER_ID, refundOwed: true, refundedAt: null },
+      where: { id: ORDER_ID, refundOwed: true },
       data: { refundOwed: false, refundedAt: expect.any(Date), refundReference: 'RF-1' },
     })
     expect(productVariant.update).not.toHaveBeenCalled()
@@ -316,7 +316,7 @@ describe('markOrderRefunded', () => {
 
     expect(result).toEqual({ ok: true })
     expect(order.updateMany).toHaveBeenCalledWith({
-      where: { id: ORDER_ID, refundOwed: true, refundedAt: null },
+      where: { id: ORDER_ID, refundOwed: true },
       data: { refundOwed: false, refundedAt: expect.any(Date), refundReference: null },
     })
   })
@@ -328,8 +328,26 @@ describe('markOrderRefunded', () => {
 
     expect(result).toEqual({ ok: true })
     expect(order.updateMany).toHaveBeenCalledWith({
-      where: { id: ORDER_ID, refundOwed: true, refundedAt: null },
+      where: { id: ORDER_ID, refundOwed: true },
       data: { refundOwed: false, refundedAt: expect.any(Date), refundReference: null },
+    })
+  })
+
+  it('re-flagged order (refundOwed: true with a past refundedAt) records successfully', async () => {
+    // A late chargeback (or any second refund-owed event) flips `refundOwed`
+    // back to true without clearing the prior `refundedAt`/`refundReference`
+    // from an earlier record. That must still be recordable — the guard is
+    // `refundOwed` alone, and the new write is expected to OVERWRITE the
+    // stale refundedAt/refundReference with the new record.
+    const priorRefundedAt = new Date('2026-01-01T00:00:00Z')
+    order.findUnique.mockResolvedValue({ id: ORDER_ID, refundOwed: true, refundedAt: priorRefundedAt })
+
+    const result = await markOrderRefunded(ORDER_NUMBER, { reference: 'RF-2' })
+
+    expect(result).toEqual({ ok: true })
+    expect(order.updateMany).toHaveBeenCalledWith({
+      where: { id: ORDER_ID, refundOwed: true },
+      data: { refundOwed: false, refundedAt: expect.any(Date), refundReference: 'RF-2' },
     })
   })
 
@@ -362,7 +380,7 @@ describe('markOrderRefunded', () => {
     expect(order.updateMany).not.toHaveBeenCalled()
   })
 
-  it('rejects an order already refunded (refundedAt set)', async () => {
+  it('rejects an order that is not owed a refund even with a past refundedAt set', async () => {
     order.findUnique.mockResolvedValue({ id: ORDER_ID, refundOwed: false, refundedAt: new Date() })
 
     const result = await markOrderRefunded(ORDER_NUMBER, { reference: 'RF-1' })

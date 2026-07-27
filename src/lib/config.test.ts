@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { siteConfig } from '@/lib/config'
-import { categories } from '@/features/catalog/data'
+import { categories } from '@/features/catalog/data/categories'
 
 describe('siteConfig.nav taxonomy', () => {
   it('has Jewelry with subcategory children including Necklaces', () => {

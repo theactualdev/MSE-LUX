@@ -197,7 +197,7 @@ export function SearchOverlay() {
                 </div>
                 <div className="flex flex-1 flex-col gap-0.5">
                   <span className="text-sm font-medium text-foreground">{product.name}</span>
-                  <PriceDisplay product={{ priceSet: product.priceSet }} className="text-xs" />
+                  <PriceDisplay product={{ priceSet: product.priceSet, salePriceSet: product.salePriceSet }} className="text-xs" />
                 </div>
               </Link>
             ))}

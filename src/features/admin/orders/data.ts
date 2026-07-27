@@ -30,7 +30,7 @@ export interface ListAdminOrdersInput {
   status?: OrderStatus
   query?: string
   page?: number
-  /** Restrict to the refund work queue: refund owed, not yet recorded. AND-composes with status/query. */
+  /** Restrict to the refund work queue: `refundOwed: true`. AND-composes with status/query. */
   refundQueue?: boolean
 }
 
@@ -53,8 +53,15 @@ export type AdminOrderDetail = OrderView & {
   shipbubbleOrderId: string | null
 }
 
-/** The refund work queue's `where`: refund owed, not yet recorded. Shared by `listAdminOrders({ refundQueue: true })` and `countRefundQueue`. */
-const REFUND_QUEUE_WHERE: Prisma.OrderWhereInput = { refundOwed: true, refundedAt: null }
+/**
+ * The refund work queue's `where`: `refundOwed: true` alone. The flip that
+ * records a refund sets `refundOwed` back to `false`, so the flag by itself
+ * already means "owed and unrecorded" — a `refundedAt: null` co-condition
+ * would additionally exclude orders that were re-flagged after an earlier
+ * refund was recorded (e.g. a late chargeback), which must re-enter the
+ * queue. Shared by `listAdminOrders({ refundQueue: true })` and `countRefundQueue`.
+ */
+const REFUND_QUEUE_WHERE: Prisma.OrderWhereInput = { refundOwed: true }
 
 /**
  * List admin orders with optional filtering by status and search query.
