@@ -1,6 +1,7 @@
 import 'server-only'
 import { db } from '@/lib/db'
 import type { PaystackCharge } from '@/features/checkout/lib/paystack'
+import { sendOrderConfirmation } from '@/features/email/send'
 
 /**
  * The single idempotent fulfilment core. Both the Paystack webhook
@@ -47,6 +48,13 @@ export async function markOrderPaid(charge: PaystackCharge): Promise<'paid' | 'i
     }
 
     let lateChargeOnCancelled = false
+    // Set ONLY on the genuine-fulfilment branch below (count === 1) — the
+    // ONE signal that tells the code after `$transaction` resolves whether
+    // THIS call actually won the guard, as opposed to short-circuiting
+    // earlier (order.paidAt already set), losing a race (count === 0, no
+    // cancel), or losing to a cancel (count === 0, lateChargeOnCancelled).
+    // Only a `true` here may trigger the confirmation email.
+    let wonFulfilment = false
 
     await db.$transaction(async (tx) => {
       // `updateMany`, not `update`: `update`'s `where` only accepts unique
@@ -81,6 +89,8 @@ export async function markOrderPaid(charge: PaystackCharge): Promise<'paid' | 'i
         return
       }
 
+      wonFulfilment = true
+
       for (const line of order.lines) {
         if (line.variantId) {
           await tx.productVariant.update({
@@ -101,6 +111,25 @@ export async function markOrderPaid(charge: PaystackCharge): Promise<'paid' | 'i
     })
 
     if (lateChargeOnCancelled) return 'mismatch'
+
+    // Best-effort, strictly AFTER the fulfilment transaction has already
+    // committed, and ONLY on the branch that actually won the guard — never
+    // the already-paid short-circuit above, never a race loser, never the
+    // lateChargeOnCancelled path (that order is CANCELLED; a confirmation
+    // would be actively wrong). The return value below is already fixed
+    // ('paid', unconditionally reached from this point) and is returned
+    // unchanged regardless of what happens inside the send — its own
+    // try/catch swallows and logs any failure rather than letting it
+    // propagate. Same idiom as `checkout/data.ts`'s `saveAddressBestEffort`
+    // call site.
+    if (wonFulfilment) {
+      try {
+        await sendOrderConfirmation(orderNumber)
+      } catch (error) {
+        console.error('[markOrderPaid] sendOrderConfirmation unexpectedly threw', error)
+      }
+    }
+
     return 'paid'
   } catch (error) {
     console.error('[markOrderPaid] unexpected error', error)

@@ -1,6 +1,7 @@
 import 'server-only'
 import { db } from '@/lib/db'
 import { OrderStatus } from '@/generated/prisma/client'
+import { sendOrderShipped } from '@/features/email/send'
 
 /**
  * The admin order state machine. Forward-only: PROCESSING→SHIPPED→DELIVERED,
@@ -56,6 +57,20 @@ export async function shipOrder(
       },
     })
     if (count === 0) return { ok: false, error: 'conflict' }
+
+    // Best-effort, strictly AFTER the guarded flip has already committed —
+    // never on a `conflict`/`invalid-state`/`not-found`/`error` exit. The
+    // return value below is already fixed (`{ ok: true }`) and is returned
+    // unchanged regardless of what happens inside the send — its own
+    // try/catch swallows and logs any failure rather than letting it
+    // propagate. Same idiom as `checkout/data.ts`'s `saveAddressBestEffort`
+    // call site / `markOrderPaid`'s confirmation send.
+    try {
+      await sendOrderShipped(orderNumber)
+    } catch (error) {
+      console.error('[shipOrder] sendOrderShipped unexpectedly threw', error)
+    }
+
     return { ok: true }
   } catch (error) {
     console.error('[shipOrder] unexpected error', error)

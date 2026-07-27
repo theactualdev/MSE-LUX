@@ -1,6 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import type { PaystackCharge } from '@/features/checkout/lib/paystack'
 
+const sendOrderConfirmationMock = vi.fn()
+vi.mock('@/features/email/send', () => ({
+  sendOrderConfirmation: (...args: unknown[]) => sendOrderConfirmationMock(...args),
+}))
+
 /**
  * Same `$transaction` mocking pattern as `checkout/data.test.ts`: the
  * callback receives spies shared with top-level `db`, so assertions don't
@@ -83,6 +88,7 @@ function baseOrder(overrides: Record<string, unknown> = {}) {
 beforeEach(() => {
   vi.clearAllMocks()
   order.updateMany.mockResolvedValue({ count: 1 })
+  sendOrderConfirmationMock.mockResolvedValue(undefined)
 })
 
 describe('markOrderPaid', () => {
@@ -110,6 +116,12 @@ describe('markOrderPaid', () => {
     })
 
     expect(cartItem.deleteMany).toHaveBeenCalledWith({ where: { cart: { profileId: PROFILE_ID } } })
+
+    // The confirmation is sent exactly once, and strictly AFTER the
+    // fulfilment transaction resolves — never interleaved with it.
+    expect(sendOrderConfirmationMock).toHaveBeenCalledTimes(1)
+    expect(sendOrderConfirmationMock).toHaveBeenCalledWith(ORDER_NUMBER)
+    expect($transaction.mock.invocationCallOrder[0]).toBeLessThan(sendOrderConfirmationMock.mock.invocationCallOrder[0])
   })
 
   it('fulfils a guest order but does not clear a cart', async () => {
@@ -137,6 +149,9 @@ describe('markOrderPaid', () => {
     expect(productVariant.update).not.toHaveBeenCalled()
     expect(product.update).not.toHaveBeenCalled()
     expect(cartItem.deleteMany).not.toHaveBeenCalled()
+    // Already fulfilled by whichever caller got there first — that caller
+    // sent the confirmation once already; this short-circuit must not send again.
+    expect(sendOrderConfirmationMock).not.toHaveBeenCalled()
   })
 
   it('loses a concurrent race (updateMany count 0, other caller already set paidAt): returns paid with no side effects', async () => {
@@ -154,6 +169,8 @@ describe('markOrderPaid', () => {
     expect(productVariant.update).not.toHaveBeenCalled()
     expect(product.update).not.toHaveBeenCalled()
     expect(cartItem.deleteMany).not.toHaveBeenCalled()
+    // The race WINNER already sent the confirmation; a loser must not send a second one.
+    expect(sendOrderConfirmationMock).not.toHaveBeenCalled()
   })
 
   it('loses to a cancel (updateMany count 0, order was CANCELLED before this charge landed): flags refundOwed, returns mismatch, no fulfilment side effects', async () => {
@@ -179,6 +196,8 @@ describe('markOrderPaid', () => {
     expect(productVariant.update).not.toHaveBeenCalled()
     expect(product.update).not.toHaveBeenCalled()
     expect(cartItem.deleteMany).not.toHaveBeenCalled()
+    // The order is CANCELLED — a confirmation email would be actively wrong.
+    expect(sendOrderConfirmationMock).not.toHaveBeenCalled()
   })
 
   it('rejects an amount mismatch: mismatch, no writes, order left pending', async () => {
@@ -216,5 +235,15 @@ describe('markOrderPaid', () => {
 
     expect(result).toBe('ignored')
     expect(order.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('a sender rejection on the genuine fulfilment path leaves the return value unchanged', async () => {
+    order.findUnique.mockResolvedValue(baseOrder())
+    sendOrderConfirmationMock.mockRejectedValue(new Error('resend down'))
+
+    const result = await markOrderPaid(charge())
+
+    expect(result).toBe('paid')
+    expect(sendOrderConfirmationMock).toHaveBeenCalledTimes(1)
   })
 })

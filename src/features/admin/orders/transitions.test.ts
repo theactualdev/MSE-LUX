@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+const sendOrderShippedMock = vi.fn()
+vi.mock('@/features/email/send', () => ({
+  sendOrderShipped: (...args: unknown[]) => sendOrderShippedMock(...args),
+}))
+
 /**
  * Same `$transaction` mocking idiom as `fulfil-order.test.ts`: the callback
  * receives spies shared with top-level `db`, so assertions don't need to
@@ -51,6 +56,7 @@ const LINES = [
 beforeEach(() => {
   vi.clearAllMocks()
   order.updateMany.mockResolvedValue({ count: 1 })
+  sendOrderShippedMock.mockResolvedValue(undefined)
 })
 
 describe('shipOrder', () => {
@@ -74,6 +80,8 @@ describe('shipOrder', () => {
         shipbubbleOrderId: null,
       },
     })
+    expect(sendOrderShippedMock).toHaveBeenCalledTimes(1)
+    expect(sendOrderShippedMock).toHaveBeenCalledWith(ORDER_NUMBER)
   })
 
   it('passes through shipbubbleOrderId when supplied', async () => {
@@ -100,6 +108,7 @@ describe('shipOrder', () => {
     expect(result).toEqual({ ok: false, error: 'invalid-input' })
     expect(order.findUnique).not.toHaveBeenCalled()
     expect(order.updateMany).not.toHaveBeenCalled()
+    expect(sendOrderShippedMock).not.toHaveBeenCalled()
   })
 
   it('rejects a blank tracking number without reading the db', async () => {
@@ -108,6 +117,7 @@ describe('shipOrder', () => {
     expect(result).toEqual({ ok: false, error: 'invalid-input' })
     expect(order.findUnique).not.toHaveBeenCalled()
     expect(order.updateMany).not.toHaveBeenCalled()
+    expect(sendOrderShippedMock).not.toHaveBeenCalled()
   })
 
   it('rejects an order already SHIPPED', async () => {
@@ -117,6 +127,7 @@ describe('shipOrder', () => {
 
     expect(result).toEqual({ ok: false, error: 'invalid-state' })
     expect(order.updateMany).not.toHaveBeenCalled()
+    expect(sendOrderShippedMock).not.toHaveBeenCalled()
   })
 
   it('returns not-found for an unknown order', async () => {
@@ -126,6 +137,7 @@ describe('shipOrder', () => {
 
     expect(result).toEqual({ ok: false, error: 'not-found' })
     expect(order.updateMany).not.toHaveBeenCalled()
+    expect(sendOrderShippedMock).not.toHaveBeenCalled()
   })
 
   it('returns conflict when the guarded updateMany affects zero rows (never throws)', async () => {
@@ -135,6 +147,17 @@ describe('shipOrder', () => {
     const result = await shipOrder(ORDER_NUMBER, { carrier: 'GIG', trackingNumber: 'TRK-1' })
 
     expect(result).toEqual({ ok: false, error: 'conflict' })
+    expect(sendOrderShippedMock).not.toHaveBeenCalled()
+  })
+
+  it('a sender rejection on the happy path leaves the result unchanged', async () => {
+    order.findUnique.mockResolvedValue({ id: ORDER_ID, status: 'PROCESSING' })
+    sendOrderShippedMock.mockRejectedValue(new Error('resend down'))
+
+    const result = await shipOrder(ORDER_NUMBER, { carrier: 'GIG', trackingNumber: 'TRK-1' })
+
+    expect(result).toEqual({ ok: true })
+    expect(sendOrderShippedMock).toHaveBeenCalledTimes(1)
   })
 
   it('returns error and never throws when the db throws', async () => {
