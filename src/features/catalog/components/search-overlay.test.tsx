@@ -55,6 +55,20 @@ describe('SearchOverlay', () => {
     expect(push).toHaveBeenCalledWith('/products/brass-pendant-necklace')
   })
 
+  it('plain Enter (no highlighted result) routes to the search page with the query', async () => {
+    mockSearchCatalog.mockResolvedValue([RESULT])
+    useUiStore.setState({ searchOpen: true })
+    const user = userEvent.setup({ delay: null })
+    render(<SearchOverlay />)
+
+    await user.type(screen.getByRole('combobox'), 'brass')
+    expect(await screen.findByText('Brass Pendant Necklace, Adire Motif')).toBeInTheDocument()
+
+    // No ArrowDown — nothing highlighted — so Enter falls through to the "see all results" route.
+    await user.keyboard('{Enter}')
+    expect(push).toHaveBeenCalledWith('/search?q=brass')
+  })
+
   it('shows a no-results message when the action resolves empty', async () => {
     mockSearchCatalog.mockResolvedValue([])
     useUiStore.setState({ searchOpen: true })
