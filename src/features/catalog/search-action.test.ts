@@ -10,7 +10,7 @@ vi.mock('@/features/catalog/server/selectors', () => ({
 const checkRateLimit = vi.fn()
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
-  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 60, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
 }))
 
 const { searchCatalog } = await import('@/features/catalog/search-action')
@@ -115,7 +115,10 @@ describe('searchCatalog — rate limiting (the "search" window, guarded before e
   beforeEach(() => {
     getAllProducts.mockReset()
     getAllProducts.mockResolvedValue([BRASS, SILVER])
+    // Parity with the other three rate-limit test files: default to "allow"
+    // so this reset doesn't leave checkRateLimit with no implementation.
     checkRateLimit.mockReset()
+    checkRateLimit.mockResolvedValue(true)
   })
 
   it('limited: returns [] and never touches the catalog', async () => {

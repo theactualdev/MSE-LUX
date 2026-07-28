@@ -26,15 +26,34 @@ import { headers } from 'next/headers'
  * (`console.error`) and returns `true`, never thrown.
  */
 
-/** Named windows — tuned conservatively; a real customer never hits these. */
+/**
+ * Named windows — tuned conservatively; a real customer never hits these.
+ *
+ * `search` is deliberately more generous than the others: it's a cheap,
+ * read-only query behind a debounced client (not a write, not a charge), and
+ * every bucket here is pure-IP. The primary market is Nigerian mobile CGNAT,
+ * where many customers share one carrier-assigned address — a shared bucket
+ * that's too tight doesn't prompt a retry, it silently renders as a WRONG
+ * "no results" for a query a limited-out customer never even typed. 120/60s
+ * gives a shared-IP crowd real headroom while still bounding a single abusive
+ * client.
+ */
 export const RATE_LIMITS = {
   payment: { limit: 10, windowSeconds: 60 }, // initializePayment / verifyPayment — the carding surface
   checkout: { limit: 20, windowSeconds: 60 }, // placeOrder / getShippingRates
-  search: { limit: 60, windowSeconds: 60 }, // searchCatalog
+  search: { limit: 120, windowSeconds: 60 }, // searchCatalog
   auth: { limit: 10, windowSeconds: 300 }, // signIn / signUp / requestPasswordReset
 } as const
 
 export type RateLimitKind = keyof typeof RATE_LIMITS
+
+/**
+ * Shared copy for a rate-limited action result. Exported so every caller
+ * that surfaces a rate-limit error to the user (`placeOrder`, `initializePayment`,
+ * `verifyPayment`) builds its typed `{ error }` constant from this ONE string
+ * instead of each re-typing the literal.
+ */
+export const RATE_LIMITED_MESSAGE = 'Too many attempts. Please wait a moment and try again.'
 
 /**
  * Resolves the caller's IP from request headers for use as the rate-limit

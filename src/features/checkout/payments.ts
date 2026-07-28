@@ -5,7 +5,7 @@ import { db } from '@/lib/db'
 import { getCurrentUserId } from '@/features/auth/claims'
 import { initializeTransaction, verifyTransaction } from '@/features/checkout/lib/paystack'
 import { markOrderPaid } from '@/features/checkout/lib/fulfil-order'
-import { checkRateLimit } from '@/lib/rate-limit'
+import { checkRateLimit, RATE_LIMITED_MESSAGE } from '@/lib/rate-limit'
 import type { InitializePaymentResult, VerifyPaymentResult } from '@/features/checkout/payment-types'
 
 /**
@@ -35,12 +35,12 @@ const NOT_COMPLETED: VerifyPaymentResult = { error: 'Payment was not completed.'
 const MISMATCH: VerifyPaymentResult = { error: 'Payment could not be reconciled with your order.' }
 
 /**
- * Both actions below share the same `'payment'` rate-limit window (the
- * carding surface) and this same copy. Deliberately untyped (rather than
- * annotated as `InitializePaymentResult`/`VerifyPaymentResult`) so the one
- * constant is structurally assignable to both result unions.
+ * Both actions below share this same copy. Typed as the `{ error: string }`
+ * shape common to both `InitializePaymentResult` and `VerifyPaymentResult`
+ * (rather than either specific union) so the one constant stays structurally
+ * assignable to both result types.
  */
-const RATE_LIMITED = { error: 'Too many attempts. Please wait a moment and try again.' }
+const RATE_LIMITED: { error: string } = { error: RATE_LIMITED_MESSAGE }
 
 /** A fresh, unique-per-attempt Paystack reference. Overwriting a prior failed attempt's stored reference is fine — `markOrderPaid` anchors on `orderNumber`, not this column. */
 function generateReference(orderNumber: string): string {
@@ -109,7 +109,16 @@ export async function initializePayment(orderNumber: string): Promise<Initialize
  * if this call never lands).
  */
 export async function verifyPayment(reference: string): Promise<VerifyPaymentResult> {
-  if (!(await checkRateLimit('payment'))) return RATE_LIMITED
+  // Keyed by the Paystack REFERENCE, not the caller's IP — unlike
+  // `initializePayment` (the actual carding surface, which keeps its
+  // IP-keyed 'payment' window unchanged). By the time `verifyPayment` runs,
+  // Paystack has ALREADY taken the money; a limit hit here shows "Too many
+  // attempts" for a charge that already succeeded, and the only retry the
+  // UI offers creates a SECOND order and a second charge. A reference is
+  // Paystack-issued and unguessable, so per-reference throttling still stops
+  // one payment from being hammered, while unrelated traffic sharing a
+  // CGNAT/shared IP can never starve a legitimate confirmation.
+  if (!(await checkRateLimit('payment', reference))) return RATE_LIMITED
 
   try {
     const charge = await verifyTransaction(reference)

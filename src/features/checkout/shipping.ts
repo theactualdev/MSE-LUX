@@ -151,18 +151,45 @@ export async function getShippingRates(input: {
   chargeCurrency: 'NGN' | 'USD'
   guestLines?: GuestOrderLine[]
 }): Promise<ShippingOption[]> {
-  // A shipping quote is not worth breaking checkout over: on a limit hit,
-  // degrade EXACTLY like a ShipBubble outage does — log and hand back the
-  // same flat-fallback option array (`guardFallbackOption`) rather than an
-  // empty list or a thrown error. This function's contract is that it never
-  // throws and always resolves `ShippingOption[]`, so the rate-limit guard
-  // must honour that contract too.
-  if (!(await checkRateLimit('checkout'))) {
-    console.error('getShippingRates: rate limited, falling back to a flat rate')
-    return [guardFallbackOption(input.address, input.chargeCurrency)]
-  }
-
   try {
+    // A shipping quote is not worth breaking checkout over: on a limit hit,
+    // degrade EXACTLY like a ShipBubble outage does — log and hand back a
+    // flat-fallback option rather than an empty list or a thrown error. This
+    // function's contract is that it never throws and always resolves
+    // `ShippingOption[]`, so the rate-limit guard must honour that contract
+    // too — which is why it lives HERE, as the first thing inside the
+    // top-level try, rather than above it:
+    // `guardFallbackOption` -> `signQuote` -> `requireSecret()` throws when
+    // `SHIPBUBBLE_QUOTE_SECRET` is unset, so outside this try that throw
+    // would escape `getShippingRates` entirely on a limited request.
+    if (!(await checkRateLimit('checkout'))) {
+      console.error('getShippingRates: rate limited, falling back to a flat rate')
+
+      // Don't let a limit hit ship an international order at the domestic
+      // flat rate: if the address parses and this is an NGN charge to a
+      // NON-Nigerian destination, return the same signed
+      // FLAT_INTERNATIONAL_NGN option the un-limited international branch
+      // below would build — never the cheaper, mislabeled
+      // FLAT_FALLBACK_NGN that `guardFallbackOption` would otherwise pick on
+      // currency alone.
+      const parsedForLimit = addressSchema.safeParse(input.address)
+      if (parsedForLimit.success && input.chargeCurrency === 'NGN' && !isNigeria(parsedForLimit.data.country)) {
+        const limitHash = addressHash(parsedForLimit.data)
+        return [
+          toOption(
+            'international',
+            FLAT_INTERNATIONAL_NGN.label,
+            FLAT_INTERNATIONAL_NGN.amountMinor,
+            FLAT_INTERNATIONAL_NGN.currency,
+            limitHash,
+            FLAT_INTERNATIONAL_NGN.deliveryEta,
+          ),
+        ]
+      }
+
+      return [guardFallbackOption(input.address, input.chargeCurrency)]
+    }
+
     // `input.address` is untrusted at this boundary (a public Server Action —
     // no runtime arg validation happens for us). A malformed/missing address
     // must not throw straight out of the function; it gets one safe flat

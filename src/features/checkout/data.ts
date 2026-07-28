@@ -11,7 +11,7 @@ import { verifyQuote } from '@/features/checkout/lib/shipping-quote'
 import { contactSchema, addressSchema } from '@/features/checkout/schema'
 import type { Address } from '@/features/checkout/schema'
 import { mapOrderRow } from '@/features/checkout/lib/order-view'
-import { checkRateLimit } from '@/lib/rate-limit'
+import { checkRateLimit, RATE_LIMITED_MESSAGE } from '@/lib/rate-limit'
 import type { PlaceOrderInput, PlaceOrderResult, GuestOrderLine } from '@/features/checkout/types'
 // `account/data.ts` carries `import 'server-only'`, not `'use server'` — it's
 // an ordinary server module (not a Server Actions module restricted to async
@@ -61,7 +61,7 @@ const EMPTY_CART: PlaceOrderResult = { error: 'Your cart is empty.' }
 const OUT_OF_STOCK: PlaceOrderResult = { error: 'These items are no longer in stock.' }
 const GENERIC_ERROR: PlaceOrderResult = { error: 'Something went wrong. Please try again.' }
 const SHIPPING_EXPIRED: PlaceOrderResult = { error: 'Please re-select a shipping option.' }
-const RATE_LIMITED: PlaceOrderResult = { error: 'Too many attempts. Please wait a moment and try again.' }
+const RATE_LIMITED: PlaceOrderResult = { error: RATE_LIMITED_MESSAGE }
 
 /** Prisma's unique-constraint violation. Matched structurally so this module needn't import the error class. */
 function isUniqueViolation(error: unknown): boolean {

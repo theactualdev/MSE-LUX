@@ -90,10 +90,12 @@ vi.mock('@/features/catalog/server/resolve-products', () => ({
 const checkRateLimit = vi.fn()
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
-  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 60, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
+  RATE_LIMITED_MESSAGE: 'Too many attempts. Please wait a moment and try again.',
 }))
 
 const { placeOrder } = await import('@/features/checkout/data')
+const { RATE_LIMITED_MESSAGE } = await import('@/lib/rate-limit')
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
 const PRODUCT_ID = 'prod-1'
@@ -720,7 +722,7 @@ describe('placeOrder — rate limiting (the "checkout" window, guarded before an
     })
 
     expect(checkRateLimit).toHaveBeenCalledWith('checkout')
-    expect(result).toEqual({ error: 'Too many attempts. Please wait a moment and try again.' })
+    expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
     expect(order.create).not.toHaveBeenCalled()
     expect($transaction).not.toHaveBeenCalled()
     expect(resolveProductsByIds).not.toHaveBeenCalled()

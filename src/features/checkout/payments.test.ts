@@ -51,10 +51,12 @@ vi.mock('next/headers', () => ({ cookies: vi.fn(async () => cookieStore) }))
 const checkRateLimit = vi.fn()
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
-  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 60, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
+  RATE_LIMITED_MESSAGE: 'Too many attempts. Please wait a moment and try again.',
 }))
 
 const { initializePayment, verifyPayment } = await import('@/features/checkout/payments')
+const { RATE_LIMITED_MESSAGE } = await import('@/lib/rate-limit')
 
 const ORDER_NUMBER = 'MSE-000123'
 const USER_ID = '11111111-1111-4111-8111-111111111111'
@@ -254,8 +256,10 @@ describe('rate limiting — the "payment" window guards both actions before any 
 
     const result = await initializePayment(ORDER_NUMBER)
 
+    // initializePayment is the carding surface — it keeps the plain IP-keyed
+    // 'payment' window (no identifier argument).
     expect(checkRateLimit).toHaveBeenCalledWith('payment')
-    expect(result).toEqual({ error: 'Too many attempts. Please wait a moment and try again.' })
+    expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
     expect(order.findFirst).not.toHaveBeenCalled()
     expect(initializeTransaction).not.toHaveBeenCalled()
     expect(order.update).not.toHaveBeenCalled()
@@ -266,9 +270,20 @@ describe('rate limiting — the "payment" window guards both actions before any 
 
     const result = await verifyPayment(REFERENCE)
 
-    expect(checkRateLimit).toHaveBeenCalledWith('payment')
-    expect(result).toEqual({ error: 'Too many attempts. Please wait a moment and try again.' })
+    expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
     expect(verifyTransaction).not.toHaveBeenCalled()
     expect(markOrderPaid).not.toHaveBeenCalled()
+  })
+
+  // Fix 2: verifyPayment must NOT share the IP bucket — money has already
+  // moved by the time this runs, so it's keyed by the unguessable Paystack
+  // reference instead, never the caller's IP.
+  it('verifyPayment: keys checkRateLimit by the Paystack reference, not the IP', async () => {
+    verifyTransaction.mockResolvedValue(charge())
+    markOrderPaid.mockResolvedValue('paid')
+
+    await verifyPayment(REFERENCE)
+
+    expect(checkRateLimit).toHaveBeenCalledWith('payment', REFERENCE)
   })
 })

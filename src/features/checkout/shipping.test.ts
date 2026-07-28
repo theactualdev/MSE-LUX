@@ -53,7 +53,7 @@ vi.mock('@/features/checkout/lib/shipping-config', () => ({
 const checkRateLimit = vi.fn()
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
-  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 60, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
 }))
 
 const { getShippingRates } = await import('@/features/checkout/shipping')
@@ -457,5 +457,50 @@ describe('getShippingRates — rate limiting (the "checkout" window)', () => {
     expect(options[0]).toMatchObject({ id: 'fallback', currency: 'USD', amountMinor: 260_000 })
     expect(verifyQuote(options[0].token, US_ADDRESS)).not.toBeNull()
     expect(fetchRates).not.toHaveBeenCalled()
+  })
+
+  // Fix 1: the rate-limited fallback must be destination-aware — an NGN
+  // charge to a NON-Nigerian address must get the INTERNATIONAL flat rate,
+  // never the (half-price, mislabeled) domestic FLAT_FALLBACK_NGN.
+  it('NGN charge + non-NG address: limited returns the signed FLAT_INTERNATIONAL_NGN option, not the domestic fallback', async () => {
+    checkRateLimit.mockResolvedValue(false)
+
+    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
+
+    expect(checkRateLimit).toHaveBeenCalledWith('checkout')
+    expect(options).toHaveLength(1)
+    expect(options[0]).toMatchObject({ id: 'international', label: 'International shipping', amountMinor: 500_000, currency: 'NGN' })
+
+    const payload = verifyQuote(options[0].token, US_ADDRESS)
+    expect(payload).not.toBeNull()
+    expect(payload).toMatchObject({ label: 'International shipping', amountMinor: 500_000, currency: 'NGN' })
+
+    expect(getCurrentUserId).not.toHaveBeenCalled()
+    expect(cartItem.findMany).not.toHaveBeenCalled()
+    expect(resolveProductsByIds).not.toHaveBeenCalled()
+    expect(validateAddress).not.toHaveBeenCalled()
+    expect(fetchRates).not.toHaveBeenCalled()
+  })
+
+  it('NGN charge + NG address: limited still returns the flat domestic fallback, exactly as before', async () => {
+    checkRateLimit.mockResolvedValue(false)
+    getCurrentUserId.mockResolvedValue(USER_ID)
+
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' })
+
+    expect(options).toHaveLength(1)
+    expect(options[0]).toMatchObject({ id: 'fallback', label: 'Standard delivery', amountMinor: 300_000, currency: 'NGN' })
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).not.toBeNull()
+  })
+
+  it('malformed address: limited still falls through to guardFallbackOption unchanged', async () => {
+    checkRateLimit.mockResolvedValue(false)
+    const malformedAddress = { ...NG_ADDRESS, country: undefined } as unknown as Address
+
+    const options = await getShippingRates({ address: malformedAddress, email: EMAIL, chargeCurrency: 'NGN' })
+
+    expect(options).toHaveLength(1)
+    expect(options[0].id).toBe('fallback')
+    expect(verifyQuote(options[0].token, malformedAddress)).not.toBeNull()
   })
 })
