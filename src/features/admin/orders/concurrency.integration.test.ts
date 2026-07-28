@@ -43,6 +43,22 @@ import { cancelOrder } from '@/features/admin/orders/transitions'
  * `{ ok: false, error: 'not-configured' }` and `sendOrderConfirmation` logs
  * it via `console.error` — that log line is expected noise when this suite
  * actually runs, not a failure.
+ *
+ * Why Race 1 is two tests, not one: a genuinely concurrent `Promise.all`
+ * only exercises the ordering the DB's scheduler happens to pick that run —
+ * on the ordering where `cancelOrder` commits first, dropping the
+ * `status: 'PENDING'` clause from `markOrderPaid`'s guard (`fulfil-order.ts`,
+ * the exact 8b regression this suite exists to catch) makes the buggy guard
+ * behave identically to the fixed one, so a single green run is weak
+ * evidence. "a late charge arriving after an admin cancel must not
+ * resurrect the order" below is the deterministic guard-regression check:
+ * it sequences `cancelOrder` to completion BEFORE `markOrderPaid`, so the
+ * ordering is fixed and the guard is exercised on every run, not just the
+ * lucky ones. The concurrent test right above it loops 5 iterations with a
+ * fresh fixture each time — it exists to prove no deadlock/corruption under
+ * real contention (both orderings are legitimate outcomes there), not to
+ * catch the guard regression; that job now belongs to the deterministic
+ * test.
  */
 const enabled = process.env.CONCURRENCY === '1'
 
@@ -144,6 +160,35 @@ describe.runIf(enabled)('order-transition races: real-DB concurrency', () => {
     return order
   }
 
+  /**
+   * Seeds a fresh PENDING order (qty `quantity`, product inventory
+   * `initialInventory`) plus a matching `PaystackCharge` for Race 1 (both the
+   * looped concurrent test and the deterministic sequenced test below). Every
+   * caller passes a distinct `suffix` so each invocation gets independent,
+   * uncontaminated rows — required for the loop, where each iteration must
+   * start clean rather than build on the previous iteration's final state.
+   */
+  async function seedRace1Fixture(suffix: string, quantity: number, initialInventory: number) {
+    const category = await createCategory(`race1-${suffix}`)
+    const product = await createProduct(`race1-${suffix}`, category.id, initialInventory)
+    const order = await createOrder({
+      orderNumber: `${RUN_ID}-RACE1-${suffix}`,
+      productId: product.id,
+      quantity,
+      status: 'PENDING',
+    })
+
+    const charge: PaystackCharge = {
+      reference: `${RUN_ID}-RACE1-${suffix}-ref`,
+      status: 'success',
+      amountMinor: order.totalMinor,
+      currency: order.currency,
+      metadata: { orderNumber: order.orderNumber },
+    }
+
+    return { category, product, order, charge }
+  }
+
   // Per-test cleanup (runs even when the test's own assertions throw) —
   // Order deletion cascades OrderLine (see schema's onDelete: Cascade), so
   // only Order/Product/Category need explicit deletes, strictly in that
@@ -177,54 +222,87 @@ describe.runIf(enabled)('order-transition races: real-DB concurrency', () => {
   })
 
   it(
-    'markOrderPaid vs cancelOrder on the same PENDING order: exactly one wins, stock decremented at most once, a late-charge loser flags refundOwed',
+    'markOrderPaid vs cancelOrder on the same PENDING order, repeated: exactly one wins, stock decremented at most once, a late-charge loser flags refundOwed',
     async () => {
+      // Contention check, not the guard-regression check (see the docblock
+      // note above) — a real race's ordering is up to the DB scheduler, so 5
+      // independent iterations (fresh fixture each time) give more confidence
+      // that both orderings behave correctly than a single run would, without
+      // pretending this loop deterministically exercises either branch.
       const quantity = 3
       const initialInventory = 10
-      const category = await createCategory('a')
-      const product = await createProduct('a', category.id, initialInventory)
-      const order = await createOrder({
-        orderNumber: `${RUN_ID}-A`,
-        productId: product.id,
-        quantity,
-        status: 'PENDING',
-      })
+      const iterations = 5
 
-      const charge: PaystackCharge = {
-        reference: `${RUN_ID}-A-ref`,
-        status: 'success',
-        amountMinor: order.totalMinor,
-        currency: order.currency,
-        metadata: { orderNumber: order.orderNumber },
+      for (let i = 0; i < iterations; i++) {
+        const { product, order, charge } = await seedRace1Fixture(`concurrent-${i}`, quantity, initialInventory)
+
+        const [paidResult, cancelResult] = await Promise.all([markOrderPaid(charge), cancelOrder(order.orderNumber)])
+
+        const finalOrder = await db.order.findUniqueOrThrow({ where: { id: order.id } })
+        const finalProduct = await db.product.findUniqueOrThrow({ where: { id: product.id } })
+
+        if (finalOrder.status === 'PROCESSING') {
+          // markOrderPaid won the race: the order is fulfilled, stock is
+          // decremented exactly once, and the loser sees a clean conflict —
+          // never a resurrected/re-cancelled order.
+          expect(paidResult).toBe('paid')
+          expect(cancelResult).toEqual({ ok: false, error: 'conflict' })
+          expect(finalOrder.paidAt).not.toBeNull()
+          expect(finalOrder.refundOwed).toBe(false)
+          expect(finalProduct.inventory).toBe(initialInventory - quantity)
+        } else {
+          // cancelOrder won the race: the order stays CANCELLED, the late
+          // charge must NOT resurrect it — it flags refundOwed and records the
+          // reference instead — and stock is untouched (a PENDING cancel never
+          // restocks; nothing was decremented yet either).
+          expect(finalOrder.status).toBe('CANCELLED')
+          expect(cancelResult).toEqual({ ok: true })
+          expect(paidResult).toBe('mismatch')
+          expect(finalOrder.paidAt).toBeNull()
+          expect(finalOrder.refundOwed).toBe(true)
+          expect(finalOrder.paystackReference).toBe(charge.reference)
+          expect(finalProduct.inventory).toBe(initialInventory)
+        }
       }
+    },
+    // 5x the fixture-and-race work of the original single-iteration test —
+    // scale the timeout accordingly rather than risk a slow CI box flaking.
+    150_000,
+  )
 
-      const [paidResult, cancelResult] = await Promise.all([markOrderPaid(charge), cancelOrder(order.orderNumber)])
+  it(
+    'a late charge arriving after an admin cancel must not resurrect the order',
+    async () => {
+      // The deterministic guard-regression check (see the docblock note
+      // above): no Promise.all — cancelOrder is awaited to completion FIRST,
+      // so the ordering markOrderPaid's `status: 'PENDING'` guard clause
+      // exists for is exercised on every single run, not just the runs where
+      // the DB scheduler happens to let cancelOrder win. If that clause were
+      // ever dropped from fulfil-order.ts, this test fails deterministically
+      // on the very first assertion below — never intermittently.
+      const quantity = 3
+      const initialInventory = 10
+      const { product, order, charge } = await seedRace1Fixture('sequenced', quantity, initialInventory)
+
+      const cancelResult = await cancelOrder(order.orderNumber)
+      expect(cancelResult).toEqual({ ok: true })
+
+      const afterCancel = await db.order.findUniqueOrThrow({ where: { id: order.id } })
+      expect(afterCancel.status).toBe('CANCELLED')
+
+      const paidResult = await markOrderPaid(charge)
 
       const finalOrder = await db.order.findUniqueOrThrow({ where: { id: order.id } })
       const finalProduct = await db.product.findUniqueOrThrow({ where: { id: product.id } })
 
-      if (finalOrder.status === 'PROCESSING') {
-        // markOrderPaid won the race: the order is fulfilled, stock is
-        // decremented exactly once, and the loser sees a clean conflict —
-        // never a resurrected/re-cancelled order.
-        expect(paidResult).toBe('paid')
-        expect(cancelResult).toEqual({ ok: false, error: 'conflict' })
-        expect(finalOrder.paidAt).not.toBeNull()
-        expect(finalOrder.refundOwed).toBe(false)
-        expect(finalProduct.inventory).toBe(initialInventory - quantity)
-      } else {
-        // cancelOrder won the race: the order stays CANCELLED, the late
-        // charge must NOT resurrect it — it flags refundOwed and records the
-        // reference instead — and stock is untouched (a PENDING cancel never
-        // restocks; nothing was decremented yet either).
-        expect(finalOrder.status).toBe('CANCELLED')
-        expect(cancelResult).toEqual({ ok: true })
-        expect(paidResult).toBe('mismatch')
-        expect(finalOrder.paidAt).toBeNull()
-        expect(finalOrder.refundOwed).toBe(true)
-        expect(finalOrder.paystackReference).toBe(charge.reference)
-        expect(finalProduct.inventory).toBe(initialInventory)
-      }
+      // With the guard intact, the late charge must be rejected, not
+      // resurrect the cancelled order.
+      expect(paidResult).toBe('mismatch')
+      expect(finalOrder.status).toBe('CANCELLED')
+      expect(finalOrder.paidAt).toBeNull()
+      expect(finalOrder.refundOwed).toBe(true)
+      expect(finalOrder.paystackReference).toBe(charge.reference)
+      expect(finalProduct.inventory).toBe(initialInventory)
     },
     30_000,
   )
