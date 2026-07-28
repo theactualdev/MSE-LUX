@@ -51,7 +51,7 @@ vi.mock('next/headers', () => ({ cookies: vi.fn(async () => cookieStore) }))
 const checkRateLimit = vi.fn()
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
-  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 }, verify: { limit: 60, windowSeconds: 60 } },
   RATE_LIMITED_MESSAGE: 'Too many attempts. Please wait a moment and try again.',
 }))
 
@@ -265,25 +265,45 @@ describe('rate limiting — the "payment" window guards both actions before any 
     expect(order.update).not.toHaveBeenCalled()
   })
 
-  it('verifyPayment: limited returns the rate-limited error and never touches Paystack or markOrderPaid', async () => {
-    checkRateLimit.mockResolvedValue(false)
+  // Fix (re-review round 2): verifyPayment now checks BOTH the
+  // reference-keyed 'payment' window and an IP-keyed 'verify' backstop,
+  // concurrently, and is rate-limited if EITHER denies. `reference` is a
+  // caller-supplied argument on this public, unauthenticated action, so a
+  // reference-only key would let one host rotate references for a fresh
+  // bucket every call and drive unbounded authenticated `verifyTransaction`
+  // calls — the 'verify' check closes that hole.
+  describe('verifyPayment: dual reference + IP rate limiting', () => {
+    it('reference-denied (IP allowed): returns the rate-limited error, never calls verifyTransaction', async () => {
+      checkRateLimit.mockImplementation(async (kind: string) => kind !== 'payment')
 
-    const result = await verifyPayment(REFERENCE)
+      const result = await verifyPayment(REFERENCE)
 
-    expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
-    expect(verifyTransaction).not.toHaveBeenCalled()
-    expect(markOrderPaid).not.toHaveBeenCalled()
-  })
+      expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
+      expect(verifyTransaction).not.toHaveBeenCalled()
+      expect(markOrderPaid).not.toHaveBeenCalled()
+    })
 
-  // Fix 2: verifyPayment must NOT share the IP bucket — money has already
-  // moved by the time this runs, so it's keyed by the unguessable Paystack
-  // reference instead, never the caller's IP.
-  it('verifyPayment: keys checkRateLimit by the Paystack reference, not the IP', async () => {
-    verifyTransaction.mockResolvedValue(charge())
-    markOrderPaid.mockResolvedValue('paid')
+    it('IP-denied (reference allowed): returns the rate-limited error, never calls verifyTransaction', async () => {
+      checkRateLimit.mockImplementation(async (kind: string) => kind !== 'verify')
 
-    await verifyPayment(REFERENCE)
+      const result = await verifyPayment(REFERENCE)
 
-    expect(checkRateLimit).toHaveBeenCalledWith('payment', REFERENCE)
+      expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
+      expect(verifyTransaction).not.toHaveBeenCalled()
+      expect(markOrderPaid).not.toHaveBeenCalled()
+    })
+
+    it('both allowed: proceeds exactly as before, keying the two checks with the exact expected shapes', async () => {
+      verifyTransaction.mockResolvedValue(charge())
+      markOrderPaid.mockResolvedValue('paid')
+
+      const result = await verifyPayment(REFERENCE)
+
+      expect(checkRateLimit).toHaveBeenCalledWith('payment', REFERENCE)
+      expect(checkRateLimit).toHaveBeenCalledWith('verify')
+      expect(checkRateLimit).toHaveBeenCalledTimes(2)
+      expect(verifyTransaction).toHaveBeenCalledWith(REFERENCE)
+      expect(result).toEqual({ ok: true, status: 'paid' })
+    })
   })
 })

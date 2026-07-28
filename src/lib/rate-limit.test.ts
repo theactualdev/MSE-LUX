@@ -36,7 +36,7 @@ vi.mock('@upstash/redis', () => ({ Redis: RedisMock }))
 const headersMock = vi.fn()
 vi.mock('next/headers', () => ({ headers: (...args: unknown[]) => headersMock(...args) }))
 
-const { checkRateLimit, RATE_LIMITS } = await import('@/lib/rate-limit')
+const { checkRateLimit, RATE_LIMITS, RATE_LIMITED_MESSAGE } = await import('@/lib/rate-limit')
 
 const URL = 'https://example.upstash.io'
 const TOKEN = 'test-token'
@@ -229,6 +229,13 @@ describe('RATE_LIMITS', () => {
       checkout: { limit: 20, windowSeconds: 60 },
       search: { limit: 120, windowSeconds: 60 },
       auth: { limit: 10, windowSeconds: 300 },
+      verify: { limit: 60, windowSeconds: 60 },
     })
+  })
+})
+
+describe('RATE_LIMITED_MESSAGE', () => {
+  it('pins the shared rate-limited copy every caller builds its result from', () => {
+    expect(RATE_LIMITED_MESSAGE).toBe('Too many attempts. Please wait a moment and try again.')
   })
 })

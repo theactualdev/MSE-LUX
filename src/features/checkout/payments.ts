@@ -109,16 +109,25 @@ export async function initializePayment(orderNumber: string): Promise<Initialize
  * if this call never lands).
  */
 export async function verifyPayment(reference: string): Promise<VerifyPaymentResult> {
-  // Keyed by the Paystack REFERENCE, not the caller's IP — unlike
-  // `initializePayment` (the actual carding surface, which keeps its
-  // IP-keyed 'payment' window unchanged). By the time `verifyPayment` runs,
-  // Paystack has ALREADY taken the money; a limit hit here shows "Too many
-  // attempts" for a charge that already succeeded, and the only retry the
-  // UI offers creates a SECOND order and a second charge. A reference is
-  // Paystack-issued and unguessable, so per-reference throttling still stops
-  // one payment from being hammered, while unrelated traffic sharing a
-  // CGNAT/shared IP can never starve a legitimate confirmation.
-  if (!(await checkRateLimit('payment', reference))) return RATE_LIMITED
+  // Keyed by BOTH the Paystack REFERENCE and the caller's IP, checked
+  // concurrently. The reference-keyed 'payment' check is unchanged from
+  // before: by the time `verifyPayment` runs, Paystack has ALREADY taken the
+  // money, so a limit hit here shows "Too many attempts" for a charge that
+  // already succeeded, and the only retry the UI offers creates a SECOND
+  // order and a second charge — hence per-reference, not a shared bucket.
+  // But `reference` is a caller-supplied argument on this public,
+  // unauthenticated Server Action, and rotating it is free: a reference-only
+  // key lets one host mint a fresh bucket every call and drive unbounded
+  // authenticated `verifyTransaction` calls to api.paystack.co BEFORE any
+  // validation. The 'verify' window is the IP-keyed backstop that closes
+  // that hole — deliberately generous (60/60s) so a shared/CGNAT IP can
+  // never starve a real confirmation, while still capping reference-rotation
+  // abuse instead of leaving it unlimited.
+  const [byReference, byIp] = await Promise.all([
+    checkRateLimit('payment', reference),
+    checkRateLimit('verify'),
+  ])
+  if (!byReference || !byIp) return RATE_LIMITED
 
   try {
     const charge = await verifyTransaction(reference)

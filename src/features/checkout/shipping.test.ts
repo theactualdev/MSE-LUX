@@ -53,7 +53,7 @@ vi.mock('@/features/checkout/lib/shipping-config', () => ({
 const checkRateLimit = vi.fn()
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
-  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 }, verify: { limit: 60, windowSeconds: 60 } },
 }))
 
 const { getShippingRates } = await import('@/features/checkout/shipping')
@@ -448,14 +448,26 @@ describe('getShippingRates — rate limiting (the "checkout" window)', () => {
     expect(fetchRates).not.toHaveBeenCalled()
   })
 
-  it('USD charge: limited returns the flat USD fallback option', async () => {
+  // Fix (re-review round 2): a USD charge ALWAYS takes the international
+  // branch in the real (un-limited) path, regardless of address — so the
+  // limited path must match, not fall to the flat fallback. The generalized
+  // condition (`chargeCurrency !== 'NGN' || !isNigeria(...)`) mirrors the
+  // real branch's own condition exactly, rather than special-casing NGN, so
+  // this can't silently regress the moment `FLAT_INTERNATIONAL_USD` and
+  // `FLAT_FALLBACK_USD` (currently equal only by coincidence) are tuned to
+  // different values.
+  it('USD charge: limited returns the signed FLAT_INTERNATIONAL_USD option, not the flat fallback', async () => {
     checkRateLimit.mockResolvedValue(false)
 
     const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD' })
 
     expect(options).toHaveLength(1)
-    expect(options[0]).toMatchObject({ id: 'fallback', currency: 'USD', amountMinor: 260_000 })
-    expect(verifyQuote(options[0].token, US_ADDRESS)).not.toBeNull()
+    expect(options[0]).toMatchObject({ id: 'international', label: 'International shipping', currency: 'USD', amountMinor: 250_000 })
+
+    const payload = verifyQuote(options[0].token, US_ADDRESS)
+    expect(payload).not.toBeNull()
+    expect(payload).toMatchObject({ label: 'International shipping', amountMinor: 250_000, currency: 'USD' })
+
     expect(fetchRates).not.toHaveBeenCalled()
   })
 

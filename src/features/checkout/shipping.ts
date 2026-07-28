@@ -166,23 +166,29 @@ export async function getShippingRates(input: {
       console.error('getShippingRates: rate limited, falling back to a flat rate')
 
       // Don't let a limit hit ship an international order at the domestic
-      // flat rate: if the address parses and this is an NGN charge to a
-      // NON-Nigerian destination, return the same signed
-      // FLAT_INTERNATIONAL_NGN option the un-limited international branch
-      // below would build — never the cheaper, mislabeled
-      // FLAT_FALLBACK_NGN that `guardFallbackOption` would otherwise pick on
-      // currency alone.
+      // flat rate: if the address parses and the real (un-limited) path
+      // below would take the international branch — i.e. this is a USD
+      // charge (always international, any address), or an NGN charge to a
+      // NON-Nigerian destination — return the SAME signed international
+      // option that branch would build, never the cheaper, mislabeled flat
+      // fallback that `guardFallbackOption` would otherwise pick on currency
+      // alone. Mirrors the real branch's own condition
+      // (`chargeCurrency !== 'NGN' || !nigeria`) exactly, rather than
+      // special-casing NGN, so the two paths can't drift apart the moment
+      // `shipping-config.ts`'s flat rates (every one marked "finalize before
+      // launch") are tuned to different values.
       const parsedForLimit = addressSchema.safeParse(input.address)
-      if (parsedForLimit.success && input.chargeCurrency === 'NGN' && !isNigeria(parsedForLimit.data.country)) {
+      if (parsedForLimit.success && (input.chargeCurrency !== 'NGN' || !isNigeria(parsedForLimit.data.country))) {
+        const flat = input.chargeCurrency === 'USD' ? FLAT_INTERNATIONAL_USD : FLAT_INTERNATIONAL_NGN
         const limitHash = addressHash(parsedForLimit.data)
         return [
           toOption(
             'international',
-            FLAT_INTERNATIONAL_NGN.label,
-            FLAT_INTERNATIONAL_NGN.amountMinor,
-            FLAT_INTERNATIONAL_NGN.currency,
+            flat.label,
+            flat.amountMinor,
+            flat.currency,
             limitHash,
-            FLAT_INTERNATIONAL_NGN.deliveryEta,
+            flat.deliveryEta,
           ),
         ]
       }

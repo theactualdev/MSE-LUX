@@ -43,6 +43,16 @@ export const RATE_LIMITS = {
   checkout: { limit: 20, windowSeconds: 60 }, // placeOrder / getShippingRates
   search: { limit: 120, windowSeconds: 60 }, // searchCatalog
   auth: { limit: 10, windowSeconds: 300 }, // signIn / signUp / requestPasswordReset
+  // An IP-keyed backstop for `verifyPayment`, layered ON TOP of its
+  // reference-keyed 'payment' check (never a replacement for it). Reference
+  // rotation is free to a caller — `reference` is a caller-supplied argument
+  // on a public, unauthenticated Server Action — so a reference-only key lets
+  // one host mint unlimited references and drive unbounded authenticated
+  // `verifyTransaction` calls to api.paystack.co. Deliberately generous
+  // (60/60s, 6x `payment`'s 10/60s) so a shared/CGNAT IP can never starve a
+  // real confirmation (one of sixty), while still capping reference-rotation
+  // abuse at 60/min instead of unlimited.
+  verify: { limit: 60, windowSeconds: 60 },
 } as const
 
 export type RateLimitKind = keyof typeof RATE_LIMITS
