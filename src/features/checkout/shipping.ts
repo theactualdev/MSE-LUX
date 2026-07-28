@@ -178,6 +178,17 @@ export async function getShippingRates(input: {
   chargeCurrency: 'NGN' | 'USD'
   guestLines?: GuestOrderLine[]
 }): Promise<ShippingOption[]> {
+  // Public Server Action — a caller can POST with no body at all (or any
+  // other falsy value), making `input` itself `undefined`/`null` at this
+  // boundary despite the compile-time type. Normalized ONCE, before the
+  // top-level try, so every reference below — including the top-level
+  // catch's own last-resort `guardFallbackOption` call — reads from this
+  // safe value instead of risking `input.chargeCurrency` throwing a SECOND
+  // time while the catch is already handling the first throw (the exact
+  // "double-throw" that used to escape as an unhandled rejection when
+  // `input` was nullish).
+  const safeInput = (input ?? {}) as Partial<typeof input>
+
   try {
     // Phase 9c originally OVERRODE the client's currency with the server geo
     // signal whenever the two disagreed. That was wrong for this product and
@@ -197,7 +208,7 @@ export async function getShippingRates(input: {
     // every branch below — including the rate-limited fallback — sees the
     // same resolved value.
     const serverCurrency = await serverChargeCurrency()
-    const chargeCurrency: 'NGN' | 'USD' = input.chargeCurrency
+    const chargeCurrency: 'NGN' | 'USD' | undefined = safeInput.chargeCurrency
     if (serverCurrency && serverCurrency !== chargeCurrency) {
       console.warn('[getShippingRates] charge-currency divergence — logging only, using the client currency', {
         client: chargeCurrency,
@@ -215,7 +226,15 @@ export async function getShippingRates(input: {
     // `guardFallbackOption` -> `signQuote` -> `requireSecret()` throws when
     // `SHIPBUBBLE_QUOTE_SECRET` is unset, so outside this try that throw
     // would escape `getShippingRates` entirely on a limited request.
-    if (!(await checkRateLimit('checkout'))) {
+    //
+    // Own window (`shippingQuote`, Phase 9c final fixes), split from
+    // `placeOrder`'s `checkout` window: this is a read-only quote lookup, not
+    // a write, and shares `checkout` before the split meant a handful of
+    // concurrent legitimate checkouts behind one carrier NAT could exhaust it
+    // with no attacker involved — silently downgrading a real customer to a
+    // flat rate instead of the true courier price. See `RATE_LIMITS` in
+    // `lib/rate-limit.ts` for the full rationale.
+    if (!(await checkRateLimit('shippingQuote'))) {
       console.error('getShippingRates: rate limited, falling back to a flat rate')
 
       // Don't let a limit hit ship an international order at the domestic
@@ -230,7 +249,7 @@ export async function getShippingRates(input: {
       // special-casing NGN, so the two paths can't drift apart the moment
       // `shipping-config.ts`'s flat rates (every one marked "finalize before
       // launch") are tuned to different values.
-      const parsedForLimit = addressSchema.safeParse(input.address)
+      const parsedForLimit = addressSchema.safeParse(safeInput.address)
       if (parsedForLimit.success && (chargeCurrency !== 'NGN' || !isNigeria(parsedForLimit.data.country))) {
         const flat = chargeCurrency === 'USD' ? FLAT_INTERNATIONAL_USD : FLAT_INTERNATIONAL_NGN
         const limitHash = addressHash(parsedForLimit.data)
@@ -246,18 +265,20 @@ export async function getShippingRates(input: {
         ]
       }
 
-      return [guardFallbackOption(input.address, chargeCurrency)]
+      return [guardFallbackOption(safeInput.address, chargeCurrency)]
     }
 
-    // `input.address` is untrusted at this boundary (a public Server Action —
-    // no runtime arg validation happens for us). A malformed/missing address
-    // must not throw straight out of the function; it gets one safe flat
-    // option instead, exactly like any other unrecoverable failure below.
-    const parsedAddress = addressSchema.safeParse(input.address)
-    if (!parsedAddress.success) return [guardFallbackOption(input.address, chargeCurrency)]
+    // `safeInput.address` is untrusted at this boundary (a public Server
+    // Action — no runtime arg validation happens for us, and `safeInput`
+    // itself only guards against a nullish `input`, not a malformed
+    // `address` within it). A malformed/missing address must not throw
+    // straight out of the function; it gets one safe flat option instead,
+    // exactly like any other unrecoverable failure below.
+    const parsedAddress = addressSchema.safeParse(safeInput.address)
+    if (!parsedAddress.success) return [guardFallbackOption(safeInput.address, chargeCurrency)]
 
     const address = parsedAddress.data
-    const { email, guestLines } = input
+    const { email, guestLines } = safeInput
     const hash = addressHash(address)
     const nigeria = isNigeria(address.country)
 
@@ -318,7 +339,10 @@ export async function getShippingRates(input: {
 
       const { addressCode: receiverAddressCode } = await validateAddress({
         name: address.fullName,
-        email,
+        // `email` comes from `safeInput`, so it's `string | undefined` at
+        // the type level even though the real client always sends it — a
+        // request that omits it entirely still can't throw here.
+        email: email ?? '',
         phone: address.phone,
         address: addressLine,
       })
@@ -371,6 +395,6 @@ export async function getShippingRates(input: {
       return []
     }
 
-    return [guardFallbackOption(input.address, input.chargeCurrency)]
+    return [guardFallbackOption(safeInput.address, safeInput.chargeCurrency)]
   }
 }

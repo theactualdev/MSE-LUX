@@ -268,7 +268,25 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   // never the server geo signal — so a quote issued for a given client
   // currency is always verified against that same currency here; the two
   // functions can't drift apart.
-  const quote = verifyQuote(input.shippingToken, parsedAddress.data)
+  //
+  // `verifyQuote` (`lib/shipping-quote.ts`) throws — deliberately, per its own
+  // doc comment — on a missing `SHIPBUBBLE_QUOTE_SECRET` (a server
+  // misconfiguration), and `token.split('.')` inside it also throws on a
+  // nullish `shippingToken` — `placeOrder` is a public Server Action whose
+  // args aren't runtime-validated for us, so a caller can omit it entirely.
+  // Neither should ever escape this module's "never throws out" contract
+  // (see the module doc comment above), so both are turned into the same
+  // controlled typed error `getShippingRates` uses at its equivalent
+  // boundary, rather than a throw with nothing above it to catch.
+  if (typeof input.shippingToken !== 'string' || input.shippingToken.length === 0) return SHIPPING_EXPIRED
+
+  let quote: ReturnType<typeof verifyQuote>
+  try {
+    quote = verifyQuote(input.shippingToken, parsedAddress.data)
+  } catch (error) {
+    console.error('[placeOrder] verifyQuote threw (likely a missing SHIPBUBBLE_QUOTE_SECRET)', error)
+    return GENERIC_ERROR
+  }
   if (!quote) return SHIPPING_EXPIRED
   if (quote.currency !== chargeCurrency) return INVALID_INPUT
 

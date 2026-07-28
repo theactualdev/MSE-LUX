@@ -70,6 +70,17 @@ describe.runIf(enabled)('order-transition races: real-DB concurrency', () => {
   // affecting the normal (gate-off) suite, which never reaches this beforeAll.
   beforeAll(async () => {
     await import('dotenv/config')
+
+    // Belt-and-braces (Phase 9c final fixes): 9b wired a best-effort
+    // confirmation email into `markOrderPaid`'s winning-fulfilment branch
+    // (see the note above). `dotenv/config` just loaded whatever `.env` this
+    // opt-in run's environment has — if a real `RESEND_API_KEY` happens to be
+    // set there (e.g. a dev `.env` shared with a real project), this suite
+    // must not be the thing that sends a real email. Deleting it here makes
+    // that structurally impossible regardless of what `.env` supplies:
+    // `sendEmail` always sees "not configured" and `markOrderPaid` always
+    // takes the same logged-no-op path the doc comment above describes.
+    delete process.env.RESEND_API_KEY
   })
 
   const RUN_ID = `CONC-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`

@@ -11,8 +11,18 @@ vi.mock('@/lib/supabase/server', () => ({
   createClient: (...args: []) => createClient(...args),
 }))
 
-const findMany = vi.fn()
-vi.mock('@/lib/db', () => ({ db: { get product() { return { findMany } } } }))
+const productFindMany = vi.fn()
+const productImageFindMany = vi.fn()
+vi.mock('@/lib/db', () => ({
+  db: {
+    get product() {
+      return { findMany: productFindMany }
+    },
+    get productImage() {
+      return { findMany: productImageFindMany }
+    },
+  },
+}))
 
 const {
   PRODUCT_IMAGES_BUCKET,
@@ -206,19 +216,24 @@ describe('sweepStagedUploads', () => {
   const FRESH_CREATED_AT = new Date(NOW.getTime() - 60_000).toISOString() // 1 minute old
 
   // Real staging folders are named with crypto.randomUUID() — these fixtures
-  // are UUID-shaped on purpose, since sweepStagedUploads now filters to that
-  // shape before ever comparing against the database.
+  // are UUID-shaped on purpose, since sweepStagedUploads only ever considers
+  // folders of that shape as candidates at all.
   const STAGING_FRESH = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
   const STAGING_STALE = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
   const STAGING_MIXED = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
   const STAGING_BROKEN = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
-  const STAGING_OTHER = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+  const STAGING_LIVE = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
   // Real product ids are cuids (Product.id @default(cuid())), never
   // UUID-shaped — used to exercise the "not a candidate at all" path.
   const PRODUCT_CUID = 'clx0abc123def456ghi789jkl'
   // A UUID-shaped folder that happens to BE a live product's id (edge case
-  // covered by the DB check, defence in depth on top of the shape filter).
+  // covered by the Product.id spare, on top of the object-key check).
   const PRODUCT_UUID_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+
+  /** A public URL for `products/<folder>/<file>`, matching the shape `PUBLIC_OBJECT_PATH_RE` (and `deleteProductImageObject`) parse. */
+  function publicUrl(folder: string, file: string): string {
+    return `https://proj.supabase.co/storage/v1/object/public/product-images/products/${folder}/${file}`
+  }
 
   beforeEach(() => {
     vi.useFakeTimers()
@@ -229,7 +244,7 @@ describe('sweepStagedUploads', () => {
     vi.useRealTimers()
   })
 
-  it('a fresh staging folder (not a real product, but not old enough yet) is left untouched', async () => {
+  it('a fresh staging folder (not yet old enough, regardless of reference state) is left untouched', async () => {
     list.mockImplementation(async (path: string) => {
       if (path === 'products') return { data: [{ name: STAGING_FRESH }], error: null }
       if (path === `products/${STAGING_FRESH}`) {
@@ -237,7 +252,9 @@ describe('sweepStagedUploads', () => {
       }
       throw new Error(`unexpected list path ${path}`)
     })
-    findMany.mockResolvedValue([{ id: PRODUCT_CUID }])
+    // Unreferenced (no ProductImage row points at it) but not old enough yet.
+    productImageFindMany.mockResolvedValue([{ src: publicUrl(STAGING_LIVE, 'other.jpg') }])
+    productFindMany.mockResolvedValue([{ id: PRODUCT_CUID }])
 
     const result = await sweepStagedUploads()
 
@@ -245,64 +262,116 @@ describe('sweepStagedUploads', () => {
     expect(remove).not.toHaveBeenCalled()
   })
 
-  it("a real product's folder is untouched regardless of age — never even listed", async () => {
+  it("a cuid-named product folder is untouched regardless of age — never even listed, DB never consulted", async () => {
     list.mockImplementation(async (path: string) => {
       if (path === 'products') return { data: [{ name: PRODUCT_CUID }], error: null }
       throw new Error(`unexpected list path ${path}`)
     })
-    findMany.mockResolvedValue([{ id: PRODUCT_CUID }])
 
     const result = await sweepStagedUploads()
 
     expect(result).toBe(0)
-    // The folder isn't even UUID-shaped, so it's filtered out before the DB
-    // is ever consulted — only the top-level listing happened.
+    // Not UUID-shaped, so it's filtered out before either DB query ever runs
+    // — only the top-level listing happened.
     expect(list).toHaveBeenCalledTimes(1)
-    expect(findMany).not.toHaveBeenCalled()
+    expect(productImageFindMany).not.toHaveBeenCalled()
+    expect(productFindMany).not.toHaveBeenCalled()
     expect(remove).not.toHaveBeenCalled()
   })
 
-  it('a UUID-shaped folder that IS a live product id is spared (defence in depth on top of the shape filter)', async () => {
+  it('a UUID-shaped folder that IS a live product id is spared (Product.id spare, on top of the object-key check) — contents never listed', async () => {
     list.mockImplementation(async (path: string) => {
       if (path === 'products') return { data: [{ name: PRODUCT_UUID_ID }], error: null }
       throw new Error(`unexpected list path ${path}`)
     })
-    findMany.mockResolvedValue([{ id: PRODUCT_UUID_ID }])
+    productImageFindMany.mockResolvedValue([{ src: publicUrl(PRODUCT_CUID, 'x.jpg') }])
+    productFindMany.mockResolvedValue([{ id: PRODUCT_UUID_ID }])
 
     const result = await sweepStagedUploads()
 
     expect(result).toBe(0)
-    // It's UUID-shaped so it IS a candidate and the DB is consulted, but
+    // It's UUID-shaped so it IS a candidate and both DB queries run, but
     // since it matches a live product id its contents are never listed.
     expect(list).toHaveBeenCalledTimes(1)
-    expect(findMany).toHaveBeenCalledTimes(1)
+    expect(productImageFindMany).toHaveBeenCalledTimes(1)
+    expect(productFindMany).toHaveBeenCalledTimes(1)
     expect(remove).not.toHaveBeenCalled()
   })
 
-  it('a stale orphaned staging folder has its old objects removed and counted', async () => {
+  // THE CRITICAL REGRESSION (B1): a live, create-flow product's images sit in
+  // a UUID-shaped staging folder forever (there is no move/re-key step —
+  // `create.ts` persists the staging URL verbatim into `ProductImage.src`).
+  // The old folder-shape-vs-Product.id filter could NEVER protect this
+  // folder, because it never becomes a `Product.id`. Only the per-object
+  // reference check does.
+  it('CRITICAL: a live product whose ProductImage.src points into a UUID-shaped folder older than 7 days is NEVER removed', async () => {
+    list.mockImplementation(async (path: string) => {
+      if (path === 'products') return { data: [{ name: STAGING_LIVE }], error: null }
+      if (path === `products/${STAGING_LIVE}`) {
+        return { data: [{ name: 'hero.jpg', created_at: STALE_CREATED_AT }], error: null }
+      }
+      throw new Error(`unexpected list path ${path}`)
+    })
+    // The live product's ProductImage row points straight at this staging
+    // folder — exactly what the create-product flow persists.
+    productImageFindMany.mockResolvedValue([{ src: publicUrl(STAGING_LIVE, 'hero.jpg') }])
+    // The Product.id spare doesn't even need to know about this folder —
+    // the object-key check alone must protect it.
+    productFindMany.mockResolvedValue([{ id: PRODUCT_CUID }])
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(0)
+    expect(remove).not.toHaveBeenCalled()
+  })
+
+  it('an abandoned staging object with no ProductImage row IS removed', async () => {
     list.mockImplementation(async (path: string) => {
       if (path === 'products') return { data: [{ name: STAGING_STALE }], error: null }
       if (path === `products/${STAGING_STALE}`) {
+        return { data: [{ name: 'orphan.jpg', created_at: STALE_CREATED_AT }], error: null }
+      }
+      throw new Error(`unexpected list path ${path}`)
+    })
+    // Non-empty (so the anomaly bail-out doesn't fire) but references a
+    // completely different object.
+    productImageFindMany.mockResolvedValue([{ src: publicUrl(STAGING_LIVE, 'hero.jpg') }])
+    productFindMany.mockResolvedValue([{ id: PRODUCT_CUID }])
+    remove.mockResolvedValue({ data: [{ name: 'orphan.jpg' }], error: null })
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(1)
+    expect(remove).toHaveBeenCalledWith([`products/${STAGING_STALE}/orphan.jpg`])
+  })
+
+  it('a staging folder holding one referenced and one abandoned object removes only the abandoned one', async () => {
+    list.mockImplementation(async (path: string) => {
+      if (path === 'products') return { data: [{ name: STAGING_MIXED }], error: null }
+      if (path === `products/${STAGING_MIXED}`) {
         return {
           data: [
-            { name: 'a.jpg', created_at: STALE_CREATED_AT },
-            { name: 'b.jpg', created_at: STALE_CREATED_AT },
+            { name: 'referenced.jpg', created_at: STALE_CREATED_AT },
+            { name: 'abandoned.jpg', created_at: STALE_CREATED_AT },
           ],
           error: null,
         }
       }
       throw new Error(`unexpected list path ${path}`)
     })
-    findMany.mockResolvedValue([{ id: PRODUCT_CUID }])
-    remove.mockResolvedValue({ data: [{ name: 'a.jpg' }, { name: 'b.jpg' }], error: null })
+    // Same folder legitimately holds both: this product's live image AND an
+    // abandoned extra the user uploaded but never included in `images`.
+    productImageFindMany.mockResolvedValue([{ src: publicUrl(STAGING_MIXED, 'referenced.jpg') }])
+    productFindMany.mockResolvedValue([{ id: PRODUCT_CUID }])
+    remove.mockResolvedValue({ data: [{ name: 'abandoned.jpg' }], error: null })
 
     const result = await sweepStagedUploads()
 
-    expect(result).toBe(2)
-    expect(remove).toHaveBeenCalledWith([`products/${STAGING_STALE}/a.jpg`, `products/${STAGING_STALE}/b.jpg`])
+    expect(result).toBe(1)
+    expect(remove).toHaveBeenCalledWith([`products/${STAGING_MIXED}/abandoned.jpg`])
   })
 
-  it('within one orphaned folder, only objects older than the cutoff are removed — a fresh one alongside a stale one is kept', async () => {
+  it('within one orphaned folder, only objects older than the cutoff are removed — a fresh unreferenced one alongside a stale one is kept', async () => {
     list.mockImplementation(async (path: string) => {
       if (path === 'products') return { data: [{ name: STAGING_MIXED }], error: null }
       if (path === `products/${STAGING_MIXED}`) {
@@ -316,7 +385,8 @@ describe('sweepStagedUploads', () => {
       }
       throw new Error(`unexpected list path ${path}`)
     })
-    findMany.mockResolvedValue([{ id: PRODUCT_CUID }])
+    productImageFindMany.mockResolvedValue([{ src: publicUrl(STAGING_LIVE, 'unrelated.jpg') }])
+    productFindMany.mockResolvedValue([{ id: PRODUCT_CUID }])
     remove.mockResolvedValue({ data: [{ name: 'old.jpg' }], error: null })
 
     const result = await sweepStagedUploads()
@@ -333,7 +403,8 @@ describe('sweepStagedUploads', () => {
 
     expect(result).toBe(0)
     expect(errorSpy).toHaveBeenCalled()
-    expect(findMany).not.toHaveBeenCalled()
+    expect(productImageFindMany).not.toHaveBeenCalled()
+    expect(productFindMany).not.toHaveBeenCalled()
 
     errorSpy.mockRestore()
   })
@@ -350,10 +421,10 @@ describe('sweepStagedUploads', () => {
     errorSpy.mockRestore()
   })
 
-  it('db lookup throws: returns 0 and logs', async () => {
+  it('productImage lookup throws: returns 0 and logs', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    list.mockResolvedValue({ data: [{ name: STAGING_OTHER }], error: null })
-    findMany.mockRejectedValue(new Error('db down'))
+    list.mockResolvedValue({ data: [{ name: STAGING_STALE }], error: null })
+    productImageFindMany.mockRejectedValue(new Error('db down'))
 
     const result = await sweepStagedUploads()
 
@@ -363,44 +434,24 @@ describe('sweepStagedUploads', () => {
     errorSpy.mockRestore()
   })
 
-  it('CRITICAL: a cuid-named product folder is never swept even when findMany() resolves empty', async () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-    list.mockImplementation(async (path: string) => {
-      if (path === 'products') return { data: [{ name: PRODUCT_CUID }], error: null }
-      throw new Error(`unexpected list path ${path}`)
-    })
-    // The catastrophic scenario: the query resolves empty (replica lag,
-    // mid-migration window, a future refactor) rather than throwing.
-    findMany.mockResolvedValue([])
-
-    const result = await sweepStagedUploads()
-
-    expect(result).toBe(0)
-    // The cuid-named folder is filtered out by shape before the DB is ever
-    // consulted, so this anomalous empty result is never even reached.
-    expect(findMany).not.toHaveBeenCalled()
-    expect(list).toHaveBeenCalledTimes(1)
-    expect(remove).not.toHaveBeenCalled()
-
-    errorSpy.mockRestore()
-  })
-
-  it('CRITICAL: findMany() resolving empty while UUID-shaped candidates exist bails out loudly instead of sweeping', async () => {
+  it('CRITICAL: productImage.findMany() returning [] alongside UUID-shaped candidates bails out loudly instead of sweeping', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     list.mockImplementation(async (path: string) => {
       if (path === 'products') return { data: [{ name: STAGING_STALE }], error: null }
       throw new Error(`unexpected list path ${path}`)
     })
-    findMany.mockResolvedValue([])
+    // The catastrophic scenario: the query resolves empty (replica lag,
+    // mid-migration window, a future refactor) rather than throwing.
+    productImageFindMany.mockResolvedValue([])
 
     const result = await sweepStagedUploads()
 
     expect(result).toBe(0)
     expect(errorSpy).toHaveBeenCalled()
-    // Must bail out before ever listing the folder's contents or removing
-    // anything — this is the defence-in-depth guard against a transient or
-    // faulty query being mistaken for "the catalog is empty".
+    // Must bail out before ever listing the folder's contents, consulting
+    // the Product.id spare, or removing anything.
     expect(list).toHaveBeenCalledTimes(1)
+    expect(productFindMany).not.toHaveBeenCalled()
     expect(remove).not.toHaveBeenCalled()
 
     errorSpy.mockRestore()
@@ -418,7 +469,8 @@ describe('sweepStagedUploads', () => {
       }
       throw new Error(`unexpected list path ${path}`)
     })
-    findMany.mockResolvedValue([{ id: PRODUCT_CUID }])
+    productImageFindMany.mockResolvedValue([{ src: publicUrl(STAGING_LIVE, 'unrelated.jpg') }])
+    productFindMany.mockResolvedValue([{ id: PRODUCT_CUID }])
     remove.mockResolvedValue({ data: [{ name: 'a.jpg' }], error: null })
 
     const result = await sweepStagedUploads()
@@ -438,7 +490,8 @@ describe('sweepStagedUploads', () => {
       }
       throw new Error(`unexpected list path ${path}`)
     })
-    findMany.mockResolvedValue([{ id: PRODUCT_CUID }])
+    productImageFindMany.mockResolvedValue([{ src: publicUrl(STAGING_LIVE, 'unrelated.jpg') }])
+    productFindMany.mockResolvedValue([{ id: PRODUCT_CUID }])
     remove.mockResolvedValue({ data: null, error: { message: 'remove failed' } })
 
     const result = await sweepStagedUploads()
@@ -455,7 +508,8 @@ describe('sweepStagedUploads', () => {
     const result = await sweepStagedUploads()
 
     expect(result).toBe(0)
-    expect(findMany).not.toHaveBeenCalled()
+    expect(productImageFindMany).not.toHaveBeenCalled()
+    expect(productFindMany).not.toHaveBeenCalled()
   })
 
   it('never throws on an unexpected top-level error', async () => {
@@ -466,5 +520,38 @@ describe('sweepStagedUploads', () => {
     expect(errorSpy).toHaveBeenCalled()
 
     errorSpy.mockRestore()
+  })
+
+  it('paginates bucket.list() with offset until a short page is returned, at both the top level and per-folder', async () => {
+    const fullTopPage = Array.from({ length: 1000 }, (_, i) => ({ name: `not-a-uuid-${i}` }))
+    const fullFolderPage = Array.from({ length: 1000 }, (_, i) => ({
+      name: `file-${i}.jpg`,
+      created_at: STALE_CREATED_AT,
+    }))
+
+    list.mockImplementation(async (path: string, options?: { offset?: number }) => {
+      const offset = options?.offset ?? 0
+      if (path === 'products') {
+        if (offset === 0) return { data: [...fullTopPage, { name: STAGING_STALE }], error: null }
+        if (offset === 1000) return { data: [], error: null }
+      }
+      if (path === `products/${STAGING_STALE}`) {
+        if (offset === 0) return { data: fullFolderPage, error: null }
+        if (offset === 1000) return { data: [{ name: 'extra.jpg', created_at: STALE_CREATED_AT }], error: null }
+      }
+      throw new Error(`unexpected list call ${path} offset=${offset}`)
+    })
+    productImageFindMany.mockResolvedValue([{ src: publicUrl(STAGING_LIVE, 'unrelated.jpg') }])
+    productFindMany.mockResolvedValue([{ id: PRODUCT_CUID }])
+    remove.mockResolvedValue({ data: [], error: null })
+
+    const result = await sweepStagedUploads()
+
+    // 1000 (first page) + 1 (short second page) stale, unreferenced objects.
+    expect(result).toBe(1001)
+    expect(list).toHaveBeenCalledWith('products', { limit: 1000, offset: 0 })
+    expect(list).toHaveBeenCalledWith('products', { limit: 1000, offset: 1000 })
+    expect(list).toHaveBeenCalledWith(`products/${STAGING_STALE}`, { limit: 1000, offset: 0 })
+    expect(list).toHaveBeenCalledWith(`products/${STAGING_STALE}`, { limit: 1000, offset: 1000 })
   })
 })

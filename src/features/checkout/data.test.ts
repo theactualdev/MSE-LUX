@@ -103,7 +103,7 @@ vi.mock('@/features/catalog/server/resolve-products', () => ({
 const checkRateLimit = vi.fn()
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
-  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 40, windowSeconds: 300 }, authIdentity: { limit: 5, windowSeconds: 300 }, verify: { limit: 60, windowSeconds: 60 } },
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, shippingQuote: { limit: 60, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 40, windowSeconds: 300 }, authIdentity: { limit: 5, windowSeconds: 300 }, verify: { limit: 60, windowSeconds: 60 } },
   RATE_LIMITED_MESSAGE: 'Too many attempts. Please wait a moment and try again.',
 }))
 
@@ -406,6 +406,52 @@ describe('placeOrder — guest checkout', () => {
 
     expect(order.create).not.toHaveBeenCalled()
     expect($transaction).not.toHaveBeenCalled()
+  })
+
+  // Minor fix (Phase 9c final fixes): `verifyQuote` internally does
+  // `token.split('.')`, which throws a raw TypeError on a nullish token
+  // rather than returning `null` — `placeOrder` is a public Server Action
+  // whose args aren't runtime-validated, so a caller can omit `shippingToken`
+  // entirely. This must resolve a controlled typed error, never throw out of
+  // `placeOrder`.
+  it('rejects a nullish shipping token (never throws out) without writing an order', async () => {
+    await expect(
+      placeOrder({
+        contact: CONTACT,
+        address: ADDRESS,
+        shippingToken: undefined as unknown as string,
+        chargeCurrency: 'NGN',
+        guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+      }),
+    ).resolves.toEqual({ error: expect.any(String) })
+
+    expect(order.create).not.toHaveBeenCalled()
+    expect($transaction).not.toHaveBeenCalled()
+  })
+
+  // Same fix: `verifyQuote` -> `requireSecret()` throws (deliberately, per
+  // its own doc comment) when `SHIPBUBBLE_QUOTE_SECRET` is unset — a server
+  // misconfiguration, not a bad token, but still must not escape `placeOrder`
+  // as a raw throw.
+  it('never throws out when SHIPBUBBLE_QUOTE_SECRET is unset — resolves a controlled error instead', async () => {
+    delete process.env.SHIPBUBBLE_QUOTE_SECRET
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(
+      placeOrder({
+        contact: CONTACT,
+        address: ADDRESS,
+        shippingToken: 'some-token.some-sig',
+        chargeCurrency: 'NGN',
+        guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+      }),
+    ).resolves.toEqual({ error: expect.any(String) })
+
+    expect(order.create).not.toHaveBeenCalled()
+    expect($transaction).not.toHaveBeenCalled()
+    expect(errorSpy).toHaveBeenCalled()
+
+    errorSpy.mockRestore()
   })
 
   it('rejects a tampered shipping token (payload edited without re-signing) without writing an order', async () => {

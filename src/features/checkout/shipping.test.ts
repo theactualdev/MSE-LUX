@@ -53,7 +53,7 @@ vi.mock('@/features/checkout/lib/shipping-config', () => ({
 const checkRateLimit = vi.fn()
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
-  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 40, windowSeconds: 300 }, authIdentity: { limit: 5, windowSeconds: 300 }, verify: { limit: 60, windowSeconds: 60 } },
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, shippingQuote: { limit: 60, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 40, windowSeconds: 300 }, authIdentity: { limit: 5, windowSeconds: 300 }, verify: { limit: 60, windowSeconds: 60 } },
 }))
 
 // `serverChargeCurrency` (Phase 9c) reads the geo header through
@@ -439,9 +439,20 @@ describe('getShippingRates — robustness against a malformed address', () => {
     expect(validateAddress).not.toHaveBeenCalled()
     expect(fetchRates).not.toHaveBeenCalled()
   })
+
+  // I1 (Phase 9c final fixes): `getShippingRates` is a public Server Action —
+  // a caller can POST with no body at all, making `input` itself `undefined`
+  // at this boundary. Before the fix, `input.chargeCurrency` threw inside the
+  // top-level try, and the catch's own `guardFallbackOption(input.address,
+  // input.chargeCurrency)` threw a SECOND time on the same nullish `input`,
+  // escaping as an unhandled rejection despite this function's documented
+  // "never throws" contract.
+  it('never throws — resolves to an array — when input itself is undefined', async () => {
+    await expect(getShippingRates(undefined as never)).resolves.toEqual(expect.any(Array))
+  })
 })
 
-describe('getShippingRates — rate limiting (the "checkout" window)', () => {
+describe('getShippingRates — rate limiting (the "shippingQuote" window)', () => {
   // A shipping quote is not worth breaking checkout over: `getShippingRates`
   // never throws, so a limit hit must degrade EXACTLY like a ShipBubble
   // outage — the same flat-fallback option array, not an empty list.
@@ -452,7 +463,7 @@ describe('getShippingRates — rate limiting (the "checkout" window)', () => {
 
     const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
 
-    expect(checkRateLimit).toHaveBeenCalledWith('checkout')
+    expect(checkRateLimit).toHaveBeenCalledWith('shippingQuote')
     expect(options).toHaveLength(1)
     expect(options[0]).toMatchObject({ id: 'fallback', label: 'Standard delivery', amountMinor: 300_000, currency: 'NGN' })
     expect(verifyQuote(options[0].token, NG_ADDRESS)).not.toBeNull()
@@ -495,7 +506,7 @@ describe('getShippingRates — rate limiting (the "checkout" window)', () => {
 
     const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
 
-    expect(checkRateLimit).toHaveBeenCalledWith('checkout')
+    expect(checkRateLimit).toHaveBeenCalledWith('shippingQuote')
     expect(options).toHaveLength(1)
     expect(options[0]).toMatchObject({ id: 'international', label: 'International shipping', amountMinor: 500_000, currency: 'NGN' })
 

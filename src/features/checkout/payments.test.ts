@@ -51,7 +51,7 @@ vi.mock('next/headers', () => ({ cookies: vi.fn(async () => cookieStore) }))
 const checkRateLimit = vi.fn()
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
-  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 40, windowSeconds: 300 }, authIdentity: { limit: 5, windowSeconds: 300 }, verify: { limit: 60, windowSeconds: 60 } },
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, shippingQuote: { limit: 60, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 40, windowSeconds: 300 }, authIdentity: { limit: 5, windowSeconds: 300 }, verify: { limit: 60, windowSeconds: 60 } },
   RATE_LIMITED_MESSAGE: 'Too many attempts. Please wait a moment and try again.',
 }))
 
@@ -283,12 +283,20 @@ describe('rate limiting — the "payment" window guards both actions before any 
       expect(markOrderPaid).not.toHaveBeenCalled()
     })
 
-    it('IP-denied (reference allowed): returns the rate-limited error, never calls verifyTransaction', async () => {
+    // I3 (Phase 9c final fixes): the reference-keyed 'payment' check already
+    // PASSED here, meaning Paystack has already taken the money by the time
+    // this call runs — a hard RATE_LIMITED error's only affordance ("Place
+    // order" again) would drive a second order and a second charge for an
+    // already-paid customer. Degrade to the same truthful "processing" state
+    // `markOrderPaid`'s 'ignored' result returns instead; the webhook is the
+    // backstop. No Paystack call happens either way, so the abuse cap (the
+    // reference-keyed check) is unchanged.
+    it('IP-denied (reference allowed): returns { ok: true, status: "processing" } — never a hard error that invites a second charge — and never calls verifyTransaction', async () => {
       checkRateLimit.mockImplementation(async (kind: string) => kind !== 'verify')
 
       const result = await verifyPayment(REFERENCE)
 
-      expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
+      expect(result).toEqual({ ok: true, status: 'processing' })
       expect(verifyTransaction).not.toHaveBeenCalled()
       expect(markOrderPaid).not.toHaveBeenCalled()
     })

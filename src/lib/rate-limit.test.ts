@@ -227,6 +227,7 @@ describe('RATE_LIMITS', () => {
     expect(RATE_LIMITS).toEqual({
       payment: { limit: 10, windowSeconds: 60 },
       checkout: { limit: 20, windowSeconds: 60 },
+      shippingQuote: { limit: 60, windowSeconds: 60 },
       search: { limit: 120, windowSeconds: 60 },
       auth: { limit: 40, windowSeconds: 300 },
       authIdentity: { limit: 5, windowSeconds: 300 },

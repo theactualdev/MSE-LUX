@@ -127,7 +127,29 @@ export async function verifyPayment(reference: string): Promise<VerifyPaymentRes
     checkRateLimit('payment', reference),
     checkRateLimit('verify'),
   ])
-  if (!byReference || !byIp) return RATE_LIMITED
+
+  // A per-REFERENCE denial (`!byReference`) is the real abuse case — a caller
+  // grinding one reference (or, per the comment above, minting fresh ones) —
+  // and stays `RATE_LIMITED`: a real customer's own reference is essentially
+  // unreachable here (10/60s against one confirmation attempt).
+  //
+  // An IP-only denial (`byReference && !byIp`) is different in kind, not just
+  // degree: it means the per-reference check ALREADY PASSED, i.e. this is a
+  // legitimate confirmation for an order Paystack has already charged. Paystack
+  // took the money before this function ever ran — no charge happens on this
+  // call either way — so showing a hard `RATE_LIMITED` error here is not just
+  // unhelpful, it's actively dangerous: the checkout UI's only affordance on a
+  // hard error is "Place order" again, which creates a SECOND order and drives
+  // a SECOND Paystack charge for a customer who already paid once. Since the
+  // charge already succeeded and this call would only have gone on to confirm
+  // it, degrade to the same truthful `{ ok: true, status: 'processing' }` a
+  // `markOrderPaid` 'ignored' result returns — "payment received, we're
+  // finalising your order" — and let the webhook (the backstop for exactly
+  // this case) complete fulfilment. This costs nothing on the abuse side: the
+  // reference-keyed cap that actually bounds repeated confirmation attempts is
+  // unchanged, and no Paystack call happens on this path regardless.
+  if (!byReference) return RATE_LIMITED
+  if (!byIp) return { ok: true, status: 'processing' }
 
   try {
     const charge = await verifyTransaction(reference)

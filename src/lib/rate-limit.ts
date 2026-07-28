@@ -39,8 +39,28 @@ import { headers } from 'next/headers'
  * client.
  */
 export const RATE_LIMITS = {
-  payment: { limit: 10, windowSeconds: 60 }, // initializePayment / verifyPayment — the carding surface
-  checkout: { limit: 20, windowSeconds: 60 }, // placeOrder / getShippingRates
+  // The carding-surface window — same limit/window shared by two DIFFERENT
+  // keyings, not one bucket: IP-keyed at `initializePayment` (no identifier
+  // argument — the plain per-caller bucket), and reference-keyed at
+  // `verifyPayment` (`checkRateLimit('payment', reference)` — one bucket per
+  // Paystack reference, layered under the separate IP-keyed `verify` window
+  // below). See `verifyPayment`'s call site (`payments.ts`) for why
+  // `verifyPayment` needs a second, IP-keyed check on top of this one.
+  payment: { limit: 10, windowSeconds: 60 },
+  checkout: { limit: 20, windowSeconds: 60 }, // placeOrder — a WRITE (creates a PENDING order), stays tight
+  // The read-only shipping-quote lookup (`getShippingRates`), split out of
+  // `checkout` (Phase 9c final fixes). It shares `checkout`'s CGNAT reality —
+  // the primary market is Nigerian mobile CGNAT, where many customers behind
+  // one carrier IP each fire 2-4 quote calls per checkout session (address
+  // edits, a currency-switcher toggle, a shipping-option refresh) — but
+  // unlike `placeOrder` it writes nothing and costs no more than a ShipBubble
+  // read. A shared 20/60s bucket sized for `placeOrder`'s writes starves
+  // ~5-10 concurrent legitimate checkouts behind one NAT with no attacker
+  // involved, and the fallback on a limit hit is a FLAT rate quoted silently
+  // in place of the real courier price — a monetary, not just cosmetic, cost
+  // to a real customer. Sized generously like `search`/`verify` for the same
+  // reason those are.
+  shippingQuote: { limit: 60, windowSeconds: 60 }, // getShippingRates — read-only, never charges/writes
   search: { limit: 120, windowSeconds: 60 }, // searchCatalog
   // A coarse IP-keyed BACKSTOP for signIn / signUp / requestPasswordReset —
   // NOT the primary brute-force defence anymore (see `authIdentity` below).
