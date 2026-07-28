@@ -105,15 +105,34 @@ export async function deleteProductImageObject(src: string): Promise<boolean> {
 export const STAGED_UPLOAD_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000
 
 /**
+ * A folder under `products/` is only ever a sweep CANDIDATE if its name has
+ * this shape. This is the primary safety property of the sweep, not a
+ * secondary guard: `Product.id` is a Prisma **cuid** (`@default(cuid())` in
+ * schema.prisma — e.g. `clx0abc123def456ghi789jkl`), while staging folders
+ * are named with `crypto.randomUUID()` client-side (see `stagingId` in
+ * `product-create-form.tsx`). The two id formats never collide, so this
+ * regex filter — applied BEFORE any database comparison — makes it
+ * structurally impossible for a real product's folder to be swept, no
+ * matter what `db.product.findMany()` returns (empty due to replica lag, a
+ * mid-migration window, a future refactor that changes the query, etc.).
+ * The DB check further below is defence in depth on top of this, not a
+ * replacement for it.
+ */
+const STAGING_FOLDER_NAME_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
  * `uploadProductImage` writes new-product images to `products/<staging-uuid>/…`
  * BEFORE the product row exists (8c-2's create-product flow needs somewhere
  * to put the file while the form is still open) and re-keys them under the
  * real `products/<productId>/…` once the product is actually created. A
  * form that's abandoned mid-fill leaves its staging folder behind forever —
  * this is the periodic cron sweep for that: list every folder segment under
- * `products/`, keep only the ones that are NOT an existing `Product.id` (a
- * real product's own folder is never touched, no matter its age), and among
- * those remove any object older than `STAGED_UPLOAD_MAX_AGE_MS`.
+ * `products/`, keep only the ones that are UUID-shaped AND are NOT an
+ * existing `Product.id` (a real product's own folder — always cuid-named,
+ * never UUID-shaped — is never touched, no matter its age or what the
+ * database returns), and among those remove any object older than
+ * `STAGED_UPLOAD_MAX_AGE_MS`. See `STAGING_FOLDER_NAME_RE` for why the
+ * UUID-shape filter is applied before, and independently of, the DB check.
  *
  * Best-effort throughout, matching every other function in this module: a
  * Storage or db failure at any point is logged and the function returns `0`
@@ -133,13 +152,33 @@ export async function sweepStagedUploads(): Promise<number> {
     }
     if (!topLevel || topLevel.length === 0) return 0
 
+    // Structural filter FIRST (see STAGING_FOLDER_NAME_RE doc comment): a
+    // cuid-named product folder can never reach the DB comparison below, so
+    // it can never be swept regardless of what that query returns.
+    const uuidCandidates = topLevel.filter((entry) => STAGING_FOLDER_NAME_RE.test(entry.name))
+    if (uuidCandidates.length === 0) return 0
+
     const products = await db.product.findMany({ select: { id: true } })
+
+    // Defence in depth: an empty product table alongside UUID-shaped
+    // candidate folders is far more likely a transient/query fault
+    // (replica lag, a mid-migration window, a future refactor of this
+    // query) than a genuinely empty catalog that somehow already has
+    // staging folders. Refuse to sweep rather than risk treating every
+    // live product as an orphan.
+    if (products.length === 0) {
+      console.error(
+        `sweepStagedUploads: db.product.findMany() returned 0 products while ${uuidCandidates.length} UUID-shaped folder(s) exist under products/ — refusing to sweep`,
+      )
+      return 0
+    }
+
     const productIds = new Set(products.map((p) => p.id))
 
     // A real product's folder — matched by id — is never inspected any
-    // further, regardless of age; only segments that AREN'T a live product
-    // id are staging candidates.
-    const staleFolders = topLevel.filter((entry) => !productIds.has(entry.name))
+    // further, regardless of age; only UUID-shaped segments that AREN'T a
+    // live product id are staging candidates.
+    const staleFolders = uuidCandidates.filter((entry) => !productIds.has(entry.name))
     if (staleFolders.length === 0) return 0
 
     const cutoff = Date.now() - STAGED_UPLOAD_MAX_AGE_MS
