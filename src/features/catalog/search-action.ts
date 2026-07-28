@@ -3,6 +3,7 @@
 import { getAllProducts } from '@/features/catalog/server/selectors'
 import { searchAndFilterProducts } from '@/features/catalog/lib/search'
 import { parseSearchCriteria } from '@/features/catalog/lib/search-params'
+import { checkRateLimit } from '@/lib/rate-limit'
 import type { PriceSet } from '@/types/money'
 
 const MAX_RESULTS = 8
@@ -26,8 +27,14 @@ export interface SearchOverlayResult {
  * at all (pinned behaviour — the header shouldn't query the catalog on every
  * keystroke of a one-letter query). Never throws: a failure here must never
  * break the header, so any error is logged and swallowed into `[]`.
+ *
+ * Rate-limited (`'search'` window) as the very first thing, before even the
+ * length check — a limit hit returns `[]` exactly like any other
+ * "no results" case, so the overlay needs no new handling.
  */
 export async function searchCatalog(query: string): Promise<SearchOverlayResult[]> {
+  if (!(await checkRateLimit('search'))) return []
+
   const trimmed = query.trim()
   if (trimmed.length < MIN_QUERY_LENGTH) return []
 

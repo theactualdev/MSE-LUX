@@ -87,6 +87,12 @@ vi.mock('@/features/catalog/server/resolve-products', () => ({
   resolveProductsByIds: (...args: [string[]]) => resolveProductsByIds(...args),
 }))
 
+const checkRateLimit = vi.fn()
+vi.mock('@/lib/rate-limit', () => ({
+  checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 60, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
+}))
+
 const { placeOrder } = await import('@/features/checkout/data')
 
 const USER_ID = '11111111-1111-4111-8111-111111111111'
@@ -200,6 +206,10 @@ beforeEach(() => {
   order.create.mockResolvedValue(createdRow())
   address.findMany.mockResolvedValue([])
   address.create.mockResolvedValue({})
+  // Default the limiter to "allow" so every pre-existing test below keeps
+  // exercising real behaviour untouched; the rate-limit describe block below
+  // overrides this per-test.
+  checkRateLimit.mockResolvedValue(true)
 })
 
 describe('placeOrder — guest checkout', () => {
@@ -694,5 +704,26 @@ describe('placeOrder — address save-back (best-effort, never affects the order
 
     expect(address.findMany).not.toHaveBeenCalled()
     expect(address.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('placeOrder — rate limiting (the "checkout" window, guarded before any other work)', () => {
+  it('limited: returns the typed rate-limited error and writes nothing, never even parsing input', async () => {
+    checkRateLimit.mockResolvedValue(false)
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+    })
+
+    expect(checkRateLimit).toHaveBeenCalledWith('checkout')
+    expect(result).toEqual({ error: 'Too many attempts. Please wait a moment and try again.' })
+    expect(order.create).not.toHaveBeenCalled()
+    expect($transaction).not.toHaveBeenCalled()
+    expect(resolveProductsByIds).not.toHaveBeenCalled()
+    expect(cartItem.findMany).not.toHaveBeenCalled()
   })
 })

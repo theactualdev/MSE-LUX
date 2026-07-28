@@ -5,6 +5,7 @@ import { db } from '@/lib/db'
 import { getCurrentUserId } from '@/features/auth/claims'
 import { initializeTransaction, verifyTransaction } from '@/features/checkout/lib/paystack'
 import { markOrderPaid } from '@/features/checkout/lib/fulfil-order'
+import { checkRateLimit } from '@/lib/rate-limit'
 import type { InitializePaymentResult, VerifyPaymentResult } from '@/features/checkout/payment-types'
 
 /**
@@ -32,6 +33,14 @@ const INITIALIZE_FAILED: InitializePaymentResult = { error: 'Could not start pay
 const VERIFY_FAILED: VerifyPaymentResult = { error: 'Could not confirm payment. Please try again.' }
 const NOT_COMPLETED: VerifyPaymentResult = { error: 'Payment was not completed.' }
 const MISMATCH: VerifyPaymentResult = { error: 'Payment could not be reconciled with your order.' }
+
+/**
+ * Both actions below share the same `'payment'` rate-limit window (the
+ * carding surface) and this same copy. Deliberately untyped (rather than
+ * annotated as `InitializePaymentResult`/`VerifyPaymentResult`) so the one
+ * constant is structurally assignable to both result unions.
+ */
+const RATE_LIMITED = { error: 'Too many attempts. Please wait a moment and try again.' }
 
 /** A fresh, unique-per-attempt Paystack reference. Overwriting a prior failed attempt's stored reference is fine — `markOrderPaid` anchors on `orderNumber`, not this column. */
 function generateReference(orderNumber: string): string {
@@ -64,6 +73,8 @@ async function loadOwnedOrder(orderNumber: string, userId: string | null) {
  * stored `totalMinor`, computed server-side back in `placeOrder`.
  */
 export async function initializePayment(orderNumber: string): Promise<InitializePaymentResult> {
+  if (!(await checkRateLimit('payment'))) return RATE_LIMITED
+
   const userId = await getCurrentUserId()
   const order = await loadOwnedOrder(orderNumber, userId)
   if (!order) return ORDER_NOT_FOUND
@@ -98,6 +109,8 @@ export async function initializePayment(orderNumber: string): Promise<Initialize
  * if this call never lands).
  */
 export async function verifyPayment(reference: string): Promise<VerifyPaymentResult> {
+  if (!(await checkRateLimit('payment'))) return RATE_LIMITED
+
   try {
     const charge = await verifyTransaction(reference)
     if (charge.status !== 'success') return NOT_COMPLETED

@@ -48,6 +48,12 @@ vi.mock('@/features/checkout/lib/fulfil-order', () => ({
 const cookieStore = { get: vi.fn(), set: vi.fn() }
 vi.mock('next/headers', () => ({ cookies: vi.fn(async () => cookieStore) }))
 
+const checkRateLimit = vi.fn()
+vi.mock('@/lib/rate-limit', () => ({
+  checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 60, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
+}))
+
 const { initializePayment, verifyPayment } = await import('@/features/checkout/payments')
 
 const ORDER_NUMBER = 'MSE-000123'
@@ -87,6 +93,10 @@ beforeEach(() => {
   // By default the guest cookie names this order (the ownership check passes);
   // the mismatch case overrides this per-test.
   cookieStore.get.mockReturnValue({ value: ORDER_NUMBER })
+  // Default the limiter to "allow" so every pre-existing test below keeps
+  // exercising real behaviour untouched; the rate-limit describe block below
+  // overrides this per-test.
+  checkRateLimit.mockResolvedValue(true)
 })
 
 afterEach(() => {
@@ -233,6 +243,32 @@ describe('verifyPayment', () => {
     const result = await verifyPayment(REFERENCE)
 
     expect(result).toEqual({ error: expect.any(String) })
+    expect(markOrderPaid).not.toHaveBeenCalled()
+  })
+})
+
+describe('rate limiting — the "payment" window guards both actions before any other work', () => {
+  it('initializePayment: limited returns the rate-limited error and never touches the DB or Paystack', async () => {
+    checkRateLimit.mockResolvedValue(false)
+    getCurrentUserId.mockResolvedValue(USER_ID)
+
+    const result = await initializePayment(ORDER_NUMBER)
+
+    expect(checkRateLimit).toHaveBeenCalledWith('payment')
+    expect(result).toEqual({ error: 'Too many attempts. Please wait a moment and try again.' })
+    expect(order.findFirst).not.toHaveBeenCalled()
+    expect(initializeTransaction).not.toHaveBeenCalled()
+    expect(order.update).not.toHaveBeenCalled()
+  })
+
+  it('verifyPayment: limited returns the rate-limited error and never touches Paystack or markOrderPaid', async () => {
+    checkRateLimit.mockResolvedValue(false)
+
+    const result = await verifyPayment(REFERENCE)
+
+    expect(checkRateLimit).toHaveBeenCalledWith('payment')
+    expect(result).toEqual({ error: 'Too many attempts. Please wait a moment and try again.' })
+    expect(verifyTransaction).not.toHaveBeenCalled()
     expect(markOrderPaid).not.toHaveBeenCalled()
   })
 })

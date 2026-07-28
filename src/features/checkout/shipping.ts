@@ -5,6 +5,7 @@ import { getCurrentUserId } from '@/features/auth/claims'
 import { resolveProductsByIds } from '@/features/catalog/server/resolve-products'
 import { validateAddress, fetchRates } from '@/features/checkout/lib/shipbubble'
 import { signQuote, addressHash } from '@/features/checkout/lib/shipping-quote'
+import { checkRateLimit } from '@/lib/rate-limit'
 import {
   SHIPBUBBLE_ORIGIN_ADDRESS_CODE,
   FLAT_INTERNATIONAL_USD,
@@ -150,6 +151,17 @@ export async function getShippingRates(input: {
   chargeCurrency: 'NGN' | 'USD'
   guestLines?: GuestOrderLine[]
 }): Promise<ShippingOption[]> {
+  // A shipping quote is not worth breaking checkout over: on a limit hit,
+  // degrade EXACTLY like a ShipBubble outage does — log and hand back the
+  // same flat-fallback option array (`guardFallbackOption`) rather than an
+  // empty list or a thrown error. This function's contract is that it never
+  // throws and always resolves `ShippingOption[]`, so the rate-limit guard
+  // must honour that contract too.
+  if (!(await checkRateLimit('checkout'))) {
+    console.error('getShippingRates: rate limited, falling back to a flat rate')
+    return [guardFallbackOption(input.address, input.chargeCurrency)]
+  }
+
   try {
     // `input.address` is untrusted at this boundary (a public Server Action —
     // no runtime arg validation happens for us). A malformed/missing address

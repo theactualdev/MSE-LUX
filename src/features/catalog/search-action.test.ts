@@ -7,6 +7,12 @@ vi.mock('@/features/catalog/server/selectors', () => ({
   getAllProducts: (...args: unknown[]) => getAllProducts(...args),
 }))
 
+const checkRateLimit = vi.fn()
+vi.mock('@/lib/rate-limit', () => ({
+  checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 60, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
+}))
+
 const { searchCatalog } = await import('@/features/catalog/search-action')
 
 function product(overrides: Partial<Product> & Pick<Product, 'id' | 'slug' | 'name'>): Product {
@@ -37,6 +43,11 @@ describe('searchCatalog', () => {
   beforeEach(() => {
     getAllProducts.mockReset()
     getAllProducts.mockResolvedValue([BRASS, SILVER])
+    // Default the limiter to "allow" so every pre-existing test below keeps
+    // exercising real behaviour untouched; the rate-limit describe block
+    // below overrides this per-test.
+    checkRateLimit.mockReset()
+    checkRateLimit.mockResolvedValue(true)
   })
 
   it('returns [] for a query under 2 chars without touching the catalog', async () => {
@@ -97,5 +108,23 @@ describe('searchCatalog', () => {
   it('never throws — swallows a selector failure into []', async () => {
     getAllProducts.mockRejectedValue(new Error('db down'))
     await expect(searchCatalog('brass')).resolves.toEqual([])
+  })
+})
+
+describe('searchCatalog — rate limiting (the "search" window, guarded before even the length check)', () => {
+  beforeEach(() => {
+    getAllProducts.mockReset()
+    getAllProducts.mockResolvedValue([BRASS, SILVER])
+    checkRateLimit.mockReset()
+  })
+
+  it('limited: returns [] and never touches the catalog', async () => {
+    checkRateLimit.mockResolvedValue(false)
+
+    const results = await searchCatalog('brass')
+
+    expect(checkRateLimit).toHaveBeenCalledWith('search')
+    expect(results).toEqual([])
+    expect(getAllProducts).not.toHaveBeenCalled()
   })
 })

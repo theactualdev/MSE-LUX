@@ -50,6 +50,12 @@ vi.mock('@/features/checkout/lib/shipping-config', () => ({
   SHIPBUBBLE_CATEGORY_ID: 0,
 }))
 
+const checkRateLimit = vi.fn()
+vi.mock('@/lib/rate-limit', () => ({
+  checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 60, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 } },
+}))
+
 const { getShippingRates } = await import('@/features/checkout/shipping')
 const { verifyQuote } = await import('@/features/checkout/lib/shipping-quote')
 
@@ -57,6 +63,10 @@ beforeEach(() => {
   process.env.SHIPBUBBLE_QUOTE_SECRET = 'test-secret'
   configState.originAddressCode = 'origin-abc'
   vi.clearAllMocks()
+  // Default the limiter to "allow" so every pre-existing test below keeps
+  // exercising real behaviour untouched; the rate-limit describe block below
+  // overrides this per-test.
+  checkRateLimit.mockResolvedValue(true)
 })
 
 afterEach(() => {
@@ -411,6 +421,41 @@ describe('getShippingRates — robustness against a malformed address', () => {
     expect(options.length).toBeGreaterThanOrEqual(1)
     expect(options[0].id).toBe('fallback')
     expect(validateAddress).not.toHaveBeenCalled()
+    expect(fetchRates).not.toHaveBeenCalled()
+  })
+})
+
+describe('getShippingRates — rate limiting (the "checkout" window)', () => {
+  // A shipping quote is not worth breaking checkout over: `getShippingRates`
+  // never throws, so a limit hit must degrade EXACTLY like a ShipBubble
+  // outage — the same flat-fallback option array, not an empty list.
+
+  it('NGN charge: limited returns the same flat NGN fallback the ShipBubble-outage path returns, touching nothing else', async () => {
+    checkRateLimit.mockResolvedValue(false)
+    getCurrentUserId.mockResolvedValue(USER_ID)
+
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
+
+    expect(checkRateLimit).toHaveBeenCalledWith('checkout')
+    expect(options).toHaveLength(1)
+    expect(options[0]).toMatchObject({ id: 'fallback', label: 'Standard delivery', amountMinor: 300_000, currency: 'NGN' })
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).not.toBeNull()
+
+    expect(getCurrentUserId).not.toHaveBeenCalled()
+    expect(cartItem.findMany).not.toHaveBeenCalled()
+    expect(resolveProductsByIds).not.toHaveBeenCalled()
+    expect(validateAddress).not.toHaveBeenCalled()
+    expect(fetchRates).not.toHaveBeenCalled()
+  })
+
+  it('USD charge: limited returns the flat USD fallback option', async () => {
+    checkRateLimit.mockResolvedValue(false)
+
+    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD' })
+
+    expect(options).toHaveLength(1)
+    expect(options[0]).toMatchObject({ id: 'fallback', currency: 'USD', amountMinor: 260_000 })
+    expect(verifyQuote(options[0].token, US_ADDRESS)).not.toBeNull()
     expect(fetchRates).not.toHaveBeenCalled()
   })
 })
