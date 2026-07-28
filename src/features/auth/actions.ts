@@ -40,13 +40,27 @@ const INVALID_CREDENTIALS_ERROR = 'Invalid email or password'
 
 /**
  * Shared rate-limited result for the credential-facing actions below
- * (`signIn`, `signUp`, `requestPasswordReset`) — the same `auth` window (10
- * per 5 min per IP), each guarded as the very first statement so a limited
- * caller never reaches validation or Supabase. Typed as `AuthActionResult`
- * (the `{ error?: string }` shape shared by all three, including
- * `SignUpActionResult` which only adds an optional field) so this one
- * constant stays structurally assignable to every guarded action's return
- * type — mirrors the `RATE_LIMITED` idiom in `checkout/payments.ts`.
+ * (`signIn`, `signUp`, `requestPasswordReset`), each guarded as the very
+ * first statement so a limited caller never reaches validation or Supabase.
+ * Typed as `AuthActionResult` (the `{ error?: string }` shape shared by all
+ * three, including `SignUpActionResult` which only adds an optional field)
+ * so this one constant stays structurally assignable to every guarded
+ * action's return type — mirrors the `RATE_LIMITED` idiom in
+ * `checkout/payments.ts`.
+ *
+ * `signIn` and `requestPasswordReset` check BOTH the `auth` (IP) and
+ * `authIdentity` (per-email) windows concurrently — the same two-key pattern
+ * `verifyPayment` (`checkout/payments.ts`) uses for `payment`/`verify`. Why
+ * two keys: `auth` alone, at a size tight enough to actually stop
+ * credential-stuffing, punishes an entire shared carrier IP for one
+ * attacker's traffic — and the primary market is Nigerian mobile CGNAT,
+ * where many real customers share one such address (see the `RATE_LIMITS`
+ * comment in `lib/rate-limit.ts`). `auth` is now a generous IP-keyed
+ * backstop that CGNAT can't starve; `authIdentity`, keyed by the normalised
+ * email, carries the real brute-force/enumeration protection and is
+ * unaffected by how many legitimate customers share the caller's IP.
+ * `signUp` deliberately keeps only the IP-only `auth` guard — every signup
+ * is a fresh email, so a per-email key would add nothing.
  *
  * NOT applied to `signOut` (a user must always be able to leave),
  * `updatePassword` (already gated by the fresh-recovery-claim check in
@@ -54,6 +68,27 @@ const INVALID_CREDENTIALS_ERROR = 'Invalid email or password'
  * credential surface of its own).
  */
 const RATE_LIMITED: AuthActionResult = { error: RATE_LIMITED_MESSAGE }
+
+/**
+ * Normalises an email into the `authIdentity` rate-limit key: trimmed and
+ * lower-cased so ` Ada@Example.com ` and `ada@example.com` share one bucket
+ * rather than each getting their own 5-per-5-min allowance — otherwise
+ * casing/whitespace variance would be a free way to multiply the guard.
+ * Falls back to the literal `'unknown'` for an empty/missing email so the
+ * call is still bucketed (and still shaped like every other identity key)
+ * rather than skipping the identity check entirely.
+ *
+ * ENUMERATION SAFETY: this key fires the identical 5-per-5-min limit
+ * whether or not the address has an account, so it leaks nothing about
+ * existence — `requestPasswordReset`'s existing don't-reveal-existence
+ * behaviour (Supabase's `resetPasswordForEmail` always resolves success) is
+ * untouched.
+ */
+function authIdentityKey(email: unknown): string {
+  if (typeof email !== 'string') return 'unknown'
+  const normalised = email.trim().toLowerCase()
+  return normalised || 'unknown'
+}
 
 /**
  * Signs in with email + password. Never logs or persists the password.
@@ -80,7 +115,14 @@ const RATE_LIMITED: AuthActionResult = { error: RATE_LIMITED_MESSAGE }
  * `signIn` following it closes the one credential-facing action that hadn't.
  */
 export async function signIn(values: LoginValues): Promise<AuthActionResult> {
-  if (!(await checkRateLimit('auth'))) return RATE_LIMITED
+  // Guard placement stays FIRST — the identity key is read straight off the
+  // raw, unvalidated argument (not `parsed.data.email`) so an unparseable
+  // payload still gets bucketed instead of skipping the identity check.
+  const [byIp, byIdentity] = await Promise.all([
+    checkRateLimit('auth'),
+    checkRateLimit('authIdentity', authIdentityKey(values?.email)),
+  ])
+  if (!byIp || !byIdentity) return RATE_LIMITED
 
   const parsed = loginServerSchema.safeParse(values)
   if (!parsed.success) {
@@ -244,7 +286,14 @@ export async function signInWithGoogle(): Promise<OAuthActionResult> {
  * reason — this return value only matters to non-form callers.
  */
 export async function requestPasswordReset(email: string): Promise<AuthActionResult> {
-  if (!(await checkRateLimit('auth'))) return RATE_LIMITED
+  // Guard placement stays FIRST — keyed off the raw `email` argument, not
+  // `parsed.data.email`, so a malformed value is still bucketed rather than
+  // skipping the identity check.
+  const [byIp, byIdentity] = await Promise.all([
+    checkRateLimit('auth'),
+    checkRateLimit('authIdentity', authIdentityKey(email)),
+  ])
+  if (!byIp || !byIdentity) return RATE_LIMITED
 
   const parsed = forgotSchema.safeParse({ email })
   if (!parsed.success) {

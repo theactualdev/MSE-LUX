@@ -413,17 +413,47 @@ describe('rate limiting — the "auth" window guards signIn, signUp and requestP
     const result = await signIn({ email: 'ada@example.com', password: 'abcdefgh' })
 
     expect(checkRateLimit).toHaveBeenCalledWith('auth')
+    expect(checkRateLimit).toHaveBeenCalledWith('authIdentity', 'ada@example.com')
     expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
     expect(signInWithPassword).not.toHaveBeenCalled()
   })
 
   it('signIn: allowed proceeds exactly as before', async () => {
+    checkRateLimit.mockResolvedValue(true)
     signInWithPassword.mockResolvedValue({ data: {}, error: null })
 
     await expect(signIn({ email: 'ada@example.com', password: 'abcdefgh' })).resolves.toEqual({})
 
     expect(checkRateLimit).toHaveBeenCalledWith('auth')
+    expect(checkRateLimit).toHaveBeenCalledWith('authIdentity', 'ada@example.com')
     expect(signInWithPassword).toHaveBeenCalled()
+  })
+
+  it('signIn: IP-denied (auth) returns rate-limited and never calls signInWithPassword, even though the identity key is allowed', async () => {
+    checkRateLimit.mockImplementation(async (kind: string) => kind !== 'auth')
+
+    const result = await signIn({ email: 'ada@example.com', password: 'abcdefgh' })
+
+    expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
+    expect(signInWithPassword).not.toHaveBeenCalled()
+  })
+
+  it('signIn: identity-denied (authIdentity) returns rate-limited and never calls signInWithPassword, even though the IP is allowed', async () => {
+    checkRateLimit.mockImplementation(async (kind: string) => kind !== 'authIdentity')
+
+    const result = await signIn({ email: 'ada@example.com', password: 'abcdefgh' })
+
+    expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
+    expect(signInWithPassword).not.toHaveBeenCalled()
+  })
+
+  it('signIn: normalises the email (trim + lowercase) into the authIdentity key', async () => {
+    checkRateLimit.mockResolvedValue(true)
+    signInWithPassword.mockResolvedValue({ data: {}, error: null })
+
+    await signIn({ email: ' Ada@Example.com ', password: 'abcdefgh' })
+
+    expect(checkRateLimit).toHaveBeenCalledWith('authIdentity', 'ada@example.com')
   })
 
   it('signUp: limited returns the rate-limited error and never calls Supabase signUp', async () => {
@@ -437,6 +467,7 @@ describe('rate limiting — the "auth" window guards signIn, signUp and requestP
   })
 
   it('signUp: allowed proceeds exactly as before', async () => {
+    checkRateLimit.mockResolvedValue(true)
     signUp.mockResolvedValue({ data: { session: { access_token: 'x' } }, error: null })
 
     await expect(signUpAction(SIGNUP_VALUES)).resolves.toEqual({})
@@ -445,22 +476,62 @@ describe('rate limiting — the "auth" window guards signIn, signUp and requestP
     expect(signUp).toHaveBeenCalled()
   })
 
+  it('signUp: only ever checks the IP-keyed auth window, never authIdentity', async () => {
+    checkRateLimit.mockResolvedValue(true)
+    signUp.mockResolvedValue({ data: { session: { access_token: 'x' } }, error: null })
+
+    await signUpAction(SIGNUP_VALUES)
+
+    expect(checkRateLimit).toHaveBeenCalledTimes(1)
+    expect(checkRateLimit).toHaveBeenCalledWith('auth')
+  })
+
   it('requestPasswordReset: limited returns the rate-limited error and never calls resetPasswordForEmail', async () => {
     checkRateLimit.mockResolvedValue(false)
 
     const result = await requestPasswordReset('ada@example.com')
 
     expect(checkRateLimit).toHaveBeenCalledWith('auth')
+    expect(checkRateLimit).toHaveBeenCalledWith('authIdentity', 'ada@example.com')
     expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
     expect(resetPasswordForEmail).not.toHaveBeenCalled()
   })
 
   it('requestPasswordReset: allowed proceeds exactly as before', async () => {
+    checkRateLimit.mockResolvedValue(true)
     resetPasswordForEmail.mockResolvedValue({ data: {}, error: null })
 
     await expect(requestPasswordReset('ada@example.com')).resolves.toEqual({})
 
     expect(checkRateLimit).toHaveBeenCalledWith('auth')
+    expect(checkRateLimit).toHaveBeenCalledWith('authIdentity', 'ada@example.com')
     expect(resetPasswordForEmail).toHaveBeenCalled()
+  })
+
+  it('requestPasswordReset: IP-denied (auth) returns rate-limited and never calls resetPasswordForEmail, even though the identity key is allowed', async () => {
+    checkRateLimit.mockImplementation(async (kind: string) => kind !== 'auth')
+
+    const result = await requestPasswordReset('ada@example.com')
+
+    expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
+    expect(resetPasswordForEmail).not.toHaveBeenCalled()
+  })
+
+  it('requestPasswordReset: identity-denied (authIdentity) returns rate-limited and never calls resetPasswordForEmail, even though the IP is allowed', async () => {
+    checkRateLimit.mockImplementation(async (kind: string) => kind !== 'authIdentity')
+
+    const result = await requestPasswordReset('ada@example.com')
+
+    expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
+    expect(resetPasswordForEmail).not.toHaveBeenCalled()
+  })
+
+  it('requestPasswordReset: normalises the email (trim + lowercase) into the authIdentity key', async () => {
+    checkRateLimit.mockResolvedValue(true)
+    resetPasswordForEmail.mockResolvedValue({ data: {}, error: null })
+
+    await requestPasswordReset(' Ada@Example.com ')
+
+    expect(checkRateLimit).toHaveBeenCalledWith('authIdentity', 'ada@example.com')
   })
 })

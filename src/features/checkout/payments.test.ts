@@ -51,7 +51,7 @@ vi.mock('next/headers', () => ({ cookies: vi.fn(async () => cookieStore) }))
 const checkRateLimit = vi.fn()
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
-  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 10, windowSeconds: 300 }, verify: { limit: 60, windowSeconds: 60 } },
+  RATE_LIMITS: { payment: { limit: 10, windowSeconds: 60 }, checkout: { limit: 20, windowSeconds: 60 }, search: { limit: 120, windowSeconds: 60 }, auth: { limit: 40, windowSeconds: 300 }, authIdentity: { limit: 5, windowSeconds: 300 }, verify: { limit: 60, windowSeconds: 60 } },
   RATE_LIMITED_MESSAGE: 'Too many attempts. Please wait a moment and try again.',
 }))
 

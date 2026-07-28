@@ -42,7 +42,26 @@ export const RATE_LIMITS = {
   payment: { limit: 10, windowSeconds: 60 }, // initializePayment / verifyPayment — the carding surface
   checkout: { limit: 20, windowSeconds: 60 }, // placeOrder / getShippingRates
   search: { limit: 120, windowSeconds: 60 }, // searchCatalog
-  auth: { limit: 10, windowSeconds: 300 }, // signIn / signUp / requestPasswordReset
+  // A coarse IP-keyed BACKSTOP for signIn / signUp / requestPasswordReset —
+  // NOT the primary brute-force defence anymore (see `authIdentity` below).
+  // Sized for the same shared-carrier-NAT reality `search` above is: the
+  // primary market is Nigerian mobile CGNAT, where many customers share one
+  // carrier-assigned IP. A tight per-IP limit here doesn't just inconvenience
+  // an attacker — it locks out every real customer behind that address,
+  // denying sign-in/sign-up/password-reset to a whole carrier's worth of
+  // legitimate traffic over ~10 cheap attacker requests. 40/300s gives that
+  // shared IP real headroom while still bounding a single abusive client;
+  // the actual credential-stuffing/enumeration guard is now `authIdentity`.
+  auth: { limit: 40, windowSeconds: 300 },
+  // The targeted per-email guard for signIn / requestPasswordReset — the
+  // REAL credential-stuffing/enumeration defence, keyed by the normalised
+  // email rather than IP, so it's completely unaffected by how many
+  // legitimate customers share the caller's carrier IP. Deliberately tight
+  // (5/300s) since a genuine user rarely retries a login or reset more than
+  // a few times in five minutes, while an attacker grinding one address's
+  // password (or probing whether it has an account) hits this wall long
+  // before `auth`'s generous IP backstop would ever engage.
+  authIdentity: { limit: 5, windowSeconds: 300 },
   // An IP-keyed backstop for `verifyPayment`, layered ON TOP of its
   // reference-keyed 'payment' check (never a replacement for it). Reference
   // rotation is free to a caller — `reference` is a caller-supplied argument
