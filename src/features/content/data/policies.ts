@@ -34,7 +34,7 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
         body: [
           "There is no self-service returns portal. To start a return, contact us with your order number and we'll confirm eligibility and next steps by email.",
           "Unworn items in their original packaging can be returned within [TODO(owner): confirm the return window to publish here, e.g. '7 days'] of delivery for a refund or exchange.",
-          'Approved returns and order cancellations are handled by our team, not automatically: we cancel and restock the order, then issue your refund from the Paystack dashboard to your original payment method — refunds are recorded and processed by a person, so please allow a few business days.',
+          'Returns and cancellations are handled by a person, not automatically. Once a return is approved, your refund is issued by our team through Paystack to the payment method you used, so please allow a few business days for it to appear.',
           'Return shipping is the responsibility of the customer unless the item arrived damaged or faulty, in which case we cover the cost.',
         ],
       },
