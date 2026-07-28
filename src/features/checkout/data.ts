@@ -11,6 +11,7 @@ import { verifyQuote } from '@/features/checkout/lib/shipping-quote'
 import { contactSchema, addressSchema } from '@/features/checkout/schema'
 import type { Address } from '@/features/checkout/schema'
 import { mapOrderRow } from '@/features/checkout/lib/order-view'
+import { serverChargeCurrency } from '@/features/currency/lib/charge-currency-server'
 import { checkRateLimit, RATE_LIMITED_MESSAGE } from '@/lib/rate-limit'
 import type { PlaceOrderInput, PlaceOrderResult, GuestOrderLine } from '@/features/checkout/types'
 // `account/data.ts` carries `import 'server-only'`, not `'use server'` — it's
@@ -227,14 +228,40 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   // throws out" contract.
   if (input.chargeCurrency !== 'NGN' && input.chargeCurrency !== 'USD') return INVALID_INPUT
 
+  // Re-derive the charge currency from the server-observed geo signal
+  // (`serverChargeCurrency`, Phase 9c) rather than trusting the client's
+  // format-validated value outright: a caller could otherwise simply claim
+  // the cheaper of the two authored currencies. A non-null server value that
+  // DIFFERS from the client's is used instead — logged, never rejected,
+  // since a legitimate traveller/VPN user can genuinely diverge from their
+  // browsing-region geo. A null server value (no geo header — local dev or a
+  // non-Vercel deploy) keeps today's format-validated client value exactly.
+  // Every downstream use below reads this ONE resolved value, never
+  // `input.chargeCurrency` directly, so re-pricing, the persisted
+  // `Order.currency`, and the shipping-quote currency guard can't drift
+  // apart from one another.
+  const serverCurrency = await serverChargeCurrency()
+  const chargeCurrency =
+    serverCurrency && serverCurrency !== input.chargeCurrency ? serverCurrency : input.chargeCurrency
+  if (serverCurrency && serverCurrency !== input.chargeCurrency) {
+    console.warn('[placeOrder] charge-currency divergence — using the server-derived value', {
+      client: input.chargeCurrency,
+      server: serverCurrency,
+    })
+  }
+
   // The shipping amount/label are never trusted from the client — they come
   // ONLY from a verified, address-bound, unexpired quote token (see the
   // module doc comment above). A tampered/expired/wrong-address token, or a
-  // currency mismatch against `chargeCurrency`, is rejected before any
-  // pricing work happens.
+  // currency mismatch against the resolved `chargeCurrency`, is rejected
+  // before any pricing work happens. DEPENDENCY: `getShippingRates` resolves
+  // its own quote's currency via this SAME `serverChargeCurrency()` call, so
+  // a quote issued under the server-derived currency is verified against
+  // that same currency here — if the two functions ever resolve currency
+  // differently, a legitimately-issued quote would be wrongly rejected here.
   const quote = verifyQuote(input.shippingToken, parsedAddress.data)
   if (!quote) return SHIPPING_EXPIRED
-  if (quote.currency !== input.chargeCurrency) return INVALID_INPUT
+  if (quote.currency !== chargeCurrency) return INVALID_INPUT
 
   const userId = await getCurrentUserId()
   const rawLines = await resolveRawLines(userId, input.guestLines)
@@ -267,7 +294,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   // The same builder the cart UI uses, so the order total matches what the
   // customer was shown — priced off the authored catalog, in the charge
   // currency, never off a client-supplied amount.
-  const lines = buildCartLines(clampedItems, products, input.chargeCurrency)
+  const lines = buildCartLines(clampedItems, products, chargeCurrency)
 
   const subtotalMinor = lines.reduce((sum, line) => sum + line.lineTotal.amountMinor, 0)
   const shippingMinor = quote.amountMinor
@@ -299,7 +326,7 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
     shipCountry: parsedAddress.data.country,
     shipPostalCode: toNullable(parsedAddress.data.postalCode),
     shippingLabel: quote.label,
-    currency: input.chargeCurrency,
+    currency: chargeCurrency,
     subtotalMinor,
     shippingMinor,
     taxMinor,

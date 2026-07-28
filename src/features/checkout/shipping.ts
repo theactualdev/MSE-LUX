@@ -5,6 +5,7 @@ import { getCurrentUserId } from '@/features/auth/claims'
 import { resolveProductsByIds } from '@/features/catalog/server/resolve-products'
 import { validateAddress, fetchRates } from '@/features/checkout/lib/shipbubble'
 import { signQuote, addressHash } from '@/features/checkout/lib/shipping-quote'
+import { serverChargeCurrency } from '@/features/currency/lib/charge-currency-server'
 import { checkRateLimit } from '@/lib/rate-limit'
 import {
   SHIPBUBBLE_ORIGIN_ADDRESS_CODE,
@@ -152,6 +153,29 @@ export async function getShippingRates(input: {
   guestLines?: GuestOrderLine[]
 }): Promise<ShippingOption[]> {
   try {
+    // Re-derive the charge currency from the server-observed geo signal
+    // (`serverChargeCurrency`, Phase 9c) rather than trusting the client's
+    // value outright — same rationale and resolution rule as `placeOrder`
+    // (`data.ts`): a non-null server value that DIFFERS from the client's is
+    // used instead (logged, never rejected — a legitimate traveller/VPN user
+    // can genuinely diverge from their browsing-region geo); a null server
+    // value (no geo header) keeps today's client value exactly. Computed
+    // once, up front, and used for EVERY branch below — including the
+    // rate-limited fallback — so this function's whole NGN-vs-international
+    // branching and every returned option/token's currency are consistent
+    // with what `placeOrder` will independently re-derive for the same
+    // request (see the DEPENDENCY note at `placeOrder`'s quote-currency
+    // guard).
+    const serverCurrency = await serverChargeCurrency()
+    const chargeCurrency: 'NGN' | 'USD' =
+      serverCurrency && serverCurrency !== input.chargeCurrency ? serverCurrency : input.chargeCurrency
+    if (serverCurrency && serverCurrency !== input.chargeCurrency) {
+      console.warn('[getShippingRates] charge-currency divergence — using the server-derived value', {
+        client: input.chargeCurrency,
+        server: serverCurrency,
+      })
+    }
+
     // A shipping quote is not worth breaking checkout over: on a limit hit,
     // degrade EXACTLY like a ShipBubble outage does — log and hand back a
     // flat-fallback option rather than an empty list or a thrown error. This
@@ -178,8 +202,8 @@ export async function getShippingRates(input: {
       // `shipping-config.ts`'s flat rates (every one marked "finalize before
       // launch") are tuned to different values.
       const parsedForLimit = addressSchema.safeParse(input.address)
-      if (parsedForLimit.success && (input.chargeCurrency !== 'NGN' || !isNigeria(parsedForLimit.data.country))) {
-        const flat = input.chargeCurrency === 'USD' ? FLAT_INTERNATIONAL_USD : FLAT_INTERNATIONAL_NGN
+      if (parsedForLimit.success && (chargeCurrency !== 'NGN' || !isNigeria(parsedForLimit.data.country))) {
+        const flat = chargeCurrency === 'USD' ? FLAT_INTERNATIONAL_USD : FLAT_INTERNATIONAL_NGN
         const limitHash = addressHash(parsedForLimit.data)
         return [
           toOption(
@@ -193,7 +217,7 @@ export async function getShippingRates(input: {
         ]
       }
 
-      return [guardFallbackOption(input.address, input.chargeCurrency)]
+      return [guardFallbackOption(input.address, chargeCurrency)]
     }
 
     // `input.address` is untrusted at this boundary (a public Server Action —
@@ -201,10 +225,10 @@ export async function getShippingRates(input: {
     // must not throw straight out of the function; it gets one safe flat
     // option instead, exactly like any other unrecoverable failure below.
     const parsedAddress = addressSchema.safeParse(input.address)
-    if (!parsedAddress.success) return [guardFallbackOption(input.address, input.chargeCurrency)]
+    if (!parsedAddress.success) return [guardFallbackOption(input.address, chargeCurrency)]
 
     const address = parsedAddress.data
-    const { email, guestLines, chargeCurrency } = input
+    const { email, guestLines } = input
     const hash = addressHash(address)
     const nigeria = isNigeria(address.country)
 

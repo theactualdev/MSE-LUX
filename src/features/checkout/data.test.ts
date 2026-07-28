@@ -77,9 +77,22 @@ vi.mock('@/features/auth/claims', () => ({
   getCurrentUserId: () => getCurrentUserId(),
 }))
 
-// placeOrder sets an httpOnly cookie binding a GUEST order to the session.
+// placeOrder sets an httpOnly cookie binding a GUEST order to the session,
+// and `serverChargeCurrency` (Phase 9c) reads the geo header through the
+// same `next/headers` module — both are mocked here, per the project's
+// `next/headers` mocking idiom (`src/lib/rate-limit.test.ts`).
 const cookieStore = { set: vi.fn(), get: vi.fn() }
-vi.mock('next/headers', () => ({ cookies: vi.fn(async () => cookieStore) }))
+const headersMock = vi.fn()
+vi.mock('next/headers', () => ({
+  cookies: vi.fn(async () => cookieStore),
+  headers: (...args: unknown[]) => headersMock(...args),
+}))
+
+function headerStore(entries: Record<string, string> = {}) {
+  const h = new Headers()
+  for (const [key, value] of Object.entries(entries)) h.set(key, value)
+  return h
+}
 
 const resolveProductsByIds = vi.fn()
 
@@ -212,6 +225,11 @@ beforeEach(() => {
   // exercising real behaviour untouched; the rate-limit describe block below
   // overrides this per-test.
   checkRateLimit.mockResolvedValue(true)
+  // Default to NO geo header (`serverChargeCurrency` resolves `null`), so
+  // every pre-existing test below keeps exercising today's format-validated
+  // client `chargeCurrency` unchanged; the currency-divergence describe
+  // block below overrides this per-test.
+  headersMock.mockResolvedValue(headerStore())
 })
 
 describe('placeOrder — guest checkout', () => {
@@ -727,5 +745,101 @@ describe('placeOrder — rate limiting (the "checkout" window, guarded before an
     expect($transaction).not.toHaveBeenCalled()
     expect(resolveProductsByIds).not.toHaveBeenCalled()
     expect(cartItem.findMany).not.toHaveBeenCalled()
+  })
+})
+
+describe('placeOrder — server-derived charge currency (Phase 9c residue fix)', () => {
+  // `placeOrder` no longer trusts the client's format-validated
+  // `chargeCurrency` outright: it re-derives it from the server geo signal
+  // (`serverChargeCurrency`) and, when that signal is present AND disagrees
+  // with the client, uses the SERVER value end-to-end instead — closing the
+  // Phase-6 finding that a client could simply claim the cheaper authored
+  // currency. It never rejects on a divergence (only logs), since a
+  // traveller/VPN user can legitimately diverge from their browsing-region
+  // geo.
+
+  it('uses the server-derived currency end-to-end when it diverges from the client value, logging the divergence', async () => {
+    headersMock.mockResolvedValue(headerStore({ 'x-vercel-ip-country': 'US' })) // -> USD
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      // Client claims NGN, but US -> USD wins server-side. The shipping
+      // token must itself be signed for USD: `placeOrder`'s quote-currency
+      // guard checks against the RESOLVED currency, not the client's claim —
+      // exactly what a `getShippingRates` call under the same geo signal
+      // would have produced (see the DEPENDENCY comment in `data.ts`).
+      shippingToken: validShippingToken({ currency: 'USD', amountMinor: 5_000 }),
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+    })
+
+    expect(result).toEqual({ ok: true, order: expect.objectContaining({ orderNumber: 'MSE-123456' }) })
+    expect(order.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          // The persisted Order.currency is the SERVER value, never the
+          // client's cheaper claim.
+          currency: 'USD',
+          // Re-priced off PRODUCT's authored USD price (30_000), not NGN's
+          // 500_000 — proof the resolved currency, not the client's, drove
+          // `buildCartLines`.
+          subtotalMinor: 30_000,
+          shippingMinor: 5_000,
+          lines: {
+            create: [expect.objectContaining({ unitPriceMinor: 30_000, lineTotalMinor: 30_000 })],
+          },
+        }),
+      }),
+    )
+    expect(consoleWarnSpy).toHaveBeenCalledWith(
+      '[placeOrder] charge-currency divergence — using the server-derived value',
+      { client: 'NGN', server: 'USD' },
+    )
+
+    consoleWarnSpy.mockRestore()
+  })
+
+  it('keeps the client currency unchanged, without logging, when the server-derived value agrees', async () => {
+    headersMock.mockResolvedValue(headerStore({ 'x-vercel-ip-country': 'NG' })) // -> NGN, same as client
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+    })
+
+    expect(result).toEqual({ ok: true, order: expect.objectContaining({ orderNumber: 'MSE-123456' }) })
+    expect(order.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ currency: 'NGN', subtotalMinor: 500_000 }) }),
+    )
+    expect(consoleWarnSpy).not.toHaveBeenCalled()
+
+    consoleWarnSpy.mockRestore()
+  })
+
+  it('keeps the client currency unchanged when the geo header is absent (local dev / non-Vercel) — today’s behaviour', async () => {
+    headersMock.mockResolvedValue(headerStore()) // no x-vercel-ip-country
+    const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+    })
+
+    expect(result).toEqual({ ok: true, order: expect.objectContaining({ orderNumber: 'MSE-123456' }) })
+    expect(order.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ currency: 'NGN', subtotalMinor: 500_000 }) }),
+    )
+    expect(consoleWarnSpy).not.toHaveBeenCalled()
+
+    consoleWarnSpy.mockRestore()
   })
 })
