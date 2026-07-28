@@ -533,6 +533,86 @@ describe('getShippingRates — rate limiting (the "checkout" window)', () => {
   })
 })
 
+describe('getShippingRates — SHIPBUBBLE_QUOTE_SECRET missing (the QA-reported 500)', () => {
+  // Every option this function returns is signed — including the top-level
+  // catch's own last-resort `guardFallbackOption` call. Before the fix, a
+  // missing secret made THAT call throw a second time, escaping as an
+  // unhandled rejection despite the function's documented "never throws"
+  // contract. These assert the fix holds across the different paths that
+  // all ultimately funnel into that same top-level catch.
+
+  it('resolves with [] (never rejects) when the live-ShipBubble fallback itself cannot be signed — the exact QA-reported 500', async () => {
+    delete process.env.SHIPBUBBLE_QUOTE_SECRET
+    getCurrentUserId.mockResolvedValue(USER_ID)
+    cartItem.findMany.mockResolvedValue([{ productId: PRODUCT_ID, variantId: null, quantity: 1 }])
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'recv-1' })
+    fetchRates.mockRejectedValue(new Error('ShipBubble is down'))
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(
+      getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' }),
+    ).resolves.toEqual([])
+
+    expect(consoleErrorSpy).toHaveBeenCalled()
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('resolves with [] for the flat-rate (non-ShipBubble) branch too, when the secret is missing', async () => {
+    delete process.env.SHIPBUBBLE_QUOTE_SECRET
+    getCurrentUserId.mockResolvedValue(null)
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(
+      getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] }),
+    ).resolves.toEqual([])
+
+    expect(validateAddress).not.toHaveBeenCalled()
+    expect(fetchRates).not.toHaveBeenCalled()
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('resolves with [] on the rate-limited path too, when the secret is missing', async () => {
+    delete process.env.SHIPBUBBLE_QUOTE_SECRET
+    checkRateLimit.mockResolvedValue(false)
+    getCurrentUserId.mockResolvedValue(USER_ID)
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    await expect(
+      getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' }),
+    ).resolves.toEqual([])
+
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('resolves with [] on the malformed-address path too, when the secret is missing', async () => {
+    delete process.env.SHIPBUBBLE_QUOTE_SECRET
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const malformedAddress = { ...NG_ADDRESS, country: undefined } as unknown as Address
+
+    await expect(
+      getShippingRates({ address: malformedAddress, email: EMAIL, chargeCurrency: 'NGN' }),
+    ).resolves.toEqual([])
+
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('still signs real options normally once the secret is present again', async () => {
+    // Sanity check that the fix above didn't accidentally disable signing
+    // altogether — with the secret present (restored by the outer
+    // `beforeEach` on the NEXT test), a normal call still returns a signed,
+    // verifiable option. Exercised inline here rather than relying on test
+    // order.
+    process.env.SHIPBUBBLE_QUOTE_SECRET = 'test-secret'
+    getCurrentUserId.mockResolvedValue(null)
+
+    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
+
+    expect(options).toHaveLength(1)
+    expect(verifyQuote(options[0].token, US_ADDRESS)).not.toBeNull()
+  })
+})
+
 describe('getShippingRates — charge-currency divergence is logged, not overridden (Phase 9c Task 4)', () => {
   // Mirrors `placeOrder`'s (`data.test.ts`) equivalent block: `getShippingRates`
   // used to re-derive the charge currency from the server geo signal and

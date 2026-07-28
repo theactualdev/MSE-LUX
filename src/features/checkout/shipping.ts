@@ -48,6 +48,16 @@ import type { ShippingOption } from '@/features/checkout/shipping-types'
  * rate fetch, missing config, empty courier list) is caught and turned into
  * a single flat fallback option instead — checkout must never be blocked by
  * a shipping-API outage.
+ *
+ * A missing `SHIPBUBBLE_QUOTE_SECRET` is a SEPARATE hazard from the above:
+ * every option this function returns is signed (`toOption` -> `signQuote`),
+ * INCLUDING the top-level catch's own last-resort `guardFallbackOption`
+ * call — so without the check at the top of that catch below, the
+ * fallback-building itself would throw a second time and escape as an
+ * unhandled rejection (this was the exact 500 QA reported). The top-level
+ * catch is where every throwing path in this function ultimately lands, so
+ * guarding ONLY there is enough to keep the whole function's "never throws"
+ * contract even when signing is impossible — see `hasQuoteSecret` below.
  */
 
 /** Quote validity window — matches the plan's "e.g. 30 min" quote lifetime. */
@@ -137,6 +147,15 @@ function guardFallbackOption(address: unknown, chargeCurrency: unknown): Shippin
   const hash = safeAddressHash(address)
   const fallback = chargeCurrency === 'USD' ? FLAT_FALLBACK_USD : FLAT_FALLBACK_NGN
   return toOption('fallback', fallback.label, fallback.amountMinor, fallback.currency, hash, fallback.deliveryEta)
+}
+
+/**
+ * Checked directly against `process.env` (never via `signQuote`'s own
+ * `requireSecret()`) so the top-level catch can detect an unsignable state
+ * WITHOUT itself throwing — that's the whole point of this check existing.
+ */
+function hasQuoteSecret(): boolean {
+  return !!process.env.SHIPBUBBLE_QUOTE_SECRET
 }
 
 export async function getShippingRates(input: {
@@ -337,6 +356,21 @@ export async function getShippingRates(input: {
     // ShipBubble try, or an unexpected throw during address validation
     // itself) and still returns one safe, verifiable fallback option.
     console.error('getShippingRates: unexpected failure, falling back to a flat rate', error)
+
+    // `guardFallbackOption` itself signs a quote (`toOption` -> `signQuote`
+    // -> `requireSecret()`), which throws when `SHIPBUBBLE_QUOTE_SECRET`
+    // isn't set — and since this IS the last-resort handler, that throw
+    // would have nothing left to catch it, escaping as an unhandled
+    // rejection despite this function's "never throws" contract (the exact
+    // 500 QA reported). Detect the unsignable state directly and return an
+    // empty option array instead of attempting to sign one; the checkout
+    // client treats `[]` as "shipping is temporarily unavailable" and stays
+    // on the address step rather than advancing with nothing selectable.
+    if (!hasQuoteSecret()) {
+      console.error('getShippingRates: SHIPBUBBLE_QUOTE_SECRET is not set — cannot sign a fallback quote, returning no options')
+      return []
+    }
+
     return [guardFallbackOption(input.address, input.chargeCurrency)]
   }
 }

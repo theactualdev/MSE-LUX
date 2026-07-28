@@ -1,20 +1,26 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 const upload = vi.fn()
 const getPublicUrl = vi.fn()
 const remove = vi.fn()
-const from = vi.fn(() => ({ upload, getPublicUrl, remove }))
+const list = vi.fn()
+const from = vi.fn(() => ({ upload, getPublicUrl, remove, list }))
 const createClient = vi.fn(async () => ({ storage: { from } }))
 
 vi.mock('@/lib/supabase/server', () => ({
   createClient: (...args: []) => createClient(...args),
 }))
 
+const findMany = vi.fn()
+vi.mock('@/lib/db', () => ({ db: { get product() { return { findMany } } } }))
+
 const {
   PRODUCT_IMAGES_BUCKET,
   MAX_IMAGE_BYTES,
+  STAGED_UPLOAD_MAX_AGE_MS,
   uploadProductImage,
   deleteProductImageObject,
+  sweepStagedUploads,
 } = await import('@/features/admin/catalog/images')
 
 const PRODUCT_ID = 'prod-123'
@@ -188,6 +194,199 @@ describe('deleteProductImageObject', () => {
     )
 
     expect(result).toBe(false)
+    expect(errorSpy).toHaveBeenCalled()
+
+    errorSpy.mockRestore()
+  })
+})
+
+describe('sweepStagedUploads', () => {
+  const NOW = new Date('2026-07-28T12:00:00.000Z')
+  const STALE_CREATED_AT = new Date(NOW.getTime() - STAGED_UPLOAD_MAX_AGE_MS - 60_000).toISOString() // 1 minute past the 7-day cutoff
+  const FRESH_CREATED_AT = new Date(NOW.getTime() - 60_000).toISOString() // 1 minute old
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+    vi.setSystemTime(NOW)
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('a fresh staging folder (not a real product, but not old enough yet) is left untouched', async () => {
+    list.mockImplementation(async (path: string) => {
+      if (path === 'products') return { data: [{ name: 'staging-fresh-uuid' }], error: null }
+      if (path === 'products/staging-fresh-uuid') {
+        return { data: [{ name: 'a.jpg', created_at: FRESH_CREATED_AT }], error: null }
+      }
+      throw new Error(`unexpected list path ${path}`)
+    })
+    findMany.mockResolvedValue([])
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(0)
+    expect(remove).not.toHaveBeenCalled()
+  })
+
+  it("a real product's folder is untouched regardless of age — never even listed", async () => {
+    list.mockImplementation(async (path: string) => {
+      if (path === 'products') return { data: [{ name: 'prod-existing' }], error: null }
+      throw new Error(`unexpected list path ${path}`)
+    })
+    findMany.mockResolvedValue([{ id: 'prod-existing' }])
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(0)
+    // Only the top-level listing happened — the real product's folder
+    // contents were never inspected.
+    expect(list).toHaveBeenCalledTimes(1)
+    expect(remove).not.toHaveBeenCalled()
+  })
+
+  it('a stale orphaned staging folder has its old objects removed and counted', async () => {
+    list.mockImplementation(async (path: string) => {
+      if (path === 'products') return { data: [{ name: 'staging-stale-uuid' }], error: null }
+      if (path === 'products/staging-stale-uuid') {
+        return {
+          data: [
+            { name: 'a.jpg', created_at: STALE_CREATED_AT },
+            { name: 'b.jpg', created_at: STALE_CREATED_AT },
+          ],
+          error: null,
+        }
+      }
+      throw new Error(`unexpected list path ${path}`)
+    })
+    findMany.mockResolvedValue([])
+    remove.mockResolvedValue({ data: [{ name: 'a.jpg' }, { name: 'b.jpg' }], error: null })
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(2)
+    expect(remove).toHaveBeenCalledWith(['products/staging-stale-uuid/a.jpg', 'products/staging-stale-uuid/b.jpg'])
+  })
+
+  it('within one orphaned folder, only objects older than the cutoff are removed — a fresh one alongside a stale one is kept', async () => {
+    list.mockImplementation(async (path: string) => {
+      if (path === 'products') return { data: [{ name: 'staging-mixed-uuid' }], error: null }
+      if (path === 'products/staging-mixed-uuid') {
+        return {
+          data: [
+            { name: 'old.jpg', created_at: STALE_CREATED_AT },
+            { name: 'new.jpg', created_at: FRESH_CREATED_AT },
+          ],
+          error: null,
+        }
+      }
+      throw new Error(`unexpected list path ${path}`)
+    })
+    findMany.mockResolvedValue([])
+    remove.mockResolvedValue({ data: [{ name: 'old.jpg' }], error: null })
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(1)
+    expect(remove).toHaveBeenCalledWith(['products/staging-mixed-uuid/old.jpg'])
+  })
+
+  it('top-level Storage list failure: returns 0 and logs, never touching db', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    list.mockResolvedValue({ data: null, error: { message: 'bucket unreachable' } })
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(0)
+    expect(errorSpy).toHaveBeenCalled()
+    expect(findMany).not.toHaveBeenCalled()
+
+    errorSpy.mockRestore()
+  })
+
+  it('top-level Storage list throws: returns 0 and logs', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    list.mockRejectedValue(new Error('network down'))
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(0)
+    expect(errorSpy).toHaveBeenCalled()
+
+    errorSpy.mockRestore()
+  })
+
+  it('db lookup throws: returns 0 and logs', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    list.mockResolvedValue({ data: [{ name: 'staging-uuid' }], error: null })
+    findMany.mockRejectedValue(new Error('db down'))
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(0)
+    expect(errorSpy).toHaveBeenCalled()
+
+    errorSpy.mockRestore()
+  })
+
+  it('a per-folder listing failure is skipped (logged) without aborting the rest of the sweep', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    list.mockImplementation(async (path: string) => {
+      if (path === 'products') {
+        return { data: [{ name: 'staging-broken' }, { name: 'staging-stale-uuid' }], error: null }
+      }
+      if (path === 'products/staging-broken') return { data: null, error: { message: 'boom' } }
+      if (path === 'products/staging-stale-uuid') {
+        return { data: [{ name: 'a.jpg', created_at: STALE_CREATED_AT }], error: null }
+      }
+      throw new Error(`unexpected list path ${path}`)
+    })
+    findMany.mockResolvedValue([])
+    remove.mockResolvedValue({ data: [{ name: 'a.jpg' }], error: null })
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(1)
+    expect(errorSpy).toHaveBeenCalled()
+
+    errorSpy.mockRestore()
+  })
+
+  it('a remove() failure for one folder is logged and does not throw, and does not count toward the total', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    list.mockImplementation(async (path: string) => {
+      if (path === 'products') return { data: [{ name: 'staging-stale-uuid' }], error: null }
+      if (path === 'products/staging-stale-uuid') {
+        return { data: [{ name: 'a.jpg', created_at: STALE_CREATED_AT }], error: null }
+      }
+      throw new Error(`unexpected list path ${path}`)
+    })
+    findMany.mockResolvedValue([])
+    remove.mockResolvedValue({ data: null, error: { message: 'remove failed' } })
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(0)
+    expect(errorSpy).toHaveBeenCalled()
+
+    errorSpy.mockRestore()
+  })
+
+  it('no folders at all under products/: returns 0 without calling db', async () => {
+    list.mockResolvedValue({ data: [], error: null })
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(0)
+    expect(findMany).not.toHaveBeenCalled()
+  })
+
+  it('never throws on an unexpected top-level error', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    createClient.mockRejectedValueOnce(new Error('supabase client init failed'))
+
+    await expect(sweepStagedUploads()).resolves.toBe(0)
     expect(errorSpy).toHaveBeenCalled()
 
     errorSpy.mockRestore()

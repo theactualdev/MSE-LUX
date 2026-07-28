@@ -158,6 +158,24 @@ describe('CheckoutFlow', () => {
     expect(within(group).getByText('Nationwide delivery')).toBeInTheDocument()
   })
 
+  it('shows an inline alert and stays on the address step when getShippingRates returns no options (the missing-secret hardening)', async () => {
+    const user = userEvent.setup({ delay: null })
+    getShippingRatesMock.mockResolvedValue([])
+
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    await user.click(await screen.findByRole('button', { name: /continue/i })) // contact -> address
+    await user.click(await screen.findByRole('button', { name: /continue/i })) // submit address
+
+    await waitFor(() => expect(getShippingRatesMock).toHaveBeenCalledTimes(1))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/shipping options are temporarily unavailable/i)
+    // Still on the address step — its own field is visible, and the
+    // shipping step's radiogroup never rendered.
+    expect(screen.getByLabelText(/full name/i)).toBeInTheDocument()
+    expect(screen.queryByRole('radiogroup', { name: /shipping method/i })).not.toBeInTheDocument()
+  })
+
   it('places the order, initializes payment, opens the popup, verifies, then stores, clears, and navigates', async () => {
     const user = userEvent.setup({ delay: null })
     const order = { orderNumber: 'MSE-123456' } as never
@@ -207,6 +225,31 @@ describe('CheckoutFlow', () => {
     await waitFor(() => expect(verifyPaymentMock).toHaveBeenCalledWith('ref_1'))
 
     await waitFor(() => expect(push).toHaveBeenCalledWith('/order/MSE-123456'))
+    expect(setOrder).toHaveBeenCalledWith(order)
+    expect(clear).toHaveBeenCalledTimes(1)
+  })
+
+  it('navigates with a ?status=processing flag (not a plain confirm) when verifyPayment resolves status: "processing"', async () => {
+    const user = userEvent.setup({ delay: null })
+    const order = { orderNumber: 'MSE-777777' } as never
+    placeOrderMock.mockResolvedValue({ ok: true, order })
+    initializePaymentMock.mockResolvedValue({ ok: true, accessCode: 'code_1', publicKey: 'pk_test_1' })
+    verifyPaymentMock.mockResolvedValue({ ok: true, status: 'processing' })
+    resumeTransaction.mockImplementation((_accessCode: string, opts: { onSuccess: (t: { reference: string }) => void }) => {
+      opts.onSuccess({ reference: 'ref_1' })
+    })
+
+    const { clear } = useCartMock()
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    await driveToReview(user)
+    await user.click(screen.getByRole('button', { name: /place order/i }))
+
+    // The order IS placed and paid (Paystack confirmed the charge) — the
+    // cart still clears and the flow still navigates, same as 'paid', but
+    // the URL carries the flag the confirmation page uses to render the
+    // "still finalising" state instead of a plain confirm.
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/order/MSE-777777?status=processing'))
     expect(setOrder).toHaveBeenCalledWith(order)
     expect(clear).toHaveBeenCalledTimes(1)
   })

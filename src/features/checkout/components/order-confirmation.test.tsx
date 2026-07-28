@@ -72,4 +72,39 @@ describe('OrderConfirmation', () => {
 
     expect(await screen.findByText(/couldn.t find that order/i)).toBeInTheDocument()
   })
+
+  describe('paymentStatus (Phase 6 finding B)', () => {
+    // `paymentStatus` is threaded down from the page's `?status=` query flag
+    // — never inferred from `initialOrder`/the snapshot, neither of which
+    // carry a fulfilment status to gate on (see order-confirmation.tsx).
+
+    it('defaults to the normal confirmed state when paymentStatus is omitted, with initialOrder', () => {
+      const order = buildOrder({ orderNumber: 'MSE-100001' })
+
+      render(<OrderConfirmation orderNumber="MSE-100001" initialOrder={order} />)
+
+      expect(screen.getByText('Thank you for your order')).toBeInTheDocument()
+      expect(screen.queryByText(/finalising your order/i)).not.toBeInTheDocument()
+    })
+
+    it('renders the distinct "finalising" state when paymentStatus is "processing", with initialOrder', () => {
+      const order = buildOrder({ orderNumber: 'MSE-100001' })
+
+      render(<OrderConfirmation orderNumber="MSE-100001" initialOrder={order} paymentStatus="processing" />)
+
+      expect(screen.getByText(/payment received.*finalising your order/i)).toBeInTheDocument()
+      expect(screen.queryByText('Thank you for your order')).not.toBeInTheDocument()
+      // The rest of the order (address, lines, totals) still renders unchanged.
+      expect(screen.getByText('Gold Hoop Earrings')).toBeInTheDocument()
+    })
+
+    it('renders the distinct "finalising" state from the session snapshot too (guest checkout has no initialOrder)', async () => {
+      const order = buildOrder({ orderNumber: 'MSE-200002' })
+      useLastOrderStore.getState().setOrder(order)
+
+      render(<OrderConfirmation orderNumber="MSE-200002" paymentStatus="processing" />)
+
+      expect(await screen.findByText(/payment received.*finalising your order/i)).toBeInTheDocument()
+    })
+  })
 })

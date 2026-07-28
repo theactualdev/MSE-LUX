@@ -2,7 +2,7 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { CheckCircle2 } from 'lucide-react'
+import { CheckCircle2, Loader2 } from 'lucide-react'
 import { buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { CartSummary } from '@/features/cart/components/cart-summary'
@@ -23,6 +23,18 @@ interface OrderConfirmationProps {
    * back to the session snapshot exactly as before.
    */
   initialOrder?: Order
+  /**
+   * Whether `verifyPayment`'s fast path actually finished fulfilling this
+   * order (`'paid'`) or hit an unexpected error and is relying on the
+   * webhook backstop (`'processing'`, Phase 6 finding B). Threaded down from
+   * the page's `?status=` query flag that `checkout-flow.tsx` appends on
+   * navigation — deliberately NOT inferred from `initialOrder`/the session
+   * snapshot, since neither `Order` shape carries a `paidAt`/fulfilment
+   * status to gate on. Defaults to `'paid'` so every other entry point
+   * (a reload, a direct link, an owner revisiting from `/account/orders`)
+   * keeps rendering the normal confirmed state.
+   */
+  paymentStatus?: 'paid' | 'processing'
 }
 
 /**
@@ -43,12 +55,12 @@ interface OrderConfirmationProps {
  * and totals. Otherwise (direct visit, a stale link, or the session storage
  * having cleared) renders a graceful "not found" state linking home.
  */
-export function OrderConfirmation({ orderNumber, initialOrder }: OrderConfirmationProps) {
+export function OrderConfirmation({ orderNumber, initialOrder, paymentStatus = 'paid' }: OrderConfirmationProps) {
   const hydrated = useHydrated()
   const snapshot = useLastOrderStore((s) => s.order)
 
   if (initialOrder) {
-    return renderConfirmation(initialOrder)
+    return renderConfirmation(initialOrder, paymentStatus)
   }
 
   if (!hydrated) {
@@ -78,19 +90,40 @@ export function OrderConfirmation({ orderNumber, initialOrder }: OrderConfirmati
     )
   }
 
-  return renderConfirmation(snapshot)
+  return renderConfirmation(snapshot, paymentStatus)
 }
 
-function renderConfirmation(order: Order) {
+function renderConfirmation(order: Order, paymentStatus: 'paid' | 'processing' = 'paid') {
+  const isProcessing = paymentStatus === 'processing'
+
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-8">
       <div className="flex flex-col items-center gap-3 text-center">
-        <CheckCircle2 aria-hidden="true" className="size-10 text-primary" />
-        <h1 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">Thank you for your order</h1>
-        <p className="text-sm text-muted-foreground">
-          Order <span className="font-medium text-foreground">{order.orderNumber}</span> is confirmed. A receipt has
-          been sent to <span className="font-medium text-foreground">{order.email}</span>.
-        </p>
+        {isProcessing ? (
+          <Loader2 aria-hidden="true" className="size-10 animate-spin text-primary" />
+        ) : (
+          <CheckCircle2 aria-hidden="true" className="size-10 text-primary" />
+        )}
+        {isProcessing ? (
+          <>
+            <h1 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">
+              Payment received — we&apos;re finalising your order
+            </h1>
+            <p className="text-sm text-muted-foreground">
+              Order <span className="font-medium text-foreground">{order.orderNumber}</span> is paid and being
+              processed. We&apos;ll email <span className="font-medium text-foreground">{order.email}</span> as soon
+              as it&apos;s confirmed.
+            </p>
+          </>
+        ) : (
+          <>
+            <h1 className="font-display text-2xl font-semibold text-foreground sm:text-3xl">Thank you for your order</h1>
+            <p className="text-sm text-muted-foreground">
+              Order <span className="font-medium text-foreground">{order.orderNumber}</span> is confirmed. A receipt
+              has been sent to <span className="font-medium text-foreground">{order.email}</span>.
+            </p>
+          </>
+        )}
       </div>
 
       <div className="flex flex-col gap-1 rounded-xl border border-border p-4">

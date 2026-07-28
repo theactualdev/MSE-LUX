@@ -92,6 +92,7 @@ export function CheckoutFlow({
   const [shippingOptions, setShippingOptions] = useState<ShippingOption[]>([])
   const [selectedShipping, setSelectedShipping] = useState<ShippingOption>()
   const [shippingLoading, setShippingLoading] = useState(false)
+  const [shippingError, setShippingError] = useState<string>()
   const [placing, setPlacing] = useState(false)
   const [error, setError] = useState<string>()
 
@@ -187,7 +188,18 @@ export function CheckoutFlow({
           // completes.
           useLastOrderStore.getState().setOrder(placed.order)
           clear()
-          router.push(`/order/${placed.order.orderNumber}`)
+
+          // `verified.status === 'processing'` (Phase 6 finding B) means
+          // fulfilment hit an unexpected error on this fast path — the order
+          // IS placed and paid (Paystack confirmed the charge), so it still
+          // navigates and clears the cart exactly like 'paid', but the
+          // webhook, not this call, is what will actually fulfil it. The
+          // confirmation page must not claim the order is confirmed yet; the
+          // `status` query flag is how that distinction survives the
+          // navigation (never inferred from the order snapshot itself, which
+          // has no `paidAt`/status field to gate on).
+          const statusQuery = verified.status === 'processing' ? '?status=processing' : ''
+          router.push(`/order/${placed.order.orderNumber}${statusQuery}`)
         } else {
           setPlacing(false)
           setError(verified.error)
@@ -219,33 +231,54 @@ export function CheckoutFlow({
         ) : null}
 
         {step === 'address' ? (
-          <AddressStep
-            defaultValues={address}
-            isSignedIn={isSignedIn}
-            onSubmit={async (values, checkedSaveAddress) => {
-              if (!contact) return
+          <div className="flex flex-col gap-4">
+            {shippingError ? (
+              <p role="alert" className="text-sm text-destructive">
+                {shippingError}
+              </p>
+            ) : null}
+            <AddressStep
+              defaultValues={address}
+              isSignedIn={isSignedIn}
+              onSubmit={async (values, checkedSaveAddress) => {
+                if (!contact) return
 
-              setAddress(values)
-              setSaveAddress(checkedSaveAddress)
-              setShippingLoading(true)
+                setAddress(values)
+                setSaveAddress(checkedSaveAddress)
+                setShippingLoading(true)
+                setShippingError(undefined)
 
-              const opts = await getShippingRates({
-                address: values,
-                email: contact.email,
-                chargeCurrency,
-                guestLines: lines.map((line) => ({
-                  productId: line.product.id,
-                  variantId: line.variant?.id,
-                  quantity: line.quantity,
-                })),
-              })
+                const opts = await getShippingRates({
+                  address: values,
+                  email: contact.email,
+                  chargeCurrency,
+                  guestLines: lines.map((line) => ({
+                    productId: line.product.id,
+                    variantId: line.variant?.id,
+                    quantity: line.quantity,
+                  })),
+                })
 
-              setShippingOptions(opts)
-              setSelectedShipping(opts[0])
-              setShippingLoading(false)
-              setStep('shipping')
-            }}
-          />
+                setShippingLoading(false)
+
+                // `getShippingRates` never throws, but an empty array means
+                // it couldn't build even its own last-resort fallback option
+                // (e.g. a missing signing secret) — there is nothing
+                // selectable. Advancing to the shipping step anyway would
+                // strand the customer on a step with no options and no way
+                // to select one; stay on the address step and surface an
+                // inline, retryable message instead.
+                if (opts.length === 0) {
+                  setShippingError('Shipping options are temporarily unavailable. Please try again in a moment.')
+                  return
+                }
+
+                setShippingOptions(opts)
+                setSelectedShipping(opts[0])
+                setStep('shipping')
+              }}
+            />
+          </div>
         ) : null}
 
         {step === 'shipping' ? (

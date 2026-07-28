@@ -1,5 +1,6 @@
 import crypto from 'node:crypto'
 import { reapAbandonedOrders } from '@/features/admin/orders/reaper'
+import { sweepStagedUploads } from '@/features/admin/catalog/images'
 
 // Timing-safe compare below uses Node's `crypto`, which the Edge runtime
 // doesn't support — this route must run on Node.
@@ -29,12 +30,14 @@ function isAuthorized(req: Request, secret: string): boolean {
 
 /**
  * Vercel Cron entrypoint (`vercel.json`, daily at 03:00) for the
- * abandoned-PENDING-order reaper. Secret-gated: `CRON_SECRET` must be set,
- * and the request's `Authorization` header must match it exactly, checked
- * BEFORE any db work so an unauthorized request never touches `db`. Both the
- * "missing env" and "unauthorized" failures return an empty/`{}` body —
- * never a detail that would let a caller distinguish a missing secret from a
- * wrong one.
+ * abandoned-PENDING-order reaper, plus a second best-effort step that sweeps
+ * orphaned staged product-image uploads (8c-2's create-product flow;
+ * `sweepStagedUploads`, `features/admin/catalog/images.ts`). Secret-gated:
+ * `CRON_SECRET` must be set, and the request's `Authorization` header must
+ * match it exactly, checked BEFORE any db work so an unauthorized request
+ * never touches `db`. Both the "missing env" and "unauthorized" failures
+ * return an empty/`{}` body — never a detail that would let a caller
+ * distinguish a missing secret from a wrong one.
  */
 export async function GET(req: Request): Promise<Response> {
   const secret = process.env.CRON_SECRET
@@ -52,5 +55,18 @@ export async function GET(req: Request): Promise<Response> {
     return Response.json({}, { status: 500 })
   }
 
-  return Response.json({ reaped: result.reaped }, { status: 200 })
+  // Best-effort, in its own try/catch, deliberately AFTER the reaper's own
+  // result is already decided: `sweepStagedUploads` already never throws
+  // (it collapses every failure to `0` internally), but this route's
+  // contract is that an image-sweep hiccup must never affect — or even risk
+  // — the reaper's own 200/{reaped}, so the isolation is enforced here too,
+  // belt-and-braces.
+  let sweptImages = 0
+  try {
+    sweptImages = await sweepStagedUploads()
+  } catch (error) {
+    console.error('[cron/reap-orders] sweepStagedUploads failed', error)
+  }
+
+  return Response.json({ reaped: result.reaped, sweptImages }, { status: 200 })
 }
