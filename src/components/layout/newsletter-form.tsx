@@ -20,6 +20,10 @@ export function NewsletterForm() {
           Sign up
         </Button>
       </div>
+      {/* The form captures nothing. Soliciting an address without saying so is the
+          same over-promise as a policy claim the code can't honour — disclose it,
+          exactly as ContactForm does, until a real list exists. */}
+      <p className="text-xs text-muted-foreground">Sign-ups aren&apos;t being collected yet — nothing is stored.</p>
     </form>
   )
 }

@@ -116,11 +116,11 @@ export function Pdp({ product, className }: PdpProps) {
         <div className="flex flex-col gap-3 rounded-xl bg-muted p-4 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
             <Truck aria-hidden="true" className="size-4 shrink-0" />
-            <span>Complimentary shipping on orders over ₦150,000.</span>
+            <span>Shipped from our Lagos studio. Live courier rates shown at checkout.</span>
           </div>
           <div className="flex items-center gap-2">
             <RotateCcw aria-hidden="true" className="size-4 shrink-0" />
-            <span>Free returns within 30 days of delivery.</span>
+            <span>Returns accepted on unworn items — see our shipping &amp; returns policy.</span>
           </div>
         </div>
 

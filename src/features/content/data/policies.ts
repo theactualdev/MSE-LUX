@@ -18,7 +18,7 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
       {
         heading: 'Shipping rates & timelines',
         body: [
-          "If you're paying in Naira with a delivery address in Nigeria, we calculate your exact shipping cost with our courier partner right at checkout, based on your address and order weight — you'll see the price and an estimated delivery window before you pay. If our courier is temporarily unavailable, we fall back to a flat standard-delivery rate for Nigerian addresses instead.",
+          "If you're paying in Naira with a delivery address in Nigeria, we calculate your exact shipping cost with our courier partner right at checkout, based on your address and order weight — you'll always see the price before you pay, and a delivery estimate wherever the courier provides one. If live rates are unavailable when you check out, we fall back to a flat standard-delivery rate for Nigerian addresses instead.",
           "For every other order — deliveries outside Nigeria, and any order paid in US dollars regardless of destination — shipping is a flat rate, shown at checkout before you pay.",
           'Delivery windows are estimates from the courier, not a fixed promise from us — actual delivery time runs from the date an order ships (not the order date) and can vary with courier volume or, for international orders, customs processing.',
         ],
@@ -30,11 +30,17 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
         ],
       },
       {
+        heading: 'Unpaid orders',
+        body: [
+          "If you start an order but don't complete payment, we hold it for 24 hours and then cancel it automatically. Nothing is charged and no stock is held — just place a new order when you're ready.",
+        ],
+      },
+      {
         heading: 'Returns',
         body: [
           "There is no self-service returns portal. To start a return, contact us with your order number and we'll confirm eligibility and next steps by email.",
           "Unworn items in their original packaging can be returned within [TODO(owner): confirm the return window to publish here, e.g. '7 days'] of delivery for a refund or exchange.",
-          'Returns and cancellations are handled by a person, not automatically. Once a return is approved, your refund is issued by our team through Paystack to the payment method you used, so please allow a few business days for it to appear.',
+          'Every return request is reviewed by a person — nothing is approved or refunded automatically. Once a return is approved, your refund is issued by our team through Paystack to the payment method you used, so please allow a few business days for it to appear.',
           'Return shipping is the responsibility of the customer unless the item arrived damaged or faulty, in which case we cover the cost.',
         ],
       },
