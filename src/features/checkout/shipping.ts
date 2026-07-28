@@ -126,14 +126,26 @@ function tomorrowIsoDate(): string {
  * `addressHash` is safe on a well-formed `Address` (every field is normalized
  * with `?? ''`), but `getShippingRates` is a public Server Action — callers
  * don't runtime-validate their args, so `input.address` can arrive as
- * `null`/`undefined`/a non-object at the boundary. Coerces anything that
- * isn't a real object to `{}` first so a guard-path fallback option can
- * always be built (and later re-verified with `verifyQuote`) without risking
- * a second throw while we're already handling the first one.
+ * `null`/`undefined`/a non-object, OR as an object whose individual fields
+ * are the WRONG type (e.g. `{ line1: 123 }`) at the boundary. Guarding only
+ * the container isn't enough: `addressHash`'s normalize is
+ * `(value ?? '').trim().toLowerCase()`, so a present-but-non-string field
+ * (`(123).trim()`) still throws. Every field is therefore individually
+ * coerced to a string here — never passed through untyped — so a guard-path
+ * fallback option can always be built (and later re-verified with
+ * `verifyQuote`) without risking a second throw while we're already handling
+ * the first one.
  */
 function safeAddressHash(address: unknown): string {
-  const candidate = address && typeof address === 'object' ? (address as Address) : ({} as Address)
-  return addressHash(candidate)
+  const src = address && typeof address === 'object' ? (address as Record<string, unknown>) : {}
+  const str = (value: unknown) => (typeof value === 'string' ? value : '')
+  return addressHash({
+    line1: str(src.line1),
+    city: str(src.city),
+    state: str(src.state),
+    country: str(src.country),
+    postalCode: str(src.postalCode),
+  } as Address)
 }
 
 /**
@@ -395,6 +407,17 @@ export async function getShippingRates(input: {
       return []
     }
 
-    return [guardFallbackOption(safeInput.address, safeInput.chargeCurrency)]
+    // This IS the last-resort handler — there is nothing left to catch a
+    // second throw from `guardFallbackOption` itself (e.g. a wrong-TYPED
+    // address field reaching `safeAddressHash`, or any other unforeseen
+    // failure inside the fallback-building path), so it must be structurally
+    // incapable of escaping this function. Same "degrade to []" contract as
+    // the missing-secret branch above, for the same reason.
+    try {
+      return [guardFallbackOption(safeInput.address, safeInput.chargeCurrency)]
+    } catch (fallbackError) {
+      console.error('getShippingRates: could not build a last-resort fallback option', fallbackError)
+      return []
+    }
   }
 }

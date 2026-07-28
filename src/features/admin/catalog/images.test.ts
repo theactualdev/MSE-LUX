@@ -195,6 +195,17 @@ describe('deleteProductImageObject', () => {
     errorSpy.mockRestore()
   })
 
+  it('strips a query string before matching, so a URL with one still resolves the same key', async () => {
+    remove.mockResolvedValue({ data: [{ name: 'x' }], error: null })
+
+    const result = await deleteProductImageObject(
+      'https://proj.supabase.co/storage/v1/object/public/product-images/products/prod-123/abc.webp?download=1',
+    )
+
+    expect(result).toBe(true)
+    expect(remove).toHaveBeenCalledWith(['products/prod-123/abc.webp'])
+  })
+
   it('returns false and logs when .remove() throws', async () => {
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
     remove.mockRejectedValue(new Error('network down'))
@@ -455,6 +466,54 @@ describe('sweepStagedUploads', () => {
     expect(remove).not.toHaveBeenCalled()
 
     errorSpy.mockRestore()
+  })
+
+  // CRITICAL (re-review round 2): rows can exist (`images.length > 0`) while
+  // EVERY one fails to parse (`parsePublicObjectKey` returns null for all of
+  // them) — e.g. every ProductImage.src is in an unrecognized shape after a
+  // future refactor. That leaves `referencedKeys` empty, which is precisely
+  // the state in which every candidate object looks unreferenced — i.e.
+  // sweepable. The anomaly bail-out must key off the empty REFERENCE SET,
+  // not off the raw row count, or this sweeps everything.
+  it('CRITICAL: rows exist but all fail to parse — referencedKeys ends up empty — bails out instead of sweeping', async () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    list.mockImplementation(async (path: string) => {
+      if (path === 'products') return { data: [{ name: STAGING_STALE }], error: null }
+      throw new Error(`unexpected list path ${path}`)
+    })
+    // Non-empty result set, but every src is unparseable.
+    productImageFindMany.mockResolvedValue([{ src: 'not-a-storage-url' }, { src: 'https://proj.supabase.co/also-not-one' }])
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(0)
+    expect(errorSpy).toHaveBeenCalled()
+    // Must bail out before ever listing the folder's contents, consulting
+    // the Product.id spare, or removing anything.
+    expect(list).toHaveBeenCalledTimes(1)
+    expect(productFindMany).not.toHaveBeenCalled()
+    expect(remove).not.toHaveBeenCalled()
+
+    errorSpy.mockRestore()
+  })
+
+  it('a src with a query string still resolves to its real object key, sparing it from the sweep', async () => {
+    list.mockImplementation(async (path: string) => {
+      if (path === 'products') return { data: [{ name: STAGING_LIVE }], error: null }
+      if (path === `products/${STAGING_LIVE}`) {
+        return { data: [{ name: 'hero.jpg', created_at: STALE_CREATED_AT }], error: null }
+      }
+      throw new Error(`unexpected list path ${path}`)
+    })
+    // The referenced src carries a query string a future transform/download
+    // option might add — the parsed key must still match the real object.
+    productImageFindMany.mockResolvedValue([{ src: `${publicUrl(STAGING_LIVE, 'hero.jpg')}?download=1` }])
+    productFindMany.mockResolvedValue([{ id: PRODUCT_CUID }])
+
+    const result = await sweepStagedUploads()
+
+    expect(result).toBe(0)
+    expect(remove).not.toHaveBeenCalled()
   })
 
   it('a per-folder listing failure is skipped (logged) without aborting the rest of the sweep', async () => {

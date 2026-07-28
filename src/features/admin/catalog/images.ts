@@ -79,9 +79,18 @@ const PUBLIC_OBJECT_PATH_RE = /\/storage\/v1\/object\/public\/product-images\/(.
  * bucket's public-URL shape at all. Shared by `deleteProductImageObject`
  * (single-object best-effort delete) and `sweepStagedUploads` (bulk
  * reference-set build) — the one place this URL->key parse is written.
+ *
+ * Any query string or fragment is stripped before matching. `getPublicUrl`
+ * emits no query string today, but `PUBLIC_OBJECT_PATH_RE`'s `(.+)$` is
+ * greedy — the day anyone passes a transform/download option (e.g.
+ * `?download=1`), that suffix would get captured into the "key" and stop
+ * matching the real object. In `sweepStagedUploads` that turns a live,
+ * referenced image into an unmatched key — i.e. sweepable — the exact class
+ * of bug this phase already had once (see that function's doc comment).
  */
 function parsePublicObjectKey(src: string): string | null {
-  const match = PUBLIC_OBJECT_PATH_RE.exec(src)
+  const [clean] = src.split(/[?#]/)
+  const match = PUBLIC_OBJECT_PATH_RE.exec(clean)
   return match ? match[1] : null
 }
 
@@ -236,19 +245,6 @@ export async function sweepStagedUploads(): Promise<number> {
 
     const images = await db.productImage.findMany({ select: { src: true } })
 
-    // Defence in depth: UUID-shaped candidate folders exist under products/,
-    // but `productImage.findMany()` resolved zero rows. That combination is
-    // far more likely a transient/query fault (replica lag, a mid-migration
-    // window, a future refactor of this query) than a genuinely image-less
-    // catalog that somehow already has staging folders — refuse to sweep
-    // rather than risk treating every live product's images as orphans.
-    if (images.length === 0) {
-      console.error(
-        `sweepStagedUploads: db.productImage.findMany() returned 0 rows while ${uuidCandidates.length} UUID-shaped folder(s) exist under products/ — refusing to sweep`,
-      )
-      return 0
-    }
-
     // The actual safety property: every object key any ProductImage row
     // currently points at. An object matching a key in this set is
     // referenced — live — no matter which folder (staging-UUID or
@@ -257,6 +253,24 @@ export async function sweepStagedUploads(): Promise<number> {
     for (const image of images) {
       const key = parsePublicObjectKey(image.src)
       if (key) referencedKeys.add(key)
+    }
+
+    // Defence in depth: UUID-shaped candidate folders exist under products/,
+    // but the reference set built above is empty — either `productImage.findMany()`
+    // resolved zero rows, or every row it returned failed to parse (e.g. a
+    // future `src` shape `parsePublicObjectKey` doesn't recognize yet). Both
+    // are far more likely a transient/query fault (replica lag, a
+    // mid-migration window, a future refactor of this query or of the URL
+    // shape) than a genuinely image-less catalog that somehow already has
+    // staging folders — and an empty reference set is precisely the state in
+    // which every candidate object looks unreferenced, i.e. sweepable.
+    // Refuse to sweep rather than risk treating every live product's images
+    // as orphans.
+    if (referencedKeys.size === 0) {
+      console.error(
+        `sweepStagedUploads: no referenced object keys resolved from ${images.length} ProductImage row(s) while ${uuidCandidates.length} UUID-shaped folder(s) exist under products/ — refusing to sweep`,
+      )
+      return 0
     }
 
     // Spare only, on top of the object-key check above (see doc comment):

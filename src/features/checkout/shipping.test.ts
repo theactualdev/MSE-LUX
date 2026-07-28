@@ -450,6 +450,25 @@ describe('getShippingRates — robustness against a malformed address', () => {
   it('never throws — resolves to an array — when input itself is undefined', async () => {
     await expect(getShippingRates(undefined as never)).resolves.toEqual(expect.any(Array))
   })
+
+  // I2 (Phase 9c re-review): a PRESENT but WRONG-TYPED address field reaches
+  // the same "double-throw" hazard through a different door. `addressSchema`
+  // rejects it (falls into `guardFallbackOption`), but `safeAddressHash` only
+  // guarded against `address` itself not being an object — a non-string
+  // field (e.g. `line1: 123`) still threw inside `addressHash`'s
+  // `(value ?? '').trim()`, which escaped through `guardFallbackOption`,
+  // through the outer try, and threw AGAIN identically from the top-level
+  // catch's own last-resort `guardFallbackOption` call — an unhandled
+  // rejection despite this function's documented "never throws" contract.
+  it.each([
+    ['a non-string line1', { line1: 123, city: 'Lagos' }],
+    ['a non-string, non-null city', { city: {} }],
+    ['address itself is an array', [] as unknown],
+  ])('never rejects — resolves to an array — when %s', async (_label, malformedAddress) => {
+    await expect(
+      getShippingRates({ address: malformedAddress, email: EMAIL, chargeCurrency: 'NGN' } as never),
+    ).resolves.toEqual(expect.any(Array))
+  })
 })
 
 describe('getShippingRates — rate limiting (the "shippingQuote" window)', () => {
