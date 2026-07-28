@@ -12,6 +12,7 @@ import {
   type LoginValues,
   type SignupValues,
 } from '@/features/account/schema'
+import { checkRateLimit, RATE_LIMITED_MESSAGE } from '@/lib/rate-limit'
 
 /**
  * Result shape every action below returns instead of throwing, so the
@@ -38,6 +39,23 @@ export interface OAuthActionResult {
 const INVALID_CREDENTIALS_ERROR = 'Invalid email or password'
 
 /**
+ * Shared rate-limited result for the credential-facing actions below
+ * (`signIn`, `signUp`, `requestPasswordReset`) — the same `auth` window (10
+ * per 5 min per IP), each guarded as the very first statement so a limited
+ * caller never reaches validation or Supabase. Typed as `AuthActionResult`
+ * (the `{ error?: string }` shape shared by all three, including
+ * `SignUpActionResult` which only adds an optional field) so this one
+ * constant stays structurally assignable to every guarded action's return
+ * type — mirrors the `RATE_LIMITED` idiom in `checkout/payments.ts`.
+ *
+ * NOT applied to `signOut` (a user must always be able to leave),
+ * `updatePassword` (already gated by the fresh-recovery-claim check in
+ * `hasRecentRecoveryAuth`), or `signInWithGoogle` (a redirect with no
+ * credential surface of its own).
+ */
+const RATE_LIMITED: AuthActionResult = { error: RATE_LIMITED_MESSAGE }
+
+/**
  * Signs in with email + password. Never logs or persists the password.
  *
  * A `'use server'` export is a public HTTP endpoint: anyone can POST it
@@ -62,6 +80,8 @@ const INVALID_CREDENTIALS_ERROR = 'Invalid email or password'
  * `signIn` following it closes the one credential-facing action that hadn't.
  */
 export async function signIn(values: LoginValues): Promise<AuthActionResult> {
+  if (!(await checkRateLimit('auth'))) return RATE_LIMITED
+
   const parsed = loginServerSchema.safeParse(values)
   if (!parsed.success) {
     return { error: INVALID_CREDENTIALS_ERROR }
@@ -130,6 +150,8 @@ export async function signUp({
   email,
   password,
 }: Omit<SignupValues, 'confirmPassword'>): Promise<SignUpActionResult> {
+  if (!(await checkRateLimit('auth'))) return RATE_LIMITED
+
   const parsed = signupServerSchema.safeParse({ name, email, password })
   if (!parsed.success) {
     return { error: 'Please check your details and try again' }
@@ -222,6 +244,8 @@ export async function signInWithGoogle(): Promise<OAuthActionResult> {
  * reason — this return value only matters to non-form callers.
  */
 export async function requestPasswordReset(email: string): Promise<AuthActionResult> {
+  if (!(await checkRateLimit('auth'))) return RATE_LIMITED
+
   const parsed = forgotSchema.safeParse({ email })
   if (!parsed.success) {
     return { error: 'Enter a valid email address' }

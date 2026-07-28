@@ -22,6 +22,12 @@ const updateUser = vi.fn()
 const getClaims = vi.fn()
 const signInWithOAuth = vi.fn()
 
+const checkRateLimit = vi.fn()
+vi.mock('@/lib/rate-limit', () => ({
+  checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
+  RATE_LIMITED_MESSAGE: 'Too many attempts. Please wait a moment and try again.',
+}))
+
 vi.mock('@/lib/supabase/server', () => ({
   createClient: async () => ({
     auth: {
@@ -58,6 +64,17 @@ const {
   updatePassword,
   signInWithGoogle,
 } = await import('@/features/auth/actions')
+const { RATE_LIMITED_MESSAGE } = await import('@/lib/rate-limit')
+
+// Defaults the limiter to "allow" for EVERY test in this file, so every
+// pre-existing test below keeps exercising real behaviour unchanged — the
+// `rate limiting` describe block overrides this per-test to exercise the
+// "limited" branch. Runs before each describe block's own `beforeEach`
+// (this one is registered first, at module scope).
+beforeEach(() => {
+  checkRateLimit.mockReset()
+  checkRateLimit.mockResolvedValue(true)
+})
 
 describe('signIn', () => {
   beforeEach(() => {
@@ -187,6 +204,17 @@ describe('signOut', () => {
       error: 'Something went wrong. Please try again.',
     })
     expect(redirect).not.toHaveBeenCalled()
+  })
+
+  // Pin: a user must always be able to leave, even mid-abuse-window, so
+  // signOut is deliberately NOT rate-limited — unlike signIn/signUp/
+  // requestPasswordReset.
+  it('never calls checkRateLimit — signOut is deliberately unguarded', async () => {
+    signOut.mockResolvedValue({ error: null })
+
+    await expect(signOutAction()).rejects.toThrow('REDIRECT:/')
+
+    expect(checkRateLimit).not.toHaveBeenCalled()
   })
 })
 
@@ -363,5 +391,76 @@ describe('signInWithGoogle', () => {
     await expect(signInWithGoogle()).resolves.toEqual({
       error: 'Something went wrong. Please try again.',
     })
+  })
+})
+
+describe('rate limiting — the "auth" window guards signIn, signUp and requestPasswordReset before any other work', () => {
+  // Each Supabase mock's call count carries over from whatever the LAST
+  // test in its own describe block above left it at (e.g. `signUp` was
+  // already called once by the last test in `describe('signUp', ...)`) —
+  // that block's own `beforeEach` only resets it for tests inside that
+  // block. Reset the ones this describe asserts on so "never called" checks
+  // reflect only what happens within each test here.
+  beforeEach(() => {
+    signInWithPassword.mockReset()
+    signUp.mockReset()
+    resetPasswordForEmail.mockReset()
+  })
+
+  it('signIn: limited returns the rate-limited error and never calls signInWithPassword', async () => {
+    checkRateLimit.mockResolvedValue(false)
+
+    const result = await signIn({ email: 'ada@example.com', password: 'abcdefgh' })
+
+    expect(checkRateLimit).toHaveBeenCalledWith('auth')
+    expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
+    expect(signInWithPassword).not.toHaveBeenCalled()
+  })
+
+  it('signIn: allowed proceeds exactly as before', async () => {
+    signInWithPassword.mockResolvedValue({ data: {}, error: null })
+
+    await expect(signIn({ email: 'ada@example.com', password: 'abcdefgh' })).resolves.toEqual({})
+
+    expect(checkRateLimit).toHaveBeenCalledWith('auth')
+    expect(signInWithPassword).toHaveBeenCalled()
+  })
+
+  it('signUp: limited returns the rate-limited error and never calls Supabase signUp', async () => {
+    checkRateLimit.mockResolvedValue(false)
+
+    const result = await signUpAction(SIGNUP_VALUES)
+
+    expect(checkRateLimit).toHaveBeenCalledWith('auth')
+    expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
+    expect(signUp).not.toHaveBeenCalled()
+  })
+
+  it('signUp: allowed proceeds exactly as before', async () => {
+    signUp.mockResolvedValue({ data: { session: { access_token: 'x' } }, error: null })
+
+    await expect(signUpAction(SIGNUP_VALUES)).resolves.toEqual({})
+
+    expect(checkRateLimit).toHaveBeenCalledWith('auth')
+    expect(signUp).toHaveBeenCalled()
+  })
+
+  it('requestPasswordReset: limited returns the rate-limited error and never calls resetPasswordForEmail', async () => {
+    checkRateLimit.mockResolvedValue(false)
+
+    const result = await requestPasswordReset('ada@example.com')
+
+    expect(checkRateLimit).toHaveBeenCalledWith('auth')
+    expect(result).toEqual({ error: RATE_LIMITED_MESSAGE })
+    expect(resetPasswordForEmail).not.toHaveBeenCalled()
+  })
+
+  it('requestPasswordReset: allowed proceeds exactly as before', async () => {
+    resetPasswordForEmail.mockResolvedValue({ data: {}, error: null })
+
+    await expect(requestPasswordReset('ada@example.com')).resolves.toEqual({})
+
+    expect(checkRateLimit).toHaveBeenCalledWith('auth')
+    expect(resetPasswordForEmail).toHaveBeenCalled()
   })
 })
