@@ -1,0 +1,90 @@
+import 'server-only'
+import { Ratelimit } from '@upstash/ratelimit'
+import { Redis } from '@upstash/redis'
+import { headers } from 'next/headers'
+
+/**
+ * Thin, server-only wrapper around Upstash's REST rate limiter. Mirrors the
+ * `sendEmail` idiom (`src/features/email/client.ts`, Phase 9b): secrets
+ * (`UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`) are read INSIDE the
+ * function, never at module scope, so a machine with no Upstash config can
+ * still import this module (build time, or a dev/test environment that
+ * never talks to Redis).
+ *
+ * THE DEFINING PROPERTY: fail OPEN. Every failure mode — missing env, Redis
+ * unreachable, the limiter throwing, a malformed response — resolves `true`
+ * (proceed). This has sat open since Phase 6 as the platform's longest-
+ * standing launch blocker: the payment actions (`initializePayment`,
+ * `verifyPayment`) are a carding surface with no throttling. But a rate
+ * limiter that BLOCKS checkout when Upstash has an incident would be worse
+ * than the abuse it's meant to prevent, so every error path here is logged
+ * (`console.error`) and returns `true`, never thrown.
+ */
+
+/** Named windows — tuned conservatively; a real customer never hits these. */
+export const RATE_LIMITS = {
+  payment: { limit: 10, windowSeconds: 60 }, // initializePayment / verifyPayment — the carding surface
+  checkout: { limit: 20, windowSeconds: 60 }, // placeOrder / getShippingRates
+  search: { limit: 60, windowSeconds: 60 }, // searchCatalog
+  auth: { limit: 10, windowSeconds: 300 }, // signIn / signUp / requestPasswordReset
+} as const
+
+export type RateLimitKind = keyof typeof RATE_LIMITS
+
+/**
+ * Resolves the caller's IP from request headers for use as the rate-limit
+ * identifier. Precedence: `x-forwarded-for`'s first entry (the original
+ * client, per the usual proxy-chain convention), else `x-real-ip`, else the
+ * literal `'unknown'`.
+ *
+ * `'unknown'` is a SHARED bucket: every caller with neither header present
+ * counts against the same window. That's deliberate — it's the fail-safe
+ * for the abuse case (better to rate-limit a shared bucket of unidentified
+ * callers than to skip limiting them entirely) — and harmless in practice
+ * on Vercel, where `x-forwarded-for` is always present.
+ */
+async function resolveIdentifier(): Promise<string> {
+  const headerList = await headers()
+
+  const forwardedFor = headerList.get('x-forwarded-for')
+  if (forwardedFor) {
+    const first = forwardedFor.split(',')[0]?.trim()
+    if (first) return first
+  }
+
+  const realIp = headerList.get('x-real-ip')
+  if (realIp) return realIp
+
+  return 'unknown'
+}
+
+/** `true` = proceed. Fails OPEN: a missing/erroring Redis logs and returns true. */
+export async function checkRateLimit(kind: RateLimitKind, identifier?: string): Promise<boolean> {
+  try {
+    const url = process.env.UPSTASH_REDIS_REST_URL
+    const token = process.env.UPSTASH_REDIS_REST_TOKEN
+
+    if (!url || !token) {
+      console.error(
+        `[checkRateLimit] not configured — UPSTASH_REDIS_REST_URL and/or UPSTASH_REDIS_REST_TOKEN is unset (kind=${kind})`,
+      )
+      return true
+    }
+
+    const id = identifier ?? (await resolveIdentifier())
+    const { limit, windowSeconds } = RATE_LIMITS[kind]
+
+    const redis = new Redis({ url, token })
+    const ratelimit = new Ratelimit({
+      redis,
+      limiter: Ratelimit.slidingWindow(limit, `${windowSeconds} s`),
+      prefix: `mse:${kind}`,
+    })
+
+    const { success } = await ratelimit.limit(id)
+    return success
+  } catch (error) {
+    console.error(`[checkRateLimit] unexpected error (kind=${kind})`, error)
+    return true
+  }
+}
