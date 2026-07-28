@@ -82,6 +82,49 @@ describe('validateAddress', () => {
     ).rejects.toThrow()
   })
 
+  /**
+   * REGRESSION: the live API's success envelope is the STRING 'success', not
+   * the documented boolean. Every test above mocks `status: true`, which is why
+   * a `status !== true` check passed CI while rejecting every real 200. This
+   * body is copied from an actual 2026-07-28 response.
+   */
+  it("accepts the live envelope: status is the string 'success', not boolean true", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'success',
+          message: 'Validation successful',
+          data: { address_code: 432787751, formatted_address: '25 Eletu Odibo St, Lagos, Nigeria' },
+        }),
+      }),
+    )
+
+    const result = await validateAddress({
+      name: 'MSE Lux',
+      email: 'info@mselux.com',
+      phone: '+2349154122133',
+      address: '25 Eletu Odibo Street, Yaba, Lagos, Nigeria',
+    })
+
+    expect(result).toEqual({ addressCode: '432787751' })
+  })
+
+  it('still rejects an unrecognised status string', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({ status: 'error', message: 'Unable to validate address', data: { address_code: 1 } }),
+      }),
+    )
+
+    await expect(
+      validateAddress({ name: 'Ada', email: 'ada@example.com', phone: '+234', address: 'nowhere' }),
+    ).rejects.toThrow()
+  })
+
   it('throws when the response is a non-2xx', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 500, json: async () => ({}) }))
 
@@ -192,6 +235,22 @@ describe('fetchRates', () => {
     expect(result).toEqual({ requestToken: 'req_tok_1', rates: [] })
   })
 
+  /** Same regression as validateAddress: the live envelope is the string 'success'. */
+  it("accepts the live envelope: status is the string 'success'", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'success',
+          data: { request_token: 'req_tok_1', couriers: [] },
+        }),
+      }),
+    )
+
+    await expect(fetchRates(baseInput)).resolves.toEqual({ requestToken: 'req_tok_1', rates: [] })
+  })
+
   it('throws when a status:true response is missing request_token (booking off it would be impossible)', async () => {
     vi.stubGlobal(
       'fetch',
@@ -246,6 +305,22 @@ describe('createLabel', () => {
     expect(url).toBe('https://api.shipbubble.com/v1/shipping/labels')
     expect(JSON.parse((init as RequestInit).body as string)).toEqual({ request_token: 'req_tok_1', service_code: 'gig_std', courier_id: 'courier_1' })
     expect(result).toEqual({ shipbubbleOrderId: 'SB-ORD-1', trackingNumber: 'TRK-99', trackingUrl: 'https://track/TRK-99', courierName: 'GIG Logistics' })
+  })
+
+  /** Same regression as validateAddress: the live envelope is the string 'success'. */
+  it("accepts the live envelope: status is the string 'success'", async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'success',
+          data: { order_id: 'SB-ORD-1', tracking_number: 'TRK-99', courier: { name: 'GIG Logistics' } },
+        }),
+      }),
+    )
+
+    await expect(createLabel(baseInput)).resolves.toMatchObject({ shipbubbleOrderId: 'SB-ORD-1', trackingNumber: 'TRK-99' })
   })
 
   it('throws on status:false and on a missing tracking number', async () => {

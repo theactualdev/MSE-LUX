@@ -12,6 +12,23 @@ import { SHIPBUBBLE_CATEGORY_ID } from '@/features/checkout/lib/shipping-config'
 
 const SHIPBUBBLE_BASE_URL = 'https://api.shipbubble.com/v1'
 
+/**
+ * ShipBubble's success envelope is NOT the boolean its docs imply. A live 200
+ * from `/shipping/address/validate` returns `{"status":"success", ...}` — a
+ * STRING. Every call site here previously tested `body.status !== true`, which
+ * rejected every real success response: `validateAddress`, `fetchRates` and
+ * `createLabel` all threw against the production API. The damage was silent at
+ * checkout (`getShippingRates` catches and serves flat fallback rates, so live
+ * courier pricing simply never appeared) and loud in the admin (label booking
+ * always returned `shipbubble-error`).
+ *
+ * Confirmed against a real response on 2026-07-28. Accept both shapes so a
+ * docs-shaped boolean keeps working if they ever ship one.
+ */
+function isOkEnvelope(status: unknown): boolean {
+  return status === true || status === 'success'
+}
+
 export interface ShipBubbleRate {
   courierId: string
   serviceCode: string
@@ -65,12 +82,12 @@ export async function validateAddress(input: {
   })
 
   const body = (await res.json()) as {
-    status?: boolean
+    status?: boolean | string
     message?: string
     data?: { address_code?: number | string }
   }
 
-  if (!res.ok || body.status !== true || body.data?.address_code === undefined || body.data?.address_code === null) {
+  if (!res.ok || !isOkEnvelope(body.status) || body.data?.address_code === undefined || body.data?.address_code === null) {
     throw new Error(`ShipBubble address validate failed: ${body.message ?? res.status}`)
   }
 
@@ -133,7 +150,7 @@ export async function fetchRates(input: {
   })
 
   const body = (await res.json()) as {
-    status?: boolean
+    status?: boolean | string
     message?: string
     data?: {
       request_token?: string
@@ -149,7 +166,7 @@ export async function fetchRates(input: {
     }
   }
 
-  if (!res.ok || body.status !== true || !body.data) {
+  if (!res.ok || !isOkEnvelope(body.status) || !body.data) {
     throw new Error(`ShipBubble fetch rates failed: ${body.message ?? res.status}`)
   }
 
@@ -197,12 +214,12 @@ export async function createLabel(input: { requestToken: string; courierId: stri
   })
 
   const body = (await res.json()) as {
-    status?: boolean
+    status?: boolean | string
     message?: string
     data?: { order_id?: number | string; tracking_number?: string; tracking_url?: string; courier?: { name?: string } }
   }
 
-  if (!res.ok || body.status !== true || !body.data?.order_id || !body.data.tracking_number) {
+  if (!res.ok || !isOkEnvelope(body.status) || !body.data?.order_id || !body.data.tracking_number) {
     throw new Error(`ShipBubble create label failed: ${body.message ?? res.status}`)
   }
 
