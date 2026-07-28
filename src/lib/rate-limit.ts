@@ -12,8 +12,13 @@ import { headers } from 'next/headers'
  * never talks to Redis).
  *
  * THE DEFINING PROPERTY: fail OPEN. Every failure mode — missing env, Redis
- * unreachable, the limiter throwing, a malformed response — resolves `true`
- * (proceed). This has sat open since Phase 6 as the platform's longest-
+ * unreachable, the limiter throwing, a malformed (non-throwing but
+ * shape-mismatched) response — resolves `true` (proceed), logged. A
+ * malformed response doesn't throw, so it can't be caught by the try/catch
+ * below; `result?.success` is explicitly checked to be a `boolean` before
+ * it's trusted, so a resolved `{}` or `{ success: undefined }` still fails
+ * open instead of silently coercing to a falsy "block". This has sat open
+ * since Phase 6 as the platform's longest-
  * standing launch blocker: the payment actions (`initializePayment`,
  * `verifyPayment`) are a carding surface with no throttling. But a rate
  * limiter that BLOCKS checkout when Upstash has an incident would be worse
@@ -81,8 +86,12 @@ export async function checkRateLimit(kind: RateLimitKind, identifier?: string): 
       prefix: `mse:${kind}`,
     })
 
-    const { success } = await ratelimit.limit(id)
-    return success
+    const result = await ratelimit.limit(id)
+    if (typeof result?.success !== 'boolean') {
+      console.error('[checkRateLimit] malformed limiter response — failing open', { kind })
+      return true
+    }
+    return result.success
   } catch (error) {
     console.error(`[checkRateLimit] unexpected error (kind=${kind})`, error)
     return true

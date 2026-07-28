@@ -118,6 +118,32 @@ describe('checkRateLimit', () => {
     expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
   })
 
+  // A malformed response RESOLVES rather than throws, so it can't be caught
+  // by the try/catch — `success` must be explicitly type-checked, otherwise
+  // destructuring `undefined` silently reads as falsy ("block"), the exact
+  // inverse of fail-open.
+  it('returns true (fails open) and logs when the limiter resolves with an empty object', async () => {
+    vi.stubEnv('UPSTASH_REDIS_REST_URL', URL)
+    vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', TOKEN)
+    limitMock.mockResolvedValue({})
+
+    const result = await checkRateLimit('payment', 'ip-1')
+
+    expect(result).toBe(true)
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('returns true (fails open) and logs when the limiter resolves with success: undefined', async () => {
+    vi.stubEnv('UPSTASH_REDIS_REST_URL', URL)
+    vi.stubEnv('UPSTASH_REDIS_REST_TOKEN', TOKEN)
+    limitMock.mockResolvedValue({ success: undefined })
+
+    const result = await checkRateLimit('payment', 'ip-1')
+
+    expect(result).toBe(true)
+    expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
+  })
+
   describe('identifier resolution', () => {
     beforeEach(() => {
       vi.stubEnv('UPSTASH_REDIS_REST_URL', URL)
