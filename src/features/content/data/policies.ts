@@ -18,20 +18,23 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
       {
         heading: 'Shipping rates & timelines',
         body: [
-          'We currently offer three delivery tiers: Lagos delivery for ₦2,500 (1–2 days), nationwide delivery for ₦5,000 (3–5 days), and international delivery for ₦20,000 (7–14 days).',
-          'Delivery timelines are estimates from the date an order ships, not the order date, and can vary with courier volume or customs processing for international orders.',
+          "If you're paying in Naira with a delivery address in Nigeria, we calculate your exact shipping cost with our courier partner right at checkout, based on your address and order weight — you'll see the price and an estimated delivery window before you pay. If our courier is temporarily unavailable, we fall back to a flat standard-delivery rate for Nigerian addresses instead.",
+          "For every other order — deliveries outside Nigeria, and any order paid in US dollars regardless of destination — shipping is a flat rate, shown at checkout before you pay.",
+          'Delivery windows are estimates from the courier, not a fixed promise from us — actual delivery time runs from the date an order ships (not the order date) and can vary with courier volume or, for international orders, customs processing.',
         ],
       },
       {
         heading: 'Order processing',
         body: [
-          'Because pieces are handmade in small batches, most orders are prepared and shipped within 2–3 business days of purchase. Custom or made-to-order pieces may take longer, and we will let you know the expected timeline at checkout or by email.',
+          "Because pieces are handmade in small batches, please allow [TODO(owner): confirm the standard order-processing time to publish here, e.g. '2–3 business days'] before your order ships. Custom or made-to-order pieces may take longer, and we'll confirm the expected timeline with you by email.",
         ],
       },
       {
         heading: 'Returns',
         body: [
-          'Unworn items in their original packaging can be returned within 7 days of delivery for a refund or exchange. To start a return, contact us with your order number.',
+          "There is no self-service returns portal. To start a return, contact us with your order number and we'll confirm eligibility and next steps by email.",
+          "Unworn items in their original packaging can be returned within [TODO(owner): confirm the return window to publish here, e.g. '7 days'] of delivery for a refund or exchange.",
+          'Approved returns and order cancellations are handled by our team, not automatically: we cancel and restock the order, then issue your refund from the Paystack dashboard to your original payment method — refunds are recorded and processed by a person, so please allow a few business days.',
           'Return shipping is the responsibility of the customer unless the item arrived damaged or faulty, in which case we cover the cost.',
         ],
       },
@@ -44,7 +47,7 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
       {
         heading: 'Damaged or faulty items',
         body: [
-          'If your order arrives damaged or faulty, contact us within 48 hours of delivery with photos of the item and packaging so we can arrange a replacement or refund.',
+          "If your order arrives damaged or faulty, contact us within [TODO(owner): confirm the reporting window to publish here, e.g. '48 hours'] of delivery with photos of the item and packaging so we can arrange a replacement or refund.",
         ],
       },
     ],
@@ -70,13 +73,20 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
       {
         heading: 'Sharing with service providers',
         body: [
-          'We share limited order information with delivery couriers and payment processors solely to fulfil your order. These providers are only given the information they need to complete their part of the transaction.',
+          'We share limited order information with our delivery courier, our payment processor (Paystack), and the service we use to send transactional emails (order confirmations and shipping updates). These providers only receive the information they need to complete their part of the transaction.',
+          "We never see or store your card details — payment is handled entirely by Paystack, and card numbers never reach our servers.",
+        ],
+      },
+      {
+        heading: 'Cookies & tracking',
+        body: [
+          "We don't run analytics, advertising, or tracking cookies of our own. The only data collection beyond what's described above is the standard technical logging our hosting provider keeps to operate the site.",
         ],
       },
       {
         heading: 'Data retention & access',
         body: [
-          'We keep order and account information for as long as needed to provide our service and meet reasonable business record-keeping needs. You can ask us to review, update, or delete your information at any time by contacting us.',
+          'We keep account information (name, email, phone), saved addresses, cart and wishlist contents, and order records for as long as needed to provide our service and meet reasonable business record-keeping needs. You can ask us to review, update, or delete your information at any time by contacting us.',
         ],
       },
       {
@@ -101,7 +111,13 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
       {
         heading: 'Orders & pricing',
         body: [
-          'All prices are listed in Nigerian Naira (NGN) and are shown before the 7.5% VAT applied on your order subtotal at checkout. We reserve the right to correct pricing errors and to limit order quantities.',
+          "Prices are shown in Naira (₦) or US Dollars ($) — whichever currency you select — before the 7.5% VAT applied on your order subtotal at checkout. If you're browsing in a different currency, that price is an estimate only; you're always charged in ₦ or $. We reserve the right to correct pricing errors and to limit order quantities.",
+        ],
+      },
+      {
+        heading: 'Payment',
+        body: [
+          'Payment is processed by Paystack. We accept card payments, and you are charged in whichever currency you selected at checkout (₦ or $) — we never see or store your card details.',
         ],
       },
       {

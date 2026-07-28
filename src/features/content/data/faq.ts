@@ -10,7 +10,11 @@ export const FAQ_GROUPS: FaqGroup[] = [
       },
       {
         q: 'What are your delivery times and rates?',
-        a: 'Lagos delivery is ₦2,500 and takes 1–2 days, nationwide delivery is ₦5,000 and takes 3–5 days, and international delivery is ₦20,000 and takes 7–14 days. These times run from dispatch — because pieces are handmade, allow 2–3 business days for us to prepare your order first.',
+        a: "If you're paying in Naira to a Nigerian address, we get you a live courier rate and delivery estimate at checkout, based on your address. Every other order — international, or any order paid in US dollars — ships at a flat rate with a 7–14 day estimate, shown at checkout before you pay. These windows run from dispatch, not the order date — because pieces are handmade, allow [TODO(owner): confirm order-processing time, e.g. '2–3 business days'] for us to prepare your order first.",
+      },
+      {
+        q: 'What payment methods do you accept?',
+        a: "We accept card payments through Paystack. You choose to pay in Naira (₦) or US Dollars ($) at checkout, and that's the currency you're charged in — if you're browsing in any other currency, the price shown is just an estimate. We never see or store your card details.",
       },
       {
         q: 'Is VAT included in the price shown?',
@@ -18,7 +22,7 @@ export const FAQ_GROUPS: FaqGroup[] = [
       },
       {
         q: 'Can I track my order?',
-        a: 'Yes — once your order ships you will receive a confirmation email with tracking details for your delivery.',
+        a: 'Yes — once your order ships we email you a shipping confirmation with your carrier and tracking number.',
       },
     ],
   },
@@ -48,11 +52,11 @@ export const FAQ_GROUPS: FaqGroup[] = [
     items: [
       {
         q: 'What is your return policy?',
-        a: 'Unworn items in original packaging can be returned within 7 days of delivery for a refund or exchange. See our Shipping & Returns page for the full policy.',
+        a: "There's no self-service returns portal — contact us with your order number and our team will confirm eligibility and next steps. Unworn items in original packaging can be returned within [TODO(owner): confirm return window, e.g. '7 days'] of delivery for a refund or exchange; approved refunds are issued by our team through Paystack, not automatically. See our Shipping & Returns page for the full policy.",
       },
       {
         q: 'Can I exchange an item for a different size or color?',
-        a: 'Yes, subject to stock availability — contact us within 7 days of delivery to arrange an exchange. Some items are excluded: pierced earrings once opened, and custom or made-to-order pieces, which are final sale. See our Shipping & Returns policy for the full details.',
+        a: "Yes, subject to stock availability — contact us within [TODO(owner): confirm return window, e.g. '7 days'] of delivery to arrange an exchange. Some items are excluded: pierced earrings once opened, and custom or made-to-order pieces, which are final sale. See our Shipping & Returns policy for the full details.",
       },
       {
         q: 'Are custom or made-to-order pieces returnable?',
