@@ -748,29 +748,27 @@ describe('placeOrder — rate limiting (the "checkout" window, guarded before an
   })
 })
 
-describe('placeOrder — server-derived charge currency (Phase 9c residue fix)', () => {
-  // `placeOrder` no longer trusts the client's format-validated
-  // `chargeCurrency` outright: it re-derives it from the server geo signal
-  // (`serverChargeCurrency`) and, when that signal is present AND disagrees
-  // with the client, uses the SERVER value end-to-end instead — closing the
-  // Phase-6 finding that a client could simply claim the cheaper authored
-  // currency. It never rejects on a divergence (only logs), since a
-  // traveller/VPN user can legitimately diverge from their browsing-region
-  // geo.
+describe('placeOrder — charge-currency divergence is logged, not overridden (Phase 9c Task 4)', () => {
+  // Phase 9c originally re-derived `chargeCurrency` from the server geo
+  // signal and OVERRODE the client's value on a divergence. That was wrong
+  // for this product (the charge currency is a designed customer choice —
+  // `CurrencySwitcher`, `charge-currency-note` — and both authored
+  // currencies are merchant-set with no FX in this path, so the format guard
+  // below is the real protection) and has been reverted: `placeOrder` now
+  // ALWAYS uses the client's own format-validated `chargeCurrency`, and only
+  // logs when the server signal disagrees, for merchant observability.
 
-  it('uses the server-derived currency end-to-end when it diverges from the client value, logging the divergence', async () => {
-    headersMock.mockResolvedValue(headerStore({ 'x-vercel-ip-country': 'US' })) // -> USD
+  it('always uses the client currency end-to-end even when the server signal diverges, logging the divergence', async () => {
+    headersMock.mockResolvedValue(headerStore({ 'x-vercel-ip-country': 'US' })) // -> USD server-side
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
     const result = await placeOrder({
       contact: CONTACT,
       address: ADDRESS,
-      // Client claims NGN, but US -> USD wins server-side. The shipping
-      // token must itself be signed for USD: `placeOrder`'s quote-currency
-      // guard checks against the RESOLVED currency, not the client's claim —
-      // exactly what a `getShippingRates` call under the same geo signal
-      // would have produced (see the DEPENDENCY comment in `data.ts`).
-      shippingToken: validShippingToken({ currency: 'USD', amountMinor: 5_000 }),
+      // Client claims NGN; the server signal says USD. The effective
+      // currency must stay NGN throughout, so the shipping token must be
+      // signed for NGN (today's default fixture) to verify.
+      shippingToken: validShippingToken(),
       chargeCurrency: 'NGN',
       guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
     })
@@ -779,22 +777,21 @@ describe('placeOrder — server-derived charge currency (Phase 9c residue fix)',
     expect(order.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          // The persisted Order.currency is the SERVER value, never the
-          // client's cheaper claim.
-          currency: 'USD',
-          // Re-priced off PRODUCT's authored USD price (30_000), not NGN's
-          // 500_000 — proof the resolved currency, not the client's, drove
-          // `buildCartLines`.
-          subtotalMinor: 30_000,
-          shippingMinor: 5_000,
+          // The persisted Order.currency is the CLIENT's own choice, never
+          // silently swapped for the server-observed geo signal.
+          currency: 'NGN',
+          // Re-priced off PRODUCT's authored NGN price (500_000) — proof the
+          // client currency, not the server signal, drove `buildCartLines`.
+          subtotalMinor: 500_000,
+          shippingMinor: 250_000,
           lines: {
-            create: [expect.objectContaining({ unitPriceMinor: 30_000, lineTotalMinor: 30_000 })],
+            create: [expect.objectContaining({ unitPriceMinor: 500_000, lineTotalMinor: 500_000 })],
           },
         }),
       }),
     )
     expect(consoleWarnSpy).toHaveBeenCalledWith(
-      '[placeOrder] charge-currency divergence — using the server-derived value',
+      '[placeOrder] charge-currency divergence — logging only, using the client currency',
       { client: 'NGN', server: 'USD' },
     )
 

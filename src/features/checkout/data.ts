@@ -228,24 +228,32 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   // throws out" contract.
   if (input.chargeCurrency !== 'NGN' && input.chargeCurrency !== 'USD') return INVALID_INPUT
 
-  // Re-derive the charge currency from the server-observed geo signal
-  // (`serverChargeCurrency`, Phase 9c) rather than trusting the client's
-  // format-validated value outright: a caller could otherwise simply claim
-  // the cheaper of the two authored currencies. A non-null server value that
-  // DIFFERS from the client's is used instead — logged, never rejected,
-  // since a legitimate traveller/VPN user can genuinely diverge from their
-  // browsing-region geo. A null server value (no geo header — local dev or a
-  // non-Vercel deploy) keeps today's format-validated client value exactly.
-  // Every downstream use below reads this ONE resolved value, never
-  // `input.chargeCurrency` directly, so re-pricing, the persisted
-  // `Order.currency`, and the shipping-quote currency guard can't drift
-  // apart from one another.
+  // Phase 9c originally OVERRODE the client's currency with this server geo
+  // signal whenever the two disagreed. That was wrong for this product and
+  // has been reverted (Phase 9c Task 4): `chargeCurrencyFor`'s own docblock
+  // says the charge currency is designed to follow the customer's
+  // display-currency choice — there's a shipped `CurrencySwitcher` in the
+  // header and a `charge-currency-note` component that tells the customer
+  // up front which currency they'll be charged in. Silently overriding that
+  // choice contradicts what the UI just told them and, worse, can charge
+  // them in a currency their screen never showed (the client keeps
+  // rendering prices in the currency IT chose, so an override here produces
+  // a total that matches nothing displayed). The signal is also weak
+  // grounds for enforcement: prices are dual-authored (NGN and USD are each
+  // set independently by the merchant, no FX in this path), and the guard
+  // two lines below already ensures only those two authored currencies are
+  // ever accepted — so the worst case of trusting the client's choice is a
+  // customer paying the merchant's OTHER authored price, a pricing decision
+  // rather than a security hole. The effective currency is therefore always
+  // `input.chargeCurrency`; the server signal is read and compared ONLY to
+  // log a divergence, giving the merchant observability (e.g. to spot
+  // systematic arbitrage) without ever second-guessing the customer's
+  // explicit selection.
   const serverCurrency = await serverChargeCurrency()
-  const chargeCurrency =
-    serverCurrency && serverCurrency !== input.chargeCurrency ? serverCurrency : input.chargeCurrency
-  if (serverCurrency && serverCurrency !== input.chargeCurrency) {
-    console.warn('[placeOrder] charge-currency divergence — using the server-derived value', {
-      client: input.chargeCurrency,
+  const chargeCurrency = input.chargeCurrency
+  if (serverCurrency && serverCurrency !== chargeCurrency) {
+    console.warn('[placeOrder] charge-currency divergence — logging only, using the client currency', {
+      client: chargeCurrency,
       server: serverCurrency,
     })
   }
@@ -253,12 +261,13 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   // The shipping amount/label are never trusted from the client — they come
   // ONLY from a verified, address-bound, unexpired quote token (see the
   // module doc comment above). A tampered/expired/wrong-address token, or a
-  // currency mismatch against the resolved `chargeCurrency`, is rejected
-  // before any pricing work happens. DEPENDENCY: `getShippingRates` resolves
-  // its own quote's currency via this SAME `serverChargeCurrency()` call, so
-  // a quote issued under the server-derived currency is verified against
-  // that same currency here — if the two functions ever resolve currency
-  // differently, a legitimately-issued quote would be wrongly rejected here.
+  // currency mismatch against `chargeCurrency`, is rejected before any
+  // pricing work happens. `chargeCurrency` here is always the client's own
+  // format-validated value (see the comment above), and `getShippingRates`
+  // resolves its quote's currency the same way — off `input.chargeCurrency`,
+  // never the server geo signal — so a quote issued for a given client
+  // currency is always verified against that same currency here; the two
+  // functions can't drift apart.
   const quote = verifyQuote(input.shippingToken, parsedAddress.data)
   if (!quote) return SHIPPING_EXPIRED
   if (quote.currency !== chargeCurrency) return INVALID_INPUT

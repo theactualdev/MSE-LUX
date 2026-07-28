@@ -28,8 +28,11 @@ import type { ShippingOption } from '@/features/checkout/shipping-types'
  * rates when charging NGN to a Nigerian destination, a flat rate in the
  * charge currency otherwise (live ₦ rates can't be charged in USD without
  * FX), and a flat fallback whenever the ShipBubble path can't complete.
- * Every option's currency equals `input.chargeCurrency`, never the address's
- * country, so `placeOrder`'s currency guard always passes. This mirrors
+ * Every option's currency equals `input.chargeCurrency` — ALWAYS the
+ * client's own format-validated value, never the address's country and,
+ * since Phase 9c Task 4, never the server geo signal either (see the
+ * currency-resolution comment inside the function body for why) — so
+ * `placeOrder`'s currency guard always passes for a legit flow. This mirrors
  * `placeOrder`'s cart-resolution idiom (`data.ts`) exactly, but is read-only:
  * no order, no inventory clamp, no DB write — it only reads the cart to size
  * the ShipBubble package (weight + declared value).
@@ -141,37 +144,44 @@ export async function getShippingRates(input: {
   /** ShipBubble requires a contact email for address validation; the checkout flow already has it by the shipping step. */
   email: string
   /**
-   * The customer's browsing-region charge currency (Phase 5d/6) — independent
-   * of the shipping address. Every returned option's `currency` (and its
-   * token's payload currency) equals this, never the address's country, so
-   * `placeOrder`'s `quote.currency !== input.chargeCurrency` guard always
-   * passes for a legit flow: live ShipBubble ₦ rates are only used when
-   * charging NGN to a Nigerian address; every other combination gets a flat
-   * rate already denominated in `chargeCurrency`.
+   * The customer's own chosen charge currency (Phase 5d/6) — set by the
+   * `CurrencySwitcher` in the header, independent of the shipping address.
+   * Every returned option's `currency` (and its token's payload currency)
+   * equals this exactly: never the address's country, and, since Phase 9c
+   * Task 4, never the server-observed geo signal either (`serverChargeCurrency`
+   * is still read below, but only to log a divergence — see that comment for
+   * why overriding from geo was reverted). So `placeOrder`'s
+   * `quote.currency !== input.chargeCurrency` guard always passes for a
+   * legit flow: live ShipBubble ₦ rates are only used when charging NGN to a
+   * Nigerian address; every other combination gets a flat rate already
+   * denominated in `chargeCurrency`.
    */
   chargeCurrency: 'NGN' | 'USD'
   guestLines?: GuestOrderLine[]
 }): Promise<ShippingOption[]> {
   try {
-    // Re-derive the charge currency from the server-observed geo signal
-    // (`serverChargeCurrency`, Phase 9c) rather than trusting the client's
-    // value outright — same rationale and resolution rule as `placeOrder`
-    // (`data.ts`): a non-null server value that DIFFERS from the client's is
-    // used instead (logged, never rejected — a legitimate traveller/VPN user
-    // can genuinely diverge from their browsing-region geo); a null server
-    // value (no geo header) keeps today's client value exactly. Computed
-    // once, up front, and used for EVERY branch below — including the
-    // rate-limited fallback — so this function's whole NGN-vs-international
-    // branching and every returned option/token's currency are consistent
-    // with what `placeOrder` will independently re-derive for the same
-    // request (see the DEPENDENCY note at `placeOrder`'s quote-currency
-    // guard).
+    // Phase 9c originally OVERRODE the client's currency with the server geo
+    // signal whenever the two disagreed. That was wrong for this product and
+    // has been reverted (Phase 9c Task 4) — same rationale as `placeOrder`
+    // (`data.ts`, see its currency-resolution comment for the full writeup):
+    // the charge currency is a designed customer choice (`CurrencySwitcher`,
+    // `charge-currency-note`), overriding it silently contradicts what the
+    // UI just told the customer, and both authored currencies are
+    // merchant-set with no FX in this path, so a divergence is a pricing
+    // question, not a security hole. The effective currency is therefore
+    // ALWAYS `input.chargeCurrency` — driving this function's whole
+    // NGN-vs-international branching and every returned option/token's
+    // currency — and stays consistent with what `placeOrder` uses for the
+    // same request (see its quote-currency guard comment). The server signal
+    // is still read and compared, but ONLY to log a divergence for merchant
+    // observability; it never changes behaviour. Computed once, up front, so
+    // every branch below — including the rate-limited fallback — sees the
+    // same resolved value.
     const serverCurrency = await serverChargeCurrency()
-    const chargeCurrency: 'NGN' | 'USD' =
-      serverCurrency && serverCurrency !== input.chargeCurrency ? serverCurrency : input.chargeCurrency
-    if (serverCurrency && serverCurrency !== input.chargeCurrency) {
-      console.warn('[getShippingRates] charge-currency divergence — using the server-derived value', {
-        client: input.chargeCurrency,
+    const chargeCurrency: 'NGN' | 'USD' = input.chargeCurrency
+    if (serverCurrency && serverCurrency !== chargeCurrency) {
+      console.warn('[getShippingRates] charge-currency divergence — logging only, using the client currency', {
+        client: chargeCurrency,
         server: serverCurrency,
       })
     }

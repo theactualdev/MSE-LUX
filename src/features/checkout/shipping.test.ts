@@ -533,22 +533,30 @@ describe('getShippingRates — rate limiting (the "checkout" window)', () => {
   })
 })
 
-describe('getShippingRates — server-derived charge currency (Phase 9c residue fix)', () => {
+describe('getShippingRates — charge-currency divergence is logged, not overridden (Phase 9c Task 4)', () => {
   // Mirrors `placeOrder`'s (`data.test.ts`) equivalent block: `getShippingRates`
-  // re-derives the charge currency from the server geo signal
-  // (`serverChargeCurrency`) and, when present and it disagrees with the
-  // client, uses the SERVER value end-to-end — driving both the
-  // NGN-vs-international branching and the signed quote's currency — while
-  // only logging (never rejecting) the divergence.
+  // used to re-derive the charge currency from the server geo signal and
+  // override the client's value on a divergence. That's been reverted —
+  // it now ALWAYS uses `input.chargeCurrency`, driving both the
+  // NGN-vs-international branching and the signed quote's currency, and only
+  // logs (never acts on) a divergence against the server signal.
 
-  it('uses the server-derived currency end-to-end when it diverges from the client value, returning options in that currency and logging the divergence', async () => {
-    getCurrentUserId.mockResolvedValue(null)
-    headersMock.mockResolvedValue(headerStore({ 'x-vercel-ip-country': 'US' })) // -> USD
+  it('always uses the client currency end-to-end even when the server signal diverges, returning options in that currency and logging the divergence', async () => {
+    getCurrentUserId.mockResolvedValue(USER_ID)
+    cartItem.findMany.mockResolvedValue([{ productId: PRODUCT_ID, variantId: null, quantity: 1 }])
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'recv-1' })
+    fetchRates.mockResolvedValue({
+      requestToken: 'req_tok_1',
+      rates: [{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 350_000, currency: 'NGN', deliveryEta: '2-3 days' }],
+    })
+    headersMock.mockResolvedValue(headerStore({ 'x-vercel-ip-country': 'US' })) // -> USD server-side
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
-    // Client claims NGN to a Nigerian address (which would normally fetch
-    // live ShipBubble ₦ rates), but the server-derived USD wins and forces
-    // the flat international-USD branch instead.
+    // Client claims NGN to a Nigerian address; the server signal says USD.
+    // The effective currency must stay NGN, so this still takes the live
+    // ShipBubble branch (NGN charge + Nigerian address) rather than being
+    // forced into the flat international-USD branch.
     const options = await getShippingRates({
       address: NG_ADDRESS,
       email: EMAIL,
@@ -556,17 +564,16 @@ describe('getShippingRates — server-derived charge currency (Phase 9c residue 
       guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
     })
 
-    expect(validateAddress).not.toHaveBeenCalled()
-    expect(fetchRates).not.toHaveBeenCalled()
+    expect(validateAddress).toHaveBeenCalled()
+    expect(fetchRates).toHaveBeenCalled()
 
-    expect(options).toEqual([
-      expect.objectContaining({ id: 'international', label: 'International shipping', amountMinor: 250_000, currency: 'USD' }),
-    ])
+    expect(options).toHaveLength(1)
+    expect(options[0]).toMatchObject({ id: 'courier_1:gig_standard', currency: 'NGN', amountMinor: 350_000 })
     const payload = verifyQuote(options[0].token, NG_ADDRESS)
-    expect(payload).toMatchObject({ amountMinor: 250_000, currency: 'USD' })
+    expect(payload).toMatchObject({ amountMinor: 350_000, currency: 'NGN' })
 
     expect(consoleWarnSpy).toHaveBeenCalledWith(
-      '[getShippingRates] charge-currency divergence — using the server-derived value',
+      '[getShippingRates] charge-currency divergence — logging only, using the client currency',
       { client: 'NGN', server: 'USD' },
     )
 
