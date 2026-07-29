@@ -5,64 +5,21 @@ import { createClient } from '@/lib/supabase/server'
 import { Role } from '@/generated/prisma/client'
 
 /**
- * Loose shape accepted by the pure claim helpers below. Deliberately wider
- * than `JwtPayload` (which requires a full set of registered JWT claims) so
- * unit tests can exercise `roleFromClaims` with minimal literals, while still
- * being structurally compatible with the real `JwtPayload` returned by
- * `supabase.auth.getClaims()`.
- */
-type ClaimsLike =
-  | ({
-      // `Record<string, unknown>` rather than `{ role?: unknown }`: the real
-      // `JwtPayload['app_metadata']` (`UserAppMetadata` from
-      // @supabase/supabase-js) is defined with only an index signature, no
-      // statically declared `role` key. TypeScript's "weak type" check
-      // rejects assigning an index-signature-only type to a target that
-      // consists solely of optional named properties, so `getSessionClaims`'s
-      // real `JwtPayload` would fail to satisfy this type. An index-signature
-      // target sidesteps that check while still letting `roleFromClaims`
-      // narrow `role` itself with `isRole` below.
-      app_metadata?: Record<string, unknown> | null
-    } & Record<string, unknown>)
-  | null
-  | undefined
-
-const ROLE_VALUES = new Set<string>(Object.values(Role))
-
-function isRole(value: unknown): value is Role {
-  return typeof value === 'string' && ROLE_VALUES.has(value)
-}
-
-/**
- * Derives the caller's application role from verified JWT claims.
+ * `roleFromClaims` / `roleSatisfies` live in the directive-free
+ * `@/features/auth/role` so the client's `use-session` hook can derive the
+ * same role for header affordances without importing this `server-only`
+ * module. Re-exported here because every existing caller (and the tests that
+ * mock `@/features/auth/claims`) imports them from this path.
  *
- * SECURITY: this reads `app_metadata.role` ONLY. Supabase's `user_metadata`
- * (`raw_user_meta_data`) can be edited by the end user themselves via the
- * client SDK — trusting a role stored there would let any customer promote
- * themselves to ADMIN or SUPER_ADMIN. `app_metadata` can only be written
- * from a trusted server context (service role / admin API), so it is the
- * only source of truth for authorization. Do not widen this to read
- * `user_metadata` under any circumstance.
- *
- * An absent or unrecognised role value defaults to `CUSTOMER` rather than
- * being trusted, so a malformed or tampered claim can never grant elevated
- * access.
+ * On this side of the boundary they operate on claims whose JWT signature
+ * `getClaims()` has verified, which is what makes them an authorization
+ * decision here and only a rendering decision on the client.
  */
-export function roleFromClaims(claims: ClaimsLike): Role {
-  const role = claims?.app_metadata?.role
-  return isRole(role) ? role : Role.CUSTOMER
-}
+import { roleFromClaims } from '@/features/auth/role'
+import type { ClaimsLike } from '@/features/auth/role'
 
-const ROLE_RANK: Record<Role, number> = {
-  [Role.CUSTOMER]: 0,
-  [Role.ADMIN]: 1,
-  [Role.SUPER_ADMIN]: 2,
-}
-
-/** `SUPER_ADMIN > ADMIN > CUSTOMER` — each role satisfies itself and everything below it. */
-export function roleSatisfies(actual: Role, required: Role): boolean {
-  return ROLE_RANK[actual] >= ROLE_RANK[required]
-}
+export { roleFromClaims, roleSatisfies } from '@/features/auth/role'
+export type { ClaimsLike } from '@/features/auth/role'
 
 /**
  * How long a session's `recovery` authentication event stays trusted for

@@ -38,7 +38,7 @@ beforeEach(() => {
 
 describe('useWishlist — guest mode', () => {
   beforeEach(() => {
-    useSessionMock.mockReturnValue({ signedIn: false, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: false, role: 'CUSTOMER', loading: false })
   })
 
   it('proxies the local wishlist store: toggle adds, has/count/ids reflect it, isPending stays false, no server action runs', () => {
@@ -84,7 +84,7 @@ describe('useWishlist — guest mode', () => {
 
 describe('useWishlist — signed-in mode', () => {
   beforeEach(() => {
-    useSessionMock.mockReturnValue({ signedIn: true, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: true, role: 'CUSTOMER', loading: false })
   })
 
   it('loads ids from getServerWishlistIds on mount', async () => {

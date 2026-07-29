@@ -15,7 +15,7 @@ import { getServerWishlistIds } from '@/features/wishlist/data'
 // grid resolves without hitting the real catalog loader). `useWishlist()`'s
 // signed-in path pulls in `@/features/wishlist/data`'s server actions too —
 // mocked the same way `use-wishlist.test.tsx` mocks them.
-vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, loading: false })) }))
+vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, role: 'CUSTOMER', loading: false })) }))
 vi.mock('@/features/catalog/server/resolve-products', () => ({
   resolveProductsByIds: vi.fn(async (ids: string[]) => products.filter((p) => ids.includes(p.id))),
 }))
@@ -33,7 +33,7 @@ describe('WishlistView', () => {
     vi.clearAllMocks()
     useWishlistStore.getState().clear()
     useServerWishlistStore.getState().reset()
-    useSessionMock.mockReturnValue({ signedIn: false, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: false, role: 'CUSTOMER', loading: false })
     getServerWishlistIdsMock.mockResolvedValue([])
   })
 
@@ -99,7 +99,7 @@ describe('WishlistView', () => {
   })
 
   it('shows the loading skeleton while signed-in ids are still loading, then renders resolved products', async () => {
-    useSessionMock.mockReturnValue({ signedIn: true, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: true, role: 'CUSTOMER', loading: false })
 
     const product = products[0]
     let resolveIds!: (ids: string[]) => void

@@ -5,7 +5,7 @@ import { CartView } from '@/features/cart/components/cart-view'
 import { products } from '@/features/catalog/data/products'
 import { useCartStore } from '@/features/cart/store'
 
-vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, loading: false })) }))
+vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, role: 'CUSTOMER', loading: false })) }))
 vi.mock('@/features/catalog/server/resolve-products', () => ({
   resolveProductsByIds: vi.fn(async (ids: string[]) => products.filter((p) => ids.includes(p.id))),
 }))

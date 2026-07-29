@@ -12,6 +12,8 @@ import {
 } from '@/components/ui/dropdown-menu'
 import { handleSignOut } from '@/features/auth/sign-out'
 import { useSession } from '@/features/auth/use-session'
+import { roleSatisfies } from '@/features/auth/role'
+import { Role } from '@/generated/prisma/enums'
 import { cn } from '@/lib/utils'
 
 /**
@@ -27,7 +29,8 @@ import { cn } from '@/lib/utils'
  * a dropdown whose links all bounce to `/login`.
  */
 export function AccountMenu() {
-  const { signedIn, loading } = useSession()
+  const { signedIn, role, loading } = useSession()
+  const showAdminLink = roleSatisfies(role, Role.ADMIN)
 
   if (loading) {
     return (
@@ -76,6 +79,18 @@ export function AccountMenu() {
         <DropdownMenuItem render={<Link href="/account/orders" />}>Orders</DropdownMenuItem>
         <DropdownMenuItem render={<Link href="/account/addresses" />}>Addresses</DropdownMenuItem>
         <DropdownMenuItem render={<Link href="/wishlist" />}>Wishlist</DropdownMenuItem>
+        {/* Hidden from customers on purpose: `/admin` `notFound()`s rather than
+            403s, so an unconditional item would advertise an area that is
+            deliberately concealed. Rendering only — a forged role claim shows
+            this link and still can't open the page (see `useSession`). */}
+        {/* Two sibling conditionals rather than one fragment: Base UI walks
+            DropdownMenuContent's children to register items, and a fragment
+            wrapper hides them from that traversal — the item renders but is
+            never registered, so it isn't reachable as a `menuitem`. */}
+        {showAdminLink ? <DropdownMenuSeparator /> : null}
+        {showAdminLink ? (
+          <DropdownMenuItem render={<Link href="/admin" />}>Admin dashboard</DropdownMenuItem>
+        ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleSignOut}>Sign out</DropdownMenuItem>
       </DropdownMenuContent>

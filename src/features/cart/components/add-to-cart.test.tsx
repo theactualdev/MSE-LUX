@@ -7,7 +7,7 @@ import { useCartStore } from '@/features/cart/store'
 import { useUiStore } from '@/stores/ui'
 import type { Product } from '@/types/catalog'
 
-vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, loading: false })) }))
+vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, role: 'CUSTOMER', loading: false })) }))
 vi.mock('@/features/catalog/server/resolve-products', () => ({ resolveProductsByIds: vi.fn(async () => []) }))
 
 const priceSet = {

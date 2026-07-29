@@ -64,8 +64,8 @@ export function useWishlist(): UseWishlistResult {
 
   useEffect(() => {
     // Do NOT touch the shared store while auth is still unsettled. `useSession`
-    // starts every mount at `{ signedIn: false, loading: true }` before it
-    // confirms the session, and many `useWishlist()`/`useCart()` instances mount
+    // starts every mount at `{ signedIn: false, role: 'CUSTOMER', loading: true }`
+    // before it confirms the session, and many `useWishlist()`/`useCart()` instances mount
     // per page (view, header badge, each product card). Without this guard, any
     // instance still in its initial `loading` phase reads `signedIn: false` and
     // fires `reset()`, wiping the wishlist another instance just loaded — the

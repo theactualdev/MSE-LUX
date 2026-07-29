@@ -9,7 +9,7 @@ import { useWishlistStore } from '@/features/wishlist/store'
 // `useSession()` (the real Supabase browser client, which throws when
 // `NEXT_PUBLIC_SUPABASE_*` is unset under test). Stubbed to guest, same as
 // the other wishlist/cart consumer suites.
-vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, loading: false })) }))
+vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, role: 'CUSTOMER', loading: false })) }))
 
 const product = products[0]
 

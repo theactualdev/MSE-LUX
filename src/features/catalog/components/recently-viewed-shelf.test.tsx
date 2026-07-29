@@ -8,7 +8,7 @@ import { products } from '@/features/catalog/data/products'
 // `useSession()` (the real Supabase browser client, which throws when
 // `NEXT_PUBLIC_SUPABASE_*` is unset under test) — mocked the same way
 // `wishlist-view.test.tsx` mocks it.
-vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, loading: false })) }))
+vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, role: 'CUSTOMER', loading: false })) }))
 
 // `resolveProductsByIds` is the DB-catalog server action; mocked here so the
 // async grid resolves against the bundled fixture products without hitting

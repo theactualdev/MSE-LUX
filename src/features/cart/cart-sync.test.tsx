@@ -46,10 +46,10 @@ describe('CartSync — guest -> authed merge', () => {
     mergeGuestCartMock.mockResolvedValue({ ok: true, items: [{ productId: 'P1', quantity: 2 }] })
     mergeGuestWishlistMock.mockResolvedValue({ ok: true, ids: ['W1'] })
 
-    useSessionMock.mockReturnValue({ signedIn: false, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: false, role: 'CUSTOMER', loading: false })
     const { rerender } = render(<CartSync />)
 
-    useSessionMock.mockReturnValue({ signedIn: true, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: true, role: 'CUSTOMER', loading: false })
     rerender(<CartSync />)
 
     await waitFor(() => expect(mergeGuestCartMock).toHaveBeenCalledTimes(1))
@@ -70,7 +70,7 @@ describe('CartSync — guest -> authed merge', () => {
 
     mergeGuestCartMock.mockResolvedValue({ ok: true, items: [{ productId: 'P1', quantity: 1 }] })
 
-    useSessionMock.mockReturnValue({ signedIn: true, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: true, role: 'CUSTOMER', loading: false })
     render(<CartSync />)
 
     await waitFor(() => expect(mergeGuestCartMock).toHaveBeenCalledTimes(1))
@@ -84,9 +84,9 @@ describe('CartSync — guest -> authed merge', () => {
     mergeGuestCartMock.mockResolvedValue({ error: 'Something went wrong. Please try again.' })
     mergeGuestWishlistMock.mockResolvedValue({ ok: true, ids: ['W1'] })
 
-    useSessionMock.mockReturnValue({ signedIn: false, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: false, role: 'CUSTOMER', loading: false })
     const { rerender } = render(<CartSync />)
-    useSessionMock.mockReturnValue({ signedIn: true, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: true, role: 'CUSTOMER', loading: false })
     rerender(<CartSync />)
 
     await waitFor(() => expect(mergeGuestCartMock).toHaveBeenCalledTimes(1))
@@ -98,9 +98,9 @@ describe('CartSync — guest -> authed merge', () => {
   })
 
   it('does not call either merge when local stores are empty (already-signed-in reload)', async () => {
-    useSessionMock.mockReturnValue({ signedIn: false, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: false, role: 'CUSTOMER', loading: false })
     const { rerender } = render(<CartSync />)
-    useSessionMock.mockReturnValue({ signedIn: true, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: true, role: 'CUSTOMER', loading: false })
     rerender(<CartSync />)
 
     // Give any accidental async work a tick to fire.
@@ -114,9 +114,9 @@ describe('CartSync — guest -> authed merge', () => {
     useCartStore.getState().addItem('P1', undefined, 1)
     mergeGuestCartMock.mockResolvedValue({ ok: true, items: [{ productId: 'P1', quantity: 1 }] })
 
-    useSessionMock.mockReturnValue({ signedIn: false, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: false, role: 'CUSTOMER', loading: false })
     const { rerender } = render(<CartSync />)
-    useSessionMock.mockReturnValue({ signedIn: true, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: true, role: 'CUSTOMER', loading: false })
     rerender(<CartSync />)
 
     await waitFor(() => expect(mergeGuestCartMock).toHaveBeenCalledTimes(1))
@@ -133,15 +133,15 @@ describe('CartSync — guest -> authed merge', () => {
     const { promise, resolve } = deferred<CartMutationResult>()
     mergeGuestCartMock.mockReturnValue(promise)
 
-    useSessionMock.mockReturnValue({ signedIn: false, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: false, role: 'CUSTOMER', loading: false })
     const { rerender } = render(<CartSync />)
-    useSessionMock.mockReturnValue({ signedIn: true, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: true, role: 'CUSTOMER', loading: false })
     rerender(<CartSync />)
 
     await waitFor(() => expect(mergeGuestCartMock).toHaveBeenCalledTimes(1))
 
     // User signs out before the merge resolves.
-    useSessionMock.mockReturnValue({ signedIn: false, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: false, role: 'CUSTOMER', loading: false })
     rerender(<CartSync />)
 
     resolve({ ok: true, items: [{ productId: 'P1', quantity: 1 }] })
@@ -160,7 +160,7 @@ describe('CartSync — guest -> authed merge', () => {
     mergeGuestCartMock.mockResolvedValue({ ok: true, items: [{ productId: 'P1', quantity: 2 }] })
     mergeGuestWishlistMock.mockResolvedValue({ ok: true, ids: ['W1'] })
 
-    useSessionMock.mockReturnValue({ signedIn: true, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: true, role: 'CUSTOMER', loading: false })
     render(<CartSync />, { wrapper: StrictMode })
 
     await waitFor(() => expect(useCartStore.getState().items).toEqual([]))

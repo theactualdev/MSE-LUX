@@ -79,7 +79,7 @@ beforeEach(() => {
 
 describe('useCart — guest mode', () => {
   beforeEach(() => {
-    useSessionMock.mockReturnValue({ signedIn: false, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: false, role: 'CUSTOMER', loading: false })
   })
 
   it('proxies the local cart store: add mutates items/itemCount, isPending stays false, no server action runs', () => {
@@ -151,7 +151,7 @@ describe('useCart — guest mode', () => {
 
 describe('useCart — signed-in mode', () => {
   beforeEach(() => {
-    useSessionMock.mockReturnValue({ signedIn: true, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: true, role: 'CUSTOMER', loading: false })
   })
 
   it('loads items from getServerCartItems on mount', async () => {
@@ -320,7 +320,7 @@ describe('useCart — signed-in mode', () => {
 
 describe('useCart — lines', () => {
   it('derives lines from items via resolveProductsByIds, dropping items whose product does not resolve', async () => {
-    useSessionMock.mockReturnValue({ signedIn: false, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: false, role: 'CUSTOMER', loading: false })
     useCartStore.getState().addItem('FIX-1', undefined, 2)
     useCartStore.getState().addItem('UNRESOLVED', undefined, 1)
     resolveProductsByIdsMock.mockResolvedValue([fixtureProduct])
@@ -337,7 +337,7 @@ describe('useCart — lines', () => {
 
 describe('useCart — chargeCurrency', () => {
   beforeEach(() => {
-    useSessionMock.mockReturnValue({ signedIn: false, loading: false })
+    useSessionMock.mockReturnValue({ signedIn: false, role: 'CUSTOMER', loading: false })
   })
 
   it('derives chargeCurrency as USD from a non-NGN display currency, and builds lines in USD', async () => {
