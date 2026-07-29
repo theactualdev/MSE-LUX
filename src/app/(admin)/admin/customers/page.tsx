@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { listCustomers } from '@/features/admin/customers/data'
 import { formatMoney } from '@/lib/money/format'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Customers' }
@@ -109,8 +109,8 @@ export default async function AdminCustomersPage({
             href={customersHref({ query, page: Math.max(1, page - 1) })}
             aria-disabled={page <= 1}
             className={cn(
-              'font-medium',
-              page <= 1 ? 'pointer-events-none text-muted-foreground/50' : 'text-foreground hover:underline',
+              buttonVariants({ variant: 'outline', size: 'sm' }),
+              page <= 1 && 'pointer-events-none opacity-50',
             )}
           >
             Prev
@@ -122,8 +122,8 @@ export default async function AdminCustomersPage({
             href={customersHref({ query, page: Math.min(pageCount, page + 1) })}
             aria-disabled={page >= pageCount}
             className={cn(
-              'font-medium',
-              page >= pageCount ? 'pointer-events-none text-muted-foreground/50' : 'text-foreground hover:underline',
+              buttonVariants({ variant: 'outline', size: 'sm' }),
+              page >= pageCount && 'pointer-events-none opacity-50',
             )}
           >
             Next

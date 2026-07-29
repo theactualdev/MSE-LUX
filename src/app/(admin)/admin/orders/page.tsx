@@ -6,7 +6,7 @@ import { StatusBadge } from '@/features/admin/orders/components/status-badge'
 import { ReapButton } from '@/features/admin/orders/components/reap-button'
 import { formatMoney } from '@/lib/money/format'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { Currency } from '@/types/money'
 import { cn } from '@/lib/utils'
@@ -168,8 +168,8 @@ export default async function AdminOrdersPage({
             href={ordersHref({ status, refundQueue, query, page: Math.max(1, page - 1) })}
             aria-disabled={page <= 1}
             className={cn(
-              'font-medium',
-              page <= 1 ? 'pointer-events-none text-muted-foreground/50' : 'text-foreground hover:underline',
+              buttonVariants({ variant: 'outline', size: 'sm' }),
+              page <= 1 && 'pointer-events-none opacity-50',
             )}
           >
             Prev
@@ -181,8 +181,8 @@ export default async function AdminOrdersPage({
             href={ordersHref({ status, refundQueue, query, page: Math.min(pageCount, page + 1) })}
             aria-disabled={page >= pageCount}
             className={cn(
-              'font-medium',
-              page >= pageCount ? 'pointer-events-none text-muted-foreground/50' : 'text-foreground hover:underline',
+              buttonVariants({ variant: 'outline', size: 'sm' }),
+              page >= pageCount && 'pointer-events-none opacity-50',
             )}
           >
             Next

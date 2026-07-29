@@ -86,12 +86,15 @@ export default async function AdminCatalogPage({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex items-baseline justify-between gap-3">
-        <div className="flex items-baseline gap-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
           <h1 className="text-xl font-semibold text-foreground">Catalog</h1>
+          {/* Outline, not the filled primary: it's a peer destination beside
+              the heading, and giving it the same weight as "New product" would
+              leave the page with two competing primary actions. */}
           <Link
             href="/admin/catalog/collections"
-            className="text-sm font-medium text-muted-foreground hover:text-foreground hover:underline"
+            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
           >
             Collections
           </Link>
@@ -239,8 +242,8 @@ export default async function AdminCatalogPage({
             href={hrefFor(filters, Math.max(1, page - 1))}
             aria-disabled={page <= 1}
             className={cn(
-              'font-medium',
-              page <= 1 ? 'pointer-events-none text-muted-foreground/50' : 'text-foreground hover:underline',
+              buttonVariants({ variant: 'outline', size: 'sm' }),
+              page <= 1 && 'pointer-events-none opacity-50',
             )}
           >
             Prev
@@ -252,8 +255,8 @@ export default async function AdminCatalogPage({
             href={hrefFor(filters, Math.min(pageCount, page + 1))}
             aria-disabled={page >= pageCount}
             className={cn(
-              'font-medium',
-              page >= pageCount ? 'pointer-events-none text-muted-foreground/50' : 'text-foreground hover:underline',
+              buttonVariants({ variant: 'outline', size: 'sm' }),
+              page >= pageCount && 'pointer-events-none opacity-50',
             )}
           >
             Next
