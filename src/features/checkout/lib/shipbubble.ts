@@ -38,10 +38,18 @@ export interface ShipBubbleRate {
   deliveryEta?: string
 }
 
+/**
+ * The app-shaped package item. `unitWeightGrams` is in GRAMS, matching
+ * `Product.weightGrams` and both callers' domain model; `fetchRates` converts
+ * to the kilograms ShipBubble actually expects. Keeping the unit in the field
+ * name is deliberate — the previous shape was `unit_weight: number` with no
+ * unit stated, and both callers passed grams into a kilograms field, declaring
+ * every parcel ~1000x heavier than it is (a 450g order was quoted as 450kg).
+ */
 export interface PackageItem {
   name: string
   description?: string
-  unit_weight: number
+  unitWeightGrams: number
   unit_amount: number
   quantity: number
 }
@@ -144,7 +152,11 @@ export async function fetchRates(input: {
       reciever_address_code: input.receiverAddressCode,
       pickup_date: input.pickupDate,
       category_id: SHIPBUBBLE_CATEGORY_ID,
-      package_items: input.packageItems,
+      // ShipBubble's `unit_weight` is KILOGRAMS. Callers work in grams.
+      package_items: input.packageItems.map(({ unitWeightGrams, ...rest }) => ({
+        ...rest,
+        unit_weight: unitWeightGrams / 1000,
+      })),
       package_dimension: input.packageDimension,
     }),
   })
@@ -181,7 +193,12 @@ export async function fetchRates(input: {
       courierId: String(courier.courier_id ?? ''),
       serviceCode: String(courier.service_code ?? ''),
       label: String(courier.courier_name ?? ''),
-      amountMinor: courier.total ?? 0,
+      // `courier.total` is MAJOR units (naira), not minor. Proven by live
+      // responses carrying fractional totals (403.1, 464.34, 505.5) — a minor
+      // unit is an integer by definition. Round because the product of a
+      // fractional naira total and 100 is not reliably integral in binary
+      // float, and `amountMinor` must be a whole number of kobo.
+      amountMinor: Math.round((courier.total ?? 0) * 100),
       currency: String(courier.currency ?? ''),
       deliveryEta: courier.delivery_eta ?? courier.delivery_eta_time,
     })),

@@ -188,7 +188,7 @@ describe('getShippingRates — Nigeria, signed-in', () => {
     expect(call.packageDimension).toEqual({ length: 20, width: 15, height: 8 })
     // weight = base(300) + PRODUCT.weightGrams(250) * quantity(2) = 800
     expect(call.packageItems).toEqual([
-      { name: 'MSE Lux order', description: 'Jewelry order', unit_weight: 800, unit_amount: 1_000_000, quantity: 1 },
+      { name: 'MSE Lux order', description: 'Jewelry order', unitWeightGrams: 800, unit_amount: 1_000_000, quantity: 1 },
     ])
     expect(call.pickupDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
 
@@ -238,7 +238,7 @@ describe('getShippingRates — guest', () => {
 
     const call = fetchRates.mock.calls[0][0]
     // weight = base(300) + PRODUCT.weightGrams(250) * 3 = 1050; value = 500_000 * 3 = 1_500_000
-    expect(call.packageItems).toEqual([{ name: 'MSE Lux order', description: 'Jewelry order', unit_weight: 1050, unit_amount: 1_500_000, quantity: 1 }])
+    expect(call.packageItems).toEqual([{ name: 'MSE Lux order', description: 'Jewelry order', unitWeightGrams: 1050, unit_amount: 1_500_000, quantity: 1 }])
 
     expect(options).toHaveLength(1)
     expect(verifyQuote(options[0].token, NG_ADDRESS)).not.toBeNull()
@@ -263,7 +263,7 @@ describe('getShippingRates — guest', () => {
     const call = fetchRates.mock.calls[0][0]
     // weight = base(300) + PRODUCT.weightGrams(250)*2 + WEIGHT_PER_ITEM_GRAMS(150)*3 = 1250
     // value = 500_000*2 + 500_000*3 = 2_500_000
-    expect(call.packageItems).toEqual([{ name: 'MSE Lux order', description: 'Jewelry order', unit_weight: 1250, unit_amount: 2_500_000, quantity: 1 }])
+    expect(call.packageItems).toEqual([{ name: 'MSE Lux order', description: 'Jewelry order', unitWeightGrams: 1250, unit_amount: 2_500_000, quantity: 1 }])
 
     expect(options).toHaveLength(1)
     expect(verifyQuote(options[0].token, NG_ADDRESS)).not.toBeNull()

@@ -123,7 +123,7 @@ export async function getBookingRates(orderNumber: string): Promise<BookingRates
       {
         name: 'MSE Lux order',
         description: 'Jewelry order',
-        unit_weight: unitWeight,
+        unitWeightGrams: unitWeight,
         unit_amount: order.subtotalMinor,
         quantity: 1,
       },

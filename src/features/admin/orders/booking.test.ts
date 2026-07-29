@@ -125,8 +125,8 @@ describe('getBookingRates', () => {
         {
           name: 'MSE Lux order',
           description: 'Jewelry order',
-          // unit_weight = base(300) + weighed line: 250*2 + unweighed line (null product): 150*3 = 1250
-          unit_weight: 300 + 250 * 2 + 150 * 3,
+          // unitWeightGrams = base(300) + weighed line: 250*2 + unweighed line (null product): 150*3 = 1250
+          unitWeightGrams: 300 + 250 * 2 + 150 * 3,
           unit_amount: 500_000,
           quantity: 1,
         },

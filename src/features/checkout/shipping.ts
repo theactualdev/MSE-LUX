@@ -341,7 +341,7 @@ export async function getShippingRates(input: {
         {
           name: 'MSE Lux order',
           description: 'Jewelry order',
-          unit_weight: totalWeightGrams,
+          unitWeightGrams: totalWeightGrams,
           unit_amount: totalValueMinor,
           quantity: 1,
         },

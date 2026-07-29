@@ -147,7 +147,7 @@ describe('fetchRates', () => {
   const baseInput = {
     senderAddressCode: 'sender-1',
     receiverAddressCode: 'receiver-1',
-    packageItems: [{ name: 'Ring', description: 'Gold ring', unit_weight: 1, unit_amount: 50_000, quantity: 1 }],
+    packageItems: [{ name: 'Ring', description: 'Gold ring', unitWeightGrams: 450, unit_amount: 50_000, quantity: 1 }],
     packageDimension: { length: 20, width: 15, height: 8 },
     pickupDate: '2026-07-26',
   }
@@ -164,7 +164,7 @@ describe('fetchRates', () => {
               courier_id: 'courier_1',
               courier_name: 'GIG Logistics',
               service_code: 'gig_standard',
-              total: 250_000,
+              total: 2_500,
               currency: 'NGN',
               delivery_eta: '2-3 days',
             },
@@ -172,7 +172,7 @@ describe('fetchRates', () => {
               courier_id: 'courier_2',
               courier_name: 'DHL',
               service_code: 'dhl_express',
-              total: 500_000,
+              total: 5_000,
               currency: 'NGN',
               delivery_eta_time: '1 day',
             },
@@ -190,7 +190,7 @@ describe('fetchRates', () => {
         courierId: 'courier_1',
         serviceCode: 'gig_standard',
         label: 'GIG Logistics',
-        amountMinor: 250_000,
+        amountMinor: 250_000, // ₦2,500.00 major -> kobo
         currency: 'NGN',
         deliveryEta: '2-3 days',
       },
@@ -198,7 +198,7 @@ describe('fetchRates', () => {
         courierId: 'courier_2',
         serviceCode: 'dhl_express',
         label: 'DHL',
-        amountMinor: 500_000,
+        amountMinor: 500_000, // ₦5,000.00 major -> kobo
         currency: 'NGN',
         deliveryEta: '1 day',
       },
@@ -212,12 +212,14 @@ describe('fetchRates', () => {
       Authorization: `Bearer ${API_KEY}`,
       'Content-Type': 'application/json',
     })
+    // ShipBubble is sent KILOGRAMS (`unit_weight`), never the caller's grams,
+    // and `unitWeightGrams` must not leak into the request body.
     expect(JSON.parse(init.body)).toEqual({
       sender_address_code: 'sender-1',
       reciever_address_code: 'receiver-1',
       pickup_date: '2026-07-26',
       category_id: 0,
-      package_items: baseInput.packageItems,
+      package_items: [{ name: 'Ring', description: 'Gold ring', unit_weight: 0.45, unit_amount: 50_000, quantity: 1 }],
       package_dimension: baseInput.packageDimension,
     })
   })
@@ -249,6 +251,38 @@ describe('fetchRates', () => {
     )
 
     await expect(fetchRates(baseInput)).resolves.toEqual({ requestToken: 'req_tok_1', rates: [] })
+  })
+
+  /**
+   * REGRESSION: `courier.total` is MAJOR units (naira). A live 2026-07-28
+   * response for a 450g Yaba -> Victoria Island parcel returned fractional
+   * totals (403.1, 464.34, 505.5) — a minor unit cannot be fractional, which
+   * is what proves the unit. The old mapping assigned `total` straight to
+   * `amountMinor`, undercharging 100x and putting a non-integer into a field
+   * the money model requires to be whole kobo.
+   */
+  it('converts a fractional naira total to whole kobo', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          status: 'success',
+          data: {
+            request_token: 'req_tok_1',
+            couriers: [
+              { courier_id: 'c1', courier_name: 'Bubble Express', service_code: 's1', total: 403.1, currency: 'NGN' },
+              { courier_id: 'c2', courier_name: 'Millie Express', service_code: 's2', total: 464.34, currency: 'NGN' },
+            ],
+          },
+        }),
+      }),
+    )
+
+    const { rates } = await fetchRates(baseInput)
+
+    expect(rates.map((r) => r.amountMinor)).toEqual([40_310, 46_434])
+    for (const r of rates) expect(Number.isInteger(r.amountMinor)).toBe(true)
   })
 
   it('throws when a status:true response is missing request_token (booking off it would be impossible)', async () => {
