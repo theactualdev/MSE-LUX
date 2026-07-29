@@ -7,7 +7,7 @@ import { LOW_STOCK_THRESHOLD } from '@/features/admin/data'
 import { ProductStatusBadge } from '@/features/admin/catalog/components/product-status-badge'
 import { formatMoney } from '@/lib/money/format'
 import { Input } from '@/components/ui/input'
-import { Button } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 export const metadata: Metadata = { title: 'Catalog' }
@@ -96,14 +96,16 @@ export default async function AdminCatalogPage({
             Collections
           </Link>
         </div>
-        <div className="flex items-baseline gap-3">
+        <div className="flex items-center gap-3">
           <p className="text-sm text-muted-foreground">
             {total} {total === 1 ? 'product' : 'products'}
           </p>
-          <Link
-            href="/admin/catalog/new"
-            className="text-sm font-medium text-muted-foreground hover:text-foreground hover:underline"
-          >
+          {/* Stays an anchor deliberately: it navigates, so it keeps
+              cmd/middle-click-to-new-tab, "copy link", history, and the
+              screen-reader "link" role that tells you the page will change.
+              `buttonVariants` gives it the primary-action weight it lacked as
+              muted text beside the product count — appearance only. */}
+          <Link href="/admin/catalog/new" className={cn(buttonVariants({ size: 'sm' }))}>
             New product
           </Link>
         </div>
