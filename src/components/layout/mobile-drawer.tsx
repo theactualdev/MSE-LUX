@@ -1,11 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { ChevronDown, LogIn, Search } from 'lucide-react'
+import { ChevronDown, LayoutDashboard, LogIn, Search } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { siteConfig } from '@/lib/config'
 import { useUiStore } from '@/stores/ui'
+import { useSession } from '@/features/auth/use-session'
+import { roleSatisfies } from '@/features/auth/role'
+import { Role } from '@/generated/prisma/enums'
 
 /**
  * Mobile navigation drawer. Its open state is bound directly to
@@ -15,6 +18,17 @@ import { useUiStore } from '@/stores/ui'
 export function MobileDrawer() {
   const open = useUiStore((s) => s.mobileNavOpen)
   const closeMobileNav = useUiStore((s) => s.closeMobileNav)
+  // `AccountMenu` — which carries the desktop Admin link — is `hidden sm:*`, so
+  // without this an admin on a phone has no route to the dashboard but typing
+  // the URL. Same rules as there: hidden from customers because `/admin`
+  // `notFound()`s rather than 403s, and rendering only — the layout gate and
+  // every admin action re-check the role against a verified JWT.
+  //
+  // `signedIn` is checked as well as the role: `AccountMenu` returns early for
+  // a signed-out visitor so its admin item is unreachable, but this drawer has
+  // no such branch, so the pairing has to be explicit here.
+  const { signedIn, role } = useSession()
+  const showAdminLink = signedIn && roleSatisfies(role, Role.ADMIN)
 
   return (
     <Sheet
@@ -83,6 +97,16 @@ export function MobileDrawer() {
             <LogIn className="size-4" aria-hidden="true" />
             Account
           </Link>
+          {showAdminLink ? (
+            <Link
+              href="/admin"
+              onClick={closeMobileNav}
+              className="flex items-center gap-2 py-3 text-sm text-foreground"
+            >
+              <LayoutDashboard className="size-4" aria-hidden="true" />
+              Admin
+            </Link>
+          ) : null}
         </div>
       </SheetContent>
     </Sheet>
