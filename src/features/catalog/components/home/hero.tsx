@@ -1,5 +1,6 @@
 'use client'
 
+import { useSyncExternalStore } from 'react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { motion } from 'framer-motion'
@@ -10,51 +11,67 @@ import { usePrefersReducedMotion } from '@/hooks/use-reduced-motion'
 import { cn } from '@/lib/utils'
 
 /**
- * Client-supplied hero clip, served from the public Supabase Storage `media`
- * bucket. It's a 576×1024 *portrait* video: it suits a phone viewport but would
- * crop to a narrow center strip (and look soft) in the full-bleed desktop hero,
- * so it is shown on phones only. Desktop keeps the landscape still below until a
- * 16:9 landscape cut is supplied. `/hero-poster.jpg` is a frame extracted from
- * the clip — it is the instant-paint image, the `<video>` poster, and the
- * static fallback for viewers who prefer reduced motion.
+ * Client-supplied hero clips, served from the public Supabase Storage `media`
+ * bucket. Two cuts, because one aspect ratio cannot serve both viewports: the
+ * portrait clip fills a phone but would crop to a narrow centre strip on
+ * desktop, and the landscape cut is the reverse. Each poster is a frame pulled
+ * from its own clip, so it is simultaneously the instant paint, the `<video>`
+ * poster, and the still shown to viewers who prefer reduced motion.
+ *
+ * ⚠️ QUALITY DEBT — the landscape cut is a WhatsApp export and is **576×320**.
+ * That is a 3.3x upscale on a 1920px display and it looks soft full-bleed. It
+ * also carries "MSE LUX / Redefining Luxury" burned into the pixels, which
+ * duplicates the `<h1>` below in a form no screen reader or translation can
+ * reach, and its sides are blurred/black padding from a phone-shot source.
+ * Re-export from the original at 1920x1080 with no text overlay and swap the
+ * URL — everything else here is already correct. See docs/LAUNCH.md §9.
  */
-const HERO_VIDEO_MP4 =
+const HERO_VIDEO_PORTRAIT =
   'https://xpzmwfxqiunubuagsfcy.supabase.co/storage/v1/object/public/media/hero/MSE%20LUX.mp4'
-const HERO_POSTER = '/hero-poster.jpg'
+const HERO_VIDEO_LANDSCAPE =
+  'https://xpzmwfxqiunubuagsfcy.supabase.co/storage/v1/object/public/media/hero/WhatsApp%20Video%202026-07-30%20at%2000.38.07.mp4'
+const HERO_POSTER_PORTRAIT = '/hero-poster.jpg'
+const HERO_POSTER_LANDSCAPE = '/hero-poster-landscape.jpg'
+
+/**
+ * Hydration detector, in the same `useSyncExternalStore` shape as
+ * `useMediaQuery`. The store never changes, so `subscribe` is a no-op: the
+ * value flips purely because React uses the server snapshot while hydrating
+ * and the client snapshot afterwards. Preferred over `useState` +
+ * `useEffect(() => setMounted(true))`, which the `react-hooks/set-state-in-effect`
+ * lint rule rejects.
+ */
+const subscribeNoop = () => () => {}
 
 /**
  * Full-bleed storefront hero: edge-to-edge media, a Playfair headline, short
- * subcopy, and a single CTA into the collections shop. On phones the media is an
- * autoplaying muted loop of the client's vertical clip; everywhere else (and for
- * reduced-motion viewers) it is a still image. The text block fades/slides in on
- * mount and skips the motion entirely when the shopper prefers reduced motion.
+ * subcopy, and a single CTA into the collections shop. Each viewport gets the
+ * clip cut for its shape — portrait on phones, landscape above them — and
+ * reduced-motion viewers get that clip's poster frame as a still instead. The
+ * text block fades/slides in on mount and skips the motion entirely when the
+ * shopper prefers reduced motion.
  */
 export function Hero() {
   const prefersReducedMotion = usePrefersReducedMotion()
-  // Phones only. `useMediaQuery` returns false during SSR and initial hydration,
-  // so the landscape still renders first everywhere and phones swap to the video
-  // after mount — no hydration mismatch, and desktop never loads the video.
   const isPhone = useMediaQuery('(max-width: 767px)')
-  const showVideo = isPhone && !prefersReducedMotion
+
+  // Both hooks report `false` during SSR and the first client render, so until
+  // this flips we do not yet know which cut belongs on screen. Rendering a
+  // <video> during that window is not free: measured against the real page, a
+  // phone began fetching the *landscape* clip before the media query resolved
+  // and only then swapped to the portrait one. Holding the poster still until
+  // hydration costs nothing visually — it is the frame the video opens on —
+  // and means exactly one clip is ever requested.
+  const mounted = useSyncExternalStore(subscribeNoop, () => true, () => false)
+
+  const videoSrc = isPhone ? HERO_VIDEO_PORTRAIT : HERO_VIDEO_LANDSCAPE
+  const poster = isPhone ? HERO_POSTER_PORTRAIT : HERO_POSTER_LANDSCAPE
 
   return (
     <section className="relative h-[70vh] min-h-[520px] w-full overflow-hidden sm:h-[80vh] lg:h-[90vh]">
-      {showVideo ? (
-        <video
-          className="absolute inset-0 h-full w-full object-cover"
-          src={HERO_VIDEO_MP4}
-          poster={HERO_POSTER}
-          autoPlay
-          muted
-          loop
-          playsInline
-          preload="auto"
-          aria-hidden="true"
-        />
-      ) : isPhone ? (
-        // Reduced-motion phones: the static poster frame, never the autoplay clip.
+      {!mounted || prefersReducedMotion ? (
         <Image
-          src={HERO_POSTER}
+          src={poster}
           alt="MSE Lux handmade jewelry, beads, and accessories"
           fill
           priority
@@ -62,14 +79,24 @@ export function Hero() {
           className="object-cover"
         />
       ) : (
-        // Desktop / tablet: landscape still (placeholder until a 16:9 hero cut lands).
-        <Image
-          src="https://picsum.photos/seed/mselux-hero/1920/1200"
-          alt="Model wearing layered MSE Lux gold necklaces and stacked bracelets"
-          fill
-          priority
-          sizes="100vw"
-          className="object-cover"
+        <video
+          // `key` forces a remount when the source changes: React patches the
+          // `src` attribute in place otherwise, and a <video> that has already
+          // begun loading ignores a changed src until `.load()` is called — so
+          // crossing the breakpoint would leave the previous cut playing.
+          key={videoSrc}
+          className="absolute inset-0 h-full w-full object-cover"
+          src={videoSrc}
+          poster={poster}
+          autoPlay
+          muted
+          loop
+          playsInline
+          // The poster is the LCP paint and lands in ~20KB; the clip can stream
+          // in behind it. `auto` would have the video race the fonts and the
+          // above-the-fold images for bandwidth on a Lagos mobile connection.
+          preload="metadata"
+          aria-hidden="true"
         />
       )}
       <div className="absolute inset-0 bg-foreground/35" aria-hidden="true" />
