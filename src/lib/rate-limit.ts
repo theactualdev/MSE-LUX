@@ -92,6 +92,11 @@ export const RATE_LIMITS = {
   // real confirmation (one of sixty), while still capping reference-rotation
   // abuse at 60/min instead of unlimited.
   verify: { limit: 60, windowSeconds: 60 },
+  // Public write endpoint that also SENDS EMAIL (the only such surface in the
+  // app) — both an abuse and a cost surface, so it gets its own bucket. Sized
+  // for the same shared-carrier-CGNAT reality as `auth` above: a handful of
+  // signups from one Nigerian mobile IP is ordinary traffic; hundreds is not.
+  newsletter: { limit: 20, windowSeconds: 300 },
 } as const
 
 export type RateLimitKind = keyof typeof RATE_LIMITS

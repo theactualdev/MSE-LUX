@@ -343,6 +343,32 @@ model WishlistItem {
   @@unique([wishlistId, productId])
 }
 
+// --- Newsletter ---
+//
+// Standalone by design — NOT a flag on Profile. The footer form is public and
+// most subscribers never hold an account; email is the natural key (stored
+// lowercased+trimmed, so the unique index is meaningful). An UNSUBSCRIBED row
+// is retained, never deleted: it is the evidence a future CSV import must not
+// re-add the address. `token` is a single random capability for both the
+// confirm and unsubscribe links (see spec: revocable, low-harm, no expiry).
+
+enum SubscriberStatus {
+  PENDING
+  CONFIRMED
+  UNSUBSCRIBED
+}
+
+model Subscriber {
+  id             String           @id @default(cuid())
+  email          String           @unique
+  status         SubscriberStatus @default(PENDING)
+  token          String           @unique
+  confirmedAt    DateTime?
+  unsubscribedAt DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+}
+
 // --- Orders ---
 //
 // Orders are snapshot-based: nothing here is a live join. Shipping address and
