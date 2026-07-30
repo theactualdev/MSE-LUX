@@ -10,6 +10,7 @@ vi.mock('@/lib/db', () => ({ db: { subscriber } }))
 const { processSubscription, confirmByToken, unsubscribeByToken } = await import(
   '@/features/newsletter/subscription'
 )
+const { Prisma } = await import('@/generated/prisma/client')
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -25,6 +26,41 @@ describe('processSubscription', () => {
     expect(created.email).toBe('ada@example.com')
     expect(created.token).toMatch(/^[0-9a-f]{64}$/)
     expect(outcome).toEqual({ send: true, email: 'ada@example.com', token: created.token })
+  })
+
+  it('recovers from a concurrent-insert race: the create loser re-reads the winner\'s row and resends its token', async () => {
+    const email = 'race@example.com'
+    const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: 'test',
+    })
+    subscriber.findUnique
+      .mockResolvedValueOnce(null) // pre-create check: no row yet
+      .mockResolvedValueOnce({ email, token: 'tok-winner', status: 'PENDING' }) // re-read after P2002
+    subscriber.create.mockRejectedValue(p2002)
+
+    const outcome = await processSubscription(email)
+
+    expect(subscriber.create).toHaveBeenCalledTimes(1)
+    expect(subscriber.findUnique).toHaveBeenCalledTimes(2)
+    expect(subscriber.update).not.toHaveBeenCalled()
+    expect(outcome).toEqual({ send: true, email, token: 'tok-winner' })
+  })
+
+  it('rethrows a create failure that is not the P2002 unique-race', async () => {
+    subscriber.findUnique.mockResolvedValueOnce(null)
+    subscriber.create.mockRejectedValue(new Error('connection reset'))
+    await expect(processSubscription('boom@example.com')).rejects.toThrow('connection reset')
+  })
+
+  it('rethrows the original P2002 if the re-read finds no row (deleted mid-race)', async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+      code: 'P2002',
+      clientVersion: 'test',
+    })
+    subscriber.findUnique.mockResolvedValueOnce(null).mockResolvedValueOnce(null)
+    subscriber.create.mockRejectedValue(p2002)
+    await expect(processSubscription('gone@example.com')).rejects.toBe(p2002)
   })
 
   it('resends (same token, no write) for an existing PENDING row', async () => {

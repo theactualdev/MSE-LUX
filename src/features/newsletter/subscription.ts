@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { db } from '@/lib/db'
-import { SubscriberStatus } from '@/generated/prisma/client'
+import { Prisma, SubscriberStatus } from '@/generated/prisma/client'
 
 /**
  * Newsletter subscription engine (Phase 10a). Directive-free on purpose:
@@ -31,8 +31,21 @@ export async function processSubscription(email: string): Promise<SubscribeOutco
 
   if (!existing) {
     const token = randomBytes(32).toString('hex')
-    await db.subscriber.create({ data: { email, token } })
-    return { send: true, email, token }
+    try {
+      await db.subscriber.create({ data: { email, token } })
+      return { send: true, email, token }
+    } catch (error) {
+      // Two concurrent first-time subscribes for the same address can both
+      // pass the null check above; the loser's `create` hits the unique
+      // index and throws P2002. It must not surface as a failure — the row
+      // now exists (the winner's), so the loser behaves like a PENDING
+      // resend: re-read and return THAT row's token, never invent a state.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const row = await db.subscriber.findUnique({ where: { email } })
+        if (row) return { send: true, email: row.email, token: row.token }
+      }
+      throw error
+    }
   }
 
   if (existing.status === SubscriberStatus.PENDING) {

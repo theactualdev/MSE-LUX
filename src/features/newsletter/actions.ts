@@ -15,6 +15,16 @@ import { sendNewsletterConfirmation } from '@/features/email/send'
  * normalised address. The DB write commits inside the engine BEFORE the
  * best-effort send — a failed send is recoverable by resubmitting, so it
  * never fails the subscription.
+ *
+ * ACCEPTED RESIDUAL CHANNEL (latency): the CONFIRMED no-op path returns
+ * after one DB read, while every send path also awaits the email network
+ * call, so response latency still correlates with entry state even though
+ * the body is byte-identical. This is accepted rather than fixed: not
+ * awaiting the send would make it fire-and-forget, which serverless can
+ * kill once the response returns (the reason 9b senders await in the first
+ * place); an artificial matching delay is fragile and rots as send latency
+ * drifts. The newsletter rate limiter (20 requests / 300s per IP, see
+ * checkRateLimit above) bounds the oracle to 20 timing probes per window.
  */
 
 export type SubscribeResult = { ok: true; message: string } | { ok: false; error: string }
