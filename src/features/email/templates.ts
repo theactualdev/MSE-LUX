@@ -119,7 +119,7 @@ function button(href: string, label: string): string {
 }
 
 /** Shared document shell — ivory background, ink text, gold accent, serif stack. Wraps `bodyHtml` in the table-based structure every transactional email uses. */
-function layout(bodyHtml: string): string {
+function layout(bodyHtml: string, footerNote = 'This is a transactional email about your order.'): string {
   const brand = escapeHtml(siteConfig.name)
 
   return `<!doctype html>
@@ -146,7 +146,7 @@ function layout(bodyHtml: string): string {
             </tr>
             <tr>
               <td style="padding: 16px 24px; border-top: 1px solid #e7e2d9;">
-                <span style="font-size: 11px; color: ${MUTED};">${brand} &middot; This is a transactional email about your order.</span>
+                <span style="font-size: 11px; color: ${MUTED};">${brand} &middot; ${escapeHtml(footerNote)}</span>
               </td>
             </tr>
           </table>
@@ -216,5 +216,39 @@ export function orderShippedEmail(
   return {
     subject: `Order ${data.orderNumber} shipped`,
     html: layout(body),
+  }
+}
+
+/**
+ * Double-opt-in confirmation for the footer newsletter form (Phase 10a).
+ * Both URLs are app-built (`absoluteUrl` + a stored token) — escaped anyway,
+ * per this module's rule that EVERY interpolation goes through escapeHtml.
+ */
+export function newsletterConfirmationEmail(input: { confirmUrl: string; unsubscribeUrl: string }): {
+  subject: string
+  html: string
+} {
+  const body = `
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: ${INK};">Welcome,</p>
+    <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: ${INK};">
+      Confirm your email address to start receiving news from ${escapeHtml(siteConfig.name)} — new pieces, restocks, and the occasional offer.
+    </p>
+    ${button(input.confirmUrl, 'Confirm my subscription')}
+    <p style="margin: 0 0 8px 0; font-size: 12px; line-height: 1.6; color: ${MUTED};">
+      If the button doesn't work, copy and paste this link into your browser:
+    </p>
+    <p style="margin: 0 0 20px 0; font-size: 12px; line-height: 1.6; word-break: break-all;">
+      <a href="${escapeHtml(input.confirmUrl)}" style="color: ${GOLD};">${escapeHtml(input.confirmUrl)}</a>
+    </p>
+    <p style="margin: 0; font-size: 12px; line-height: 1.6; color: ${MUTED};">
+      If you didn't sign up, ignore this email — you won't be subscribed.
+      Already confirmed and changed your mind?
+      <a href="${escapeHtml(input.unsubscribeUrl)}" style="color: ${GOLD};">Unsubscribe</a>.
+    </p>
+  `
+
+  return {
+    subject: `Confirm your ${siteConfig.name} newsletter subscription`,
+    html: layout(body, 'This email was sent because someone asked to subscribe this address to our newsletter.'),
   }
 }

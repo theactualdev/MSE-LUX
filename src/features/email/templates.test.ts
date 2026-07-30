@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { absoluteUrl } from '@/lib/seo'
-import { orderConfirmationEmail, orderShippedEmail } from '@/features/email/templates'
+import { orderConfirmationEmail, orderShippedEmail, newsletterConfirmationEmail } from '@/features/email/templates'
 import type { OrderEmailData } from '@/features/email/templates'
 
 const NGN_ORDER: OrderEmailData = {
@@ -134,5 +134,29 @@ describe('orderShippedEmail', () => {
     expect(html).not.toContain('<script>alert(1)</script>')
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
     expect(html).not.toContain('<img src=x onerror=alert(1)>')
+  })
+})
+
+describe('newsletterConfirmationEmail', () => {
+  it('renders both links and escapes nothing it does not interpolate', () => {
+    const { subject, html } = newsletterConfirmationEmail({
+      confirmUrl: 'https://mselux.com/newsletter/confirm?token=abc',
+      unsubscribeUrl: 'https://mselux.com/newsletter/unsubscribe?token=abc',
+    })
+    expect(subject).toMatch(/confirm/i)
+    expect(html).toContain('https://mselux.com/newsletter/confirm?token=abc')
+    expect(html).toContain('https://mselux.com/newsletter/unsubscribe?token=abc')
+    // The "didn't sign up" reassurance must exist — this email goes to
+    // addresses third parties can type into a public form.
+    expect(html).toMatch(/didn.{0,2}t sign up|didn.{0,2}t create/i)
+  })
+
+  it('escapes URL interpolations (the & in a query string must become &amp;)', () => {
+    const { html } = newsletterConfirmationEmail({
+      confirmUrl: 'https://x.com/c?a=1&b=2',
+      unsubscribeUrl: 'https://x.com/u?a=1&b=2',
+    })
+    expect(html).toContain('a=1&amp;b=2')
+    expect(html).not.toContain('a=1&b=2')
   })
 })

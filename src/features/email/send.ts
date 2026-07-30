@@ -1,7 +1,8 @@
 import 'server-only'
 import { db } from '@/lib/db'
 import { sendEmail } from './client'
-import { orderConfirmationEmail, orderShippedEmail } from './templates'
+import { orderConfirmationEmail, orderShippedEmail, newsletterConfirmationEmail } from './templates'
+import { absoluteUrl } from '@/lib/seo'
 import type { OrderEmailData } from './templates'
 
 /**
@@ -121,5 +122,27 @@ export async function sendOrderShipped(orderNumber: string): Promise<void> {
     }
   } catch (error) {
     console.error('[sendOrderShipped] unexpected error', { orderNumber, error })
+  }
+}
+
+/**
+ * Newsletter double-opt-in confirmation (Phase 10a). Same never-throws
+ * contract as the order senders: its caller (`subscribe` in
+ * newsletter/actions.ts) has already committed the Subscriber row, and a
+ * failed send must never surface as a failed subscription — the person
+ * simply resubmits. No DB read: the caller passes the row's email + token.
+ */
+export async function sendNewsletterConfirmation(input: { email: string; token: string }): Promise<void> {
+  try {
+    const { subject, html } = newsletterConfirmationEmail({
+      confirmUrl: absoluteUrl(`/newsletter/confirm?token=${input.token}`),
+      unsubscribeUrl: absoluteUrl(`/newsletter/unsubscribe?token=${input.token}`),
+    })
+    const result = await sendEmail({ to: input.email, subject, html })
+    if (!result.ok) {
+      console.error('[sendNewsletterConfirmation] sendEmail failed', { error: result.error })
+    }
+  } catch (error) {
+    console.error('[sendNewsletterConfirmation] unexpected error', { error })
   }
 }

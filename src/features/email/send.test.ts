@@ -30,12 +30,14 @@ vi.mock('./client', () => ({
 
 const orderConfirmationEmailMock = vi.fn()
 const orderShippedEmailMock = vi.fn()
+const newsletterConfirmationEmailMock = vi.fn()
 vi.mock('./templates', () => ({
   orderConfirmationEmail: (...args: unknown[]) => orderConfirmationEmailMock(...args),
   orderShippedEmail: (...args: unknown[]) => orderShippedEmailMock(...args),
+  newsletterConfirmationEmail: (...args: unknown[]) => newsletterConfirmationEmailMock(...args),
 }))
 
-const { sendOrderConfirmation, sendOrderShipped } = await import('@/features/email/send')
+const { sendOrderConfirmation, sendOrderShipped, sendNewsletterConfirmation } = await import('@/features/email/send')
 
 const ORDER_NUMBER = 'MSE-000123'
 const EMAIL = 'buyer@example.com'
@@ -232,5 +234,43 @@ describe('sendOrderShipped', () => {
     expect(sendEmailMock).not.toHaveBeenCalled()
     expect(consoleErrorSpy).toHaveBeenCalledTimes(1)
     expect(consoleErrorSpy.mock.calls[0][0]).toContain('[sendOrderShipped]')
+  })
+})
+
+describe('sendNewsletterConfirmation', () => {
+  let consoleErrorSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    newsletterConfirmationEmailMock.mockImplementation((input: { confirmUrl: string; unsubscribeUrl: string }) => ({
+      subject: 'Confirm subscription',
+      html: `<p>Confirm: ${input.confirmUrl}, Unsubscribe: ${input.unsubscribeUrl}</p>`,
+    }))
+    sendEmailMock.mockResolvedValue({ ok: true, id: 'em_1' })
+  })
+
+  afterEach(() => {
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('sends one email to the subscriber with token-bearing links', async () => {
+    sendEmailMock.mockResolvedValue({ ok: true, id: 'em_1' })
+    await sendNewsletterConfirmation({ email: 'ada@example.com', token: 'tok123' })
+    expect(sendEmailMock).toHaveBeenCalledTimes(1)
+    const arg = sendEmailMock.mock.calls[0][0]
+    expect(arg.to).toBe('ada@example.com')
+    expect(arg.html).toContain('/newsletter/confirm?token=tok123')
+    expect(arg.html).toContain('/newsletter/unsubscribe?token=tok123')
+  })
+
+  it('never throws when the client reports failure', async () => {
+    sendEmailMock.mockResolvedValue({ ok: false, error: 'not-configured' })
+    await expect(sendNewsletterConfirmation({ email: 'a@b.com', token: 't' })).resolves.toBeUndefined()
+  })
+
+  it('never throws when the client itself rejects unexpectedly', async () => {
+    sendEmailMock.mockRejectedValue(new Error('boom'))
+    await expect(sendNewsletterConfirmation({ email: 'a@b.com', token: 't' })).resolves.toBeUndefined()
   })
 })
