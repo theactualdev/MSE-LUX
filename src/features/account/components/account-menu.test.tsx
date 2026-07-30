@@ -50,7 +50,7 @@ describe('AccountMenu admin link', () => {
     useSessionMock.mockReturnValue({ signedIn: true, role: 'ADMIN', loading: false })
     await openMenu()
 
-    expect(await screen.findByRole('menuitem', { name: 'Admin dashboard' })).toHaveAttribute('href', '/admin')
+    expect(await screen.findByRole('menuitem', { name: 'Admin' })).toHaveAttribute('href', '/admin')
   })
 
   /** SUPER_ADMIN outranks ADMIN, so it must satisfy the same check. */
@@ -58,7 +58,7 @@ describe('AccountMenu admin link', () => {
     useSessionMock.mockReturnValue({ signedIn: true, role: 'SUPER_ADMIN', loading: false })
     await openMenu()
 
-    expect(await screen.findByRole('menuitem', { name: 'Admin dashboard' })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitem', { name: 'Admin' })).toBeInTheDocument()
   })
 
   it('renders no menu at all when signed out, whatever the role claims', () => {

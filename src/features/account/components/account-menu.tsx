@@ -89,7 +89,7 @@ export function AccountMenu() {
             never registered, so it isn't reachable as a `menuitem`. */}
         {showAdminLink ? <DropdownMenuSeparator /> : null}
         {showAdminLink ? (
-          <DropdownMenuItem render={<Link href="/admin" />}>Admin dashboard</DropdownMenuItem>
+          <DropdownMenuItem render={<Link href="/admin" />}>Admin</DropdownMenuItem>
         ) : null}
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={handleSignOut}>Sign out</DropdownMenuItem>
