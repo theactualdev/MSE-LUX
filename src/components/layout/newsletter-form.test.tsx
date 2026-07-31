@@ -30,9 +30,10 @@ describe('NewsletterForm', () => {
     const user = userEvent.setup()
     render(<NewsletterForm />)
 
-    await user.type(screen.getByLabelText('Join the newsletter'), 'nope')
+    await user.type(screen.getByLabelText('Join the newsletter'), 'nope@example.com')
     await user.click(screen.getByRole('button', { name: 'Sign up' }))
 
+    expect(subscribe).toHaveBeenCalledWith('nope@example.com')
     expect(await screen.findByText('Enter a valid email address.')).toBeInTheDocument()
     expect(screen.getByLabelText('Join the newsletter')).toBeInTheDocument()
   })
@@ -41,7 +42,7 @@ describe('NewsletterForm', () => {
     subscribe.mockResolvedValue({ ok: false, error: 'Enter a valid email address.' })
     const user = userEvent.setup()
     render(<NewsletterForm />)
-    await user.type(screen.getByLabelText('Join the newsletter'), 'nope')
+    await user.type(screen.getByLabelText('Join the newsletter'), 'nope@example.com')
     await user.click(screen.getByRole('button', { name: 'Sign up' }))
     const region = await screen.findByRole('status')
     expect(region).toHaveTextContent('Enter a valid email address.')

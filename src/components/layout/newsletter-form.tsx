@@ -29,6 +29,11 @@ export function NewsletterForm() {
     <form
       className="flex w-full max-w-sm flex-col gap-2"
       aria-label="Newsletter signup"
+      // Server-side zod in the `subscribe` action is authoritative; native
+      // validation bubbles are suppressed so the error UX is consistent
+      // (the aria-live region below does the announcing) — `type="email"`
+      // is kept on the input for the mobile keyboard layout and autofill.
+      noValidate
       onSubmit={(e) => {
         e.preventDefault()
         startTransition(async () => {
@@ -43,7 +48,8 @@ export function NewsletterForm() {
       <div className="flex gap-2">
         <Input
           id="newsletter-email"
-          type="text"
+          type="email"
+          required
           placeholder="you@example.com"
           className="h-12"
           value={email}
