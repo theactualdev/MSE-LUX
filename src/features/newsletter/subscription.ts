@@ -101,3 +101,12 @@ export async function unsubscribeByToken(token: string): Promise<'unsubscribed' 
   }
   return 'unsubscribed'
 }
+
+/** Read-only token check for the unsubscribe page's GET render — the GET must
+ *  not mutate (the POST owns that), but an unknown token still needs the
+ *  neutral invalid page without offering a form. */
+export async function subscriberExistsByToken(token: string): Promise<boolean> {
+  if (!token) return false
+  const row = await db.subscriber.findUnique({ where: { token }, select: { id: true } })
+  return row !== null
+}

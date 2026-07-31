@@ -7,12 +7,24 @@ vi.mock('@/lib/rate-limit', () => ({
 }))
 
 const processSubscription = vi.hoisted(() => vi.fn())
-vi.mock('@/features/newsletter/subscription', () => ({ processSubscription }))
+const unsubscribeByToken = vi.hoisted(() => vi.fn())
+vi.mock('@/features/newsletter/subscription', () => ({ processSubscription, unsubscribeByToken }))
 
 const sendNewsletterConfirmation = vi.hoisted(() => vi.fn())
 vi.mock('@/features/email/send', () => ({ sendNewsletterConfirmation }))
 
-const { subscribe } = await import('@/features/newsletter/actions')
+// `redirect` is a control-flow throw in real Next.js (its return type is
+// `never`). Mocking it to throw a NEXT_REDIRECT-shaped sentinel — rather
+// than just recording a call — is what catches a missing early-return and
+// mirrors what the framework actually does; callers assert via `.rejects`.
+const redirect = vi.hoisted(() =>
+  vi.fn((url: string) => {
+    throw Object.assign(new Error('NEXT_REDIRECT'), { digest: 'NEXT_REDIRECT', url })
+  }),
+)
+vi.mock('next/navigation', () => ({ redirect }))
+
+const { subscribe, confirmUnsubscribe } = await import('@/features/newsletter/actions')
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -68,5 +80,48 @@ describe('subscribe', () => {
     const result = await subscribe('a@b.com')
     expect(result.ok).toBe(false)
     expect(sendNewsletterConfirmation).not.toHaveBeenCalled()
+  })
+})
+
+describe('confirmUnsubscribe', () => {
+  it('unsubscribes a valid token and redirects to ?done=1', async () => {
+    unsubscribeByToken.mockResolvedValue('unsubscribed')
+    const formData = new FormData()
+    formData.set('token', 'tok')
+
+    await expect(confirmUnsubscribe(formData)).rejects.toThrow('NEXT_REDIRECT')
+
+    expect(unsubscribeByToken).toHaveBeenCalledWith('tok')
+    expect(redirect).toHaveBeenCalledWith('/newsletter/unsubscribe?done=1')
+  })
+
+  it('redirects WITHOUT done when the engine reports an invalid token', async () => {
+    unsubscribeByToken.mockResolvedValue('invalid')
+    const formData = new FormData()
+    formData.set('token', 'tok')
+
+    await expect(confirmUnsubscribe(formData)).rejects.toThrow('NEXT_REDIRECT')
+
+    expect(unsubscribeByToken).toHaveBeenCalledWith('tok')
+    expect(redirect).toHaveBeenCalledWith('/newsletter/unsubscribe')
+  })
+
+  it('redirects WITHOUT done and never calls the engine for a missing token', async () => {
+    const formData = new FormData()
+
+    await expect(confirmUnsubscribe(formData)).rejects.toThrow('NEXT_REDIRECT')
+
+    expect(unsubscribeByToken).not.toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith('/newsletter/unsubscribe')
+  })
+
+  it('redirects WITHOUT done and never calls the engine for a non-string token', async () => {
+    const formData = new FormData()
+    formData.set('token', new Blob(['not-a-string']))
+
+    await expect(confirmUnsubscribe(formData)).rejects.toThrow('NEXT_REDIRECT')
+
+    expect(unsubscribeByToken).not.toHaveBeenCalled()
+    expect(redirect).toHaveBeenCalledWith('/newsletter/unsubscribe')
   })
 })

@@ -1,8 +1,9 @@
 'use server'
 
 import { z } from 'zod'
+import { redirect } from 'next/navigation'
 import { checkRateLimit, RATE_LIMITED_MESSAGE } from '@/lib/rate-limit'
-import { processSubscription } from '@/features/newsletter/subscription'
+import { processSubscription, unsubscribeByToken } from '@/features/newsletter/subscription'
 import { sendNewsletterConfirmation } from '@/features/email/send'
 
 /**
@@ -56,4 +57,15 @@ export async function subscribe(input: unknown): Promise<SubscribeResult> {
     console.error('[subscribe] engine failure', { error })
     return FAILED
   }
+}
+
+/** The unsubscribe form's POST. GET renders the form; only this changes state
+ *  (owner decision after the 10a whole-branch review — side-effecting GETs
+ *  let mail-gateway prefetchers silently unsubscribe confirmed subscribers).
+ *  Post/redirect/get: success lands on ?done=1 so refresh re-fires nothing. */
+export async function confirmUnsubscribe(formData: FormData): Promise<void> {
+  const token = formData.get('token')
+  if (typeof token !== 'string' || !token) redirect('/newsletter/unsubscribe')
+  const result = await unsubscribeByToken(token)
+  redirect(result === 'unsubscribed' ? '/newsletter/unsubscribe?done=1' : '/newsletter/unsubscribe')
 }

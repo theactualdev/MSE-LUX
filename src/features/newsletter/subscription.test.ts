@@ -7,7 +7,7 @@ const subscriber = vi.hoisted(() => ({
 }))
 vi.mock('@/lib/db', () => ({ db: { subscriber } }))
 
-const { processSubscription, confirmByToken, unsubscribeByToken } = await import(
+const { processSubscription, confirmByToken, unsubscribeByToken, subscriberExistsByToken } = await import(
   '@/features/newsletter/subscription'
 )
 const { Prisma } = await import('@/generated/prisma/client')
@@ -139,5 +139,23 @@ describe('unsubscribeByToken', () => {
   it('returns invalid for an unknown token', async () => {
     subscriber.findUnique.mockResolvedValue(null)
     await expect(unsubscribeByToken('nope')).resolves.toBe('invalid')
+  })
+})
+
+describe('subscriberExistsByToken', () => {
+  it('returns true for a found row', async () => {
+    subscriber.findUnique.mockResolvedValue({ id: 's1' })
+    await expect(subscriberExistsByToken('tok')).resolves.toBe(true)
+    expect(subscriber.findUnique).toHaveBeenCalledWith({ where: { token: 'tok' }, select: { id: true } })
+  })
+
+  it('returns false when no row is found', async () => {
+    subscriber.findUnique.mockResolvedValue(null)
+    await expect(subscriberExistsByToken('nope')).resolves.toBe(false)
+  })
+
+  it('returns false for an empty token WITHOUT calling findUnique', async () => {
+    await expect(subscriberExistsByToken('')).resolves.toBe(false)
+    expect(subscriber.findUnique).not.toHaveBeenCalled()
   })
 })
