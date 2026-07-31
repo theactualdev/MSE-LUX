@@ -33,6 +33,9 @@ describe('robots', () => {
       '/signup',
       '/reset-password',
       '/forgot-password',
+      // The confirm/unsubscribe fetch is the side effect; robots.txt is
+      // what stops a crawler from ever triggering it.
+      '/newsletter',
     ])
   })
 

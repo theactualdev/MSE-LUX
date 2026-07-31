@@ -24,7 +24,11 @@ import { sendNewsletterConfirmation } from '@/features/email/send'
  * kill once the response returns (the reason 9b senders await in the first
  * place); an artificial matching delay is fragile and rots as send latency
  * drifts. The newsletter rate limiter (20 requests / 300s per IP, see
- * checkRateLimit above) bounds the oracle to 20 timing probes per window.
+ * checkRateLimit above) bounds the oracle to 20 timing probes per window
+ * WHILE UPSTASH IS HEALTHY — `checkRateLimit` fails OPEN by design (missing
+ * env / Redis down => allow), so the oracle is unbounded during an outage.
+ * Still accepted: the leak is one bit per probe about an address the
+ * attacker already knows.
  */
 
 export type SubscribeResult = { ok: true; message: string } | { ok: false; error: string }

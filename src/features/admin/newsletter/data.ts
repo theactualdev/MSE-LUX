@@ -26,7 +26,10 @@ export async function listSubscribers(input: {
   pageCount: number
   counts: { pending: number; confirmed: number; unsubscribed: number }
 }> {
-  const page = Math.max(1, input.page ?? 1)
+  // Clamp page to a minimum-1 INTEGER — a fractional page (?page=1.5 typed
+  // into the URL) would otherwise produce a fractional `skip`, which Prisma
+  // rejects at runtime ("Expected Int") and 500s the admin list.
+  const page = Math.max(1, Math.floor(input.page ?? 1))
   const where: Prisma.SubscriberWhereInput = {
     ...(input.status ? { status: input.status } : {}),
     ...(input.search ? { email: { contains: input.search, mode: 'insensitive' } } : {}),

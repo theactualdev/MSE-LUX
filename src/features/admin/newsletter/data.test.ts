@@ -26,6 +26,14 @@ describe('listSubscribers', () => {
     expect(args.take).toBe(PAGE_SIZE)
   })
 
+  it('floors a fractional page before computing skip', async () => {
+    subscriber.count.mockResolvedValue(0)
+    await listSubscribers({ page: 2.5 })
+
+    const args = subscriber.findMany.mock.calls[0][0]
+    expect(args.skip).toBe(PAGE_SIZE)
+  })
+
   it('returns per-status counts computed independently of the active filter', async () => {
     subscriber.count
       .mockResolvedValueOnce(10) // filtered total

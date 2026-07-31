@@ -47,4 +47,17 @@ describe('NewsletterForm', () => {
     const region = await screen.findByRole('status')
     expect(region).toHaveTextContent('Enter a valid email address.')
   })
+
+  it('moves focus to the status region on success', async () => {
+    subscribe.mockResolvedValue({ ok: true, message: 'Check your email to confirm your subscription.' })
+    const user = userEvent.setup()
+    render(<NewsletterForm />)
+
+    await user.type(screen.getByLabelText('Join the newsletter'), 'ada@example.com')
+    await user.click(screen.getByRole('button', { name: 'Sign up' }))
+
+    const region = await screen.findByRole('status')
+    expect(region).toHaveTextContent('Check your email to confirm your subscription.')
+    expect(region).toHaveFocus()
+  })
 })

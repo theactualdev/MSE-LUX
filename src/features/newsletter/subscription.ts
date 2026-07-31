@@ -1,13 +1,21 @@
+import 'server-only'
+
 import { randomBytes } from 'node:crypto'
 import { db } from '@/lib/db'
 import { Prisma, SubscriberStatus } from '@/generated/prisma/client'
 
 /**
- * Newsletter subscription engine (Phase 10a). Directive-free on purpose:
- * `actions.ts` wraps `processSubscription` for the public form, while the
- * confirm/unsubscribe PAGES call the other two directly from their server
- * components. All flows are idempotent — mail clients and link scanners
- * prefetch URLs, so a second visit must never error or double-write.
+ * Newsletter subscription engine (Phase 10a). DIRECTIVE-free on purpose:
+ * the `'use server'` directive is correctly absent — `actions.ts` wraps
+ * `processSubscription` for the public form, while the confirm/unsubscribe
+ * PAGES call the other two directly from their server components, so there
+ * is no need for this module itself to be a server action boundary. That is
+ * a different concern from the `server-only` poison-pill IMPORT above, which
+ * belongs here regardless: this module holds `node:crypto` and `@/lib/db`,
+ * and the footer form that reaches it renders on every storefront page — a
+ * future accidental client import must fail the build loudly, not ship
+ * Prisma to the browser. All flows are idempotent — mail clients and link
+ * scanners prefetch URLs, so a second visit must never error or double-write.
  *
  * Spec: docs/phases/phase-10-post-launch-features/spec-newsletter.md.
  */

@@ -34,6 +34,11 @@ export default function robots(): MetadataRoute.Robots {
         '/signup',
         '/reset-password',
         '/forgot-password',
+        // The confirm/unsubscribe pages' fetch IS the side effect (token
+        // consumed on load), and their per-page noindex meta is only read
+        // AFTER that fetch runs — robots.txt is the layer that actually
+        // stops a crawler from triggering the request in the first place.
+        '/newsletter',
       ],
     },
     sitemap: `${SITE_URL}/sitemap.xml`,
