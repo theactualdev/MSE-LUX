@@ -97,6 +97,11 @@ export const RATE_LIMITS = {
   // for the same shared-carrier-CGNAT reality as `auth` above: a handful of
   // signups from one Nigerian mobile IP is ordinary traffic; hundreds is not.
   newsletter: { limit: 20, windowSeconds: 300 },
+  // Public share-page reads and gift-checkout actions. Token guessing is
+  // infeasible at 256 bits, so this bounds DB round-trips, not credential
+  // attacks. CGNAT-aware like the rest — a household sharing one carrier IP
+  // browsing a gift list must never be throttled.
+  wishlistShare: { limit: 60, windowSeconds: 60 },
 } as const
 
 export type RateLimitKind = keyof typeof RATE_LIMITS

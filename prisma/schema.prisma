@@ -269,6 +269,8 @@ model Address {
   // will otherwise conclude the index is unmanaged/extraneous and drop it.
   isDefault Boolean @default(false)
 
+  giftWishlists Wishlist[]
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -327,6 +329,20 @@ model Wishlist {
   profile   Profile? @relation(fields: [profileId], references: [id], onDelete: SetNull)
 
   items WishlistItem[]
+
+  // --- Sharing (Phase 10c) ---
+  // `shareEnabled` is separate from `shareToken` deliberately: turning sharing
+  // off must NOT destroy the token, so the owner can re-enable without
+  // invalidating a link they already sent. Regenerating the token is the
+  // explicit "kill every link I've handed out" action.
+  //
+  // `giftAddress` is SetNull: deleting the nominated address disables the
+  // share rather than leaving a dangling reference. Editing it is the owner
+  // moving house — gifts should follow. Deleting it is withdrawal of consent.
+  shareToken    String?  @unique
+  shareEnabled  Boolean  @default(false)
+  giftAddressId String?
+  giftAddress   Address? @relation(fields: [giftAddressId], references: [id], onDelete: SetNull)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -418,6 +434,15 @@ model Order {
   shippingMinor Int
   taxMinor      Int
   totalMinor    Int
+
+  // --- Gift orders (Phase 10c) ---
+  // `isGift` drives address redaction in the buyer's emails and the admin's
+  // "no price slip in this parcel" badge. It is stored rather than inferred:
+  // inferring intent from the absence of something is how redaction silently
+  // stops applying. `giftRecipientName` is the recipient's FIRST NAME only,
+  // denormalised so buyer-facing copy never joins back to the owner's profile.
+  isGift            Boolean @default(false)
+  giftRecipientName String?
 
   lines OrderLine[]
 

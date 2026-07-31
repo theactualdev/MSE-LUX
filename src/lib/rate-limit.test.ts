@@ -233,6 +233,7 @@ describe('RATE_LIMITS', () => {
       authIdentity: { limit: 5, windowSeconds: 300 },
       verify: { limit: 60, windowSeconds: 60 },
       newsletter: { limit: 20, windowSeconds: 300 },
+      wishlistShare: { limit: 60, windowSeconds: 60 },
     })
   })
 })
