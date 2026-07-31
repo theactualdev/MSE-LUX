@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-const wishlist = vi.hoisted(() => ({ findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn(), upsert: vi.fn() }))
+const wishlist = vi.hoisted(() => ({ findUnique: vi.fn(), findFirst: vi.fn(), update: vi.fn(), updateMany: vi.fn(), upsert: vi.fn() }))
 const address = vi.hoisted(() => ({ findFirst: vi.fn() }))
 vi.mock('@/lib/db', () => ({ db: { wishlist, address } }))
 
-const { resolveShare, enableShare, disableShare, regenerateShareToken } = await import('@/features/gifting/share')
+const { resolveShare, enableShare, disableShare, regenerateShareToken, getShareState } = await import('@/features/gifting/share')
 
 beforeEach(() => vi.clearAllMocks())
 
@@ -86,10 +86,15 @@ describe('enableShare', () => {
 
 describe('disableShare', () => {
   it('clears the flag but PRESERVES the token', async () => {
-    wishlist.update.mockResolvedValue({})
+    wishlist.updateMany.mockResolvedValue({})
     await disableShare('u1')
-    const data = wishlist.update.mock.calls[0][0].data
+    const data = wishlist.updateMany.mock.calls[0][0].data
     expect(data).toEqual({ shareEnabled: false })
+  })
+
+  it('is a no-op when the user has no wishlist row', async () => {
+    wishlist.updateMany.mockResolvedValue({ count: 0 })
+    await expect(disableShare('u1')).resolves.toBeUndefined()
   })
 })
 
@@ -106,5 +111,25 @@ describe('regenerateShareToken', () => {
   it('refuses when the caller has never shared', async () => {
     wishlist.findUnique.mockResolvedValue(null)
     await expect(regenerateShareToken('u1')).resolves.toEqual({ ok: false, error: 'not-shared' })
+  })
+})
+
+describe('getShareState', () => {
+  it('returns the stored state for an existing shared wishlist', async () => {
+    wishlist.findUnique.mockResolvedValue({ shareEnabled: true, shareToken: 'tok', giftAddressId: 'a1' })
+    const state = await getShareState('u1')
+    expect(state).toEqual({ enabled: true, token: 'tok', addressId: 'a1' })
+  })
+
+  it('returns safe defaults when the user has no wishlist row', async () => {
+    wishlist.findUnique.mockResolvedValue(null)
+    const state = await getShareState('u1')
+    expect(state).toEqual({ enabled: false, token: null, addressId: null })
+  })
+
+  it('returns disabled flag but preserves token and address when sharing was turned off', async () => {
+    wishlist.findUnique.mockResolvedValue({ shareEnabled: false, shareToken: 'tok', giftAddressId: 'a1' })
+    const state = await getShareState('u1')
+    expect(state).toEqual({ enabled: false, token: 'tok', addressId: 'a1' })
   })
 })

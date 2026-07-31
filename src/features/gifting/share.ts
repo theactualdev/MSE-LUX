@@ -107,9 +107,11 @@ export async function enableShare(
   return { ok: true, token }
 }
 
-/** Turns sharing off. Deliberately PRESERVES the token — see the schema comment. */
+/** Turns sharing off. Deliberately PRESERVES the token — see the schema comment.
+ *  `updateMany` rather than `update`: a profile with no wishlist row must be a
+ *  no-op, not a P2025 throw out of a Server Action. */
 export async function disableShare(profileId: string): Promise<void> {
-  await db.wishlist.update({ where: { profileId }, data: { shareEnabled: false } })
+  await db.wishlist.updateMany({ where: { profileId }, data: { shareEnabled: false } })
 }
 
 /** Mints a new token, invalidating every link the owner has already sent. */
