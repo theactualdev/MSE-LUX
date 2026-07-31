@@ -15,6 +15,7 @@ const NAV_ITEMS: Array<{ label: string; href: string }> = [
   { label: 'Orders', href: '/admin/orders' },
   { label: 'Catalog', href: '/admin/catalog' },
   { label: 'Customers', href: '/admin/customers' },
+  { href: '/admin/newsletter', label: 'Newsletter' },
 ]
 
 /**
