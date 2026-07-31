@@ -1,29 +1,62 @@
 'use client'
 
+import { useState, useTransition } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { subscribe } from '@/features/newsletter/actions'
 
-/** Non-functional newsletter signup — captures no data yet, just the shell UI. */
+/**
+ * Footer newsletter signup (Phase 10a — real at last; until then this was a
+ * disclosed no-op shell). Success REPLACES the form: the double-opt-in flow
+ * means the next step happens in the subscriber's inbox, so leaving an empty
+ * form implies a resubmit is wanted. The result paragraph is a `role="status"`
+ * live region so the outcome is announced, not just painted.
+ */
 export function NewsletterForm() {
+  const [email, setEmail] = useState('')
+  const [result, setResult] = useState<{ ok: boolean; text: string } | null>(null)
+  const [pending, startTransition] = useTransition()
+
+  if (result?.ok) {
+    return (
+      <p role="status" className="max-w-sm text-sm text-foreground">
+        {result.text}
+      </p>
+    )
+  }
+
   return (
     <form
       className="flex w-full max-w-sm flex-col gap-2"
-      onSubmit={(e) => e.preventDefault()}
       aria-label="Newsletter signup"
+      onSubmit={(e) => {
+        e.preventDefault()
+        startTransition(async () => {
+          const response = await subscribe(email)
+          setResult(response.ok ? { ok: true, text: response.message } : { ok: false, text: response.error })
+        })
+      }}
     >
       <label htmlFor="newsletter-email" className="text-sm font-medium text-foreground">
         Join the newsletter
       </label>
       <div className="flex gap-2">
-        <Input id="newsletter-email" type="email" placeholder="you@example.com" className="h-12" />
-        <Button type="submit" className="shrink-0">
+        <Input
+          id="newsletter-email"
+          type="text"
+          placeholder="you@example.com"
+          className="h-12"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          disabled={pending}
+        />
+        <Button type="submit" className="shrink-0" disabled={pending}>
           Sign up
         </Button>
       </div>
-      {/* The form captures nothing. Soliciting an address without saying so is the
-          same over-promise as a policy claim the code can't honour — disclose it,
-          exactly as ContactForm does, until a real list exists. */}
-      <p className="text-xs text-muted-foreground">Sign-ups aren&apos;t being collected yet — nothing is stored.</p>
+      <p role="status" aria-live="polite" className="min-h-5 text-xs text-destructive">
+        {result && !result.ok ? result.text : ''}
+      </p>
     </form>
   )
 }
