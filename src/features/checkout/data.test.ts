@@ -165,7 +165,7 @@ const SHIPPING_QUOTE_SECRET = 'test-shipping-quote-secret'
  * written against; pass overrides to build a tampered/expired/wrong-address
  * token for the negative-path tests.
  */
-function validShippingToken(overrides: { amountMinor?: number; currency?: 'NGN' | 'USD'; label?: string; exp?: number; address?: Address } = {}) {
+function validShippingToken(overrides: { amountMinor?: number; currency?: 'NGN' | 'USD'; label?: string; exp?: number; address?: Address; scope?: 'checkout' | 'gift' } = {}) {
   const salt = 'fixed-test-salt'
   return signQuote({
     label: overrides.label ?? 'Lagos delivery',
@@ -174,7 +174,30 @@ function validShippingToken(overrides: { amountMinor?: number; currency?: 'NGN' 
     addressHash: addressHash(overrides.address ?? ADDRESS, salt),
     salt,
     exp: overrides.exp ?? Date.now() + 60_000,
+    scope: overrides.scope ?? 'checkout',
   })
+}
+
+/**
+ * Simulates a token minted BEFORE the `scope` field existed — no `scope` key
+ * at all in the signed payload, not merely `undefined` (which `signQuote`'s
+ * `JSON.stringify` would drop from the wire representation the same way, but
+ * being explicit here documents exactly what an in-flight pre-deploy token
+ * looks like). `placeOrder` must treat a missing scope as `'checkout'` for
+ * the deploy window — see its `(quote.scope ?? 'checkout') !== 'checkout'`
+ * check.
+ */
+function preDeployShippingToken(): string {
+  const salt = 'fixed-test-salt'
+  const payloadWithoutScope = {
+    label: 'Lagos delivery',
+    amountMinor: 250_000,
+    currency: 'NGN' as const,
+    addressHash: addressHash(ADDRESS, salt),
+    salt,
+    exp: Date.now() + 60_000,
+  }
+  return signQuote(payloadWithoutScope as unknown as Parameters<typeof signQuote>[0])
 }
 
 // Subtotal for 1x PRODUCT_ID (no variant) in NGN = 500_000. Shipping (signed
@@ -524,6 +547,57 @@ describe('placeOrder — guest checkout', () => {
 
     expect(order.create).not.toHaveBeenCalled()
     expect($transaction).not.toHaveBeenCalled()
+  })
+
+  // THE REGRESSION GUARD for the address-oracle fix: a gift-scoped token that
+  // is otherwise perfectly valid (real signature, unexpired, and — crucially —
+  // signed for THIS SAME `ADDRESS`, so `verifyQuote` itself succeeds) must be
+  // refused with the exact same typed result as an actually-expired token.
+  // Before this scope check existed, a wrong address guess and a right
+  // address guess against a held gift token were the two distinguishable
+  // outcomes that made `placeOrder` a free online oracle; asserting equality
+  // (not just "both are errors") is what proves that oracle stays closed —
+  // if a future change ever gave the gift-scope rejection a different
+  // message, this test would catch the regression immediately.
+  it('rejects a gift-scoped shipping token with EXACTLY the same result as an expired token', async () => {
+    const expiredResult = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken({ exp: Date.now() - 1000 }),
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+    })
+
+    const giftScopedResult = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      // Same address as `expiredResult`'s token, real signature, unexpired —
+      // the ONLY thing wrong with it is `scope: 'gift'`.
+      shippingToken: validShippingToken({ scope: 'gift' }),
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+    })
+
+    expect(giftScopedResult).toEqual(expiredResult)
+    expect(order.create).not.toHaveBeenCalled()
+    expect($transaction).not.toHaveBeenCalled()
+  })
+
+  // BACKWARDS COMPATIBILITY: a token minted before the `scope` field existed
+  // (no `scope` key in the signed payload at all — see `preDeployShippingToken`)
+  // must still work for ordinary checkout through the deploy window, so an
+  // in-flight quote a customer is mid-checkout with doesn't suddenly break.
+  it('accepts a shipping token with no scope at all (a pre-deploy, in-flight token)', async () => {
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: preDeployShippingToken(),
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+    })
+
+    expect(result).toEqual({ ok: true, order: expect.objectContaining({ orderNumber: 'MSE-123456' }) })
+    expect(order.create).toHaveBeenCalled()
   })
 
   it('runs the whole placement inside exactly one transaction', async () => {

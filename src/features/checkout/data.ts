@@ -268,6 +268,32 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
     return GENERIC_ERROR
   }
   if (!quote) return SHIPPING_EXPIRED
+
+  // A quote minted by the gift flow (`getGiftShippingRates`) is bound to a
+  // wishlist owner's address the caller was never shown. Without this check,
+  // a signed-out caller holding a genuine gift token could pair it with a
+  // GUESSED `input.address`: a wrong guess fails `verifyQuote` above
+  // (SHIPPING_EXPIRED), a right guess falls through to the empty-cart check
+  // below — two cleanly distinguishable, side-effect-free outcomes, i.e. a
+  // free equality oracle for the recipient's `line1`/`postalCode`. Rejecting
+  // any non-`'checkout'` scope here closes that: a gift token has no endpoint
+  // left that will compare it against a caller-supplied address.
+  //
+  // Returns the SAME `SHIPPING_EXPIRED` result as an actually-expired/invalid
+  // quote (never a distinct message) — a different error string here would
+  // just recreate the oracle this check exists to close, one level up.
+  //
+  // BACKWARDS COMPATIBILITY: `payload.scope` is a new field — a token minted
+  // by `getShippingRates` before this deploy has no `scope` at all.
+  // `undefined` is treated as `'checkout'` so an in-flight pre-deploy token
+  // (TTL 30 min) still works for ordinary checkout through the deploy window.
+  // This fallback is safe for exactly that reason (it's temporary and self-
+  // healing) — it is NOT extended to the gift check below, because every gift
+  // token is newly minted (this deploy ships the gift flow's `scope: 'gift'`
+  // stamp at the same time as this check) and so always carries an explicit
+  // scope; there is no pre-deploy gift token to be lenient for.
+  if ((quote.scope ?? 'checkout') !== 'checkout') return SHIPPING_EXPIRED
+
   if (quote.currency !== chargeCurrency) return INVALID_INPUT
 
   const userId = await getCurrentUserId()

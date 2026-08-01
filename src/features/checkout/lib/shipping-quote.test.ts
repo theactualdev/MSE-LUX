@@ -30,6 +30,7 @@ function makePayload(overrides: Partial<ShippingQuotePayload> = {}): ShippingQuo
     addressHash: addressHash(address, overrides.salt ?? SALT),
     salt: SALT,
     exp: Date.now() + 30 * 60 * 1000,
+    scope: 'checkout' as const,
     ...overrides,
   }
 }

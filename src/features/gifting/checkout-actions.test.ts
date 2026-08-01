@@ -108,7 +108,7 @@ const P1: Product = {
   seo: {},
 }
 
-function quoteFor(address: Address, currency: 'NGN' | 'USD' = 'NGN', amountMinor = 250_000): string {
+function quoteFor(address: Address, currency: 'NGN' | 'USD' = 'NGN', amountMinor = 250_000, scope: 'checkout' | 'gift' = 'gift'): string {
   const salt = 'fixed-test-salt'
   return signQuote({
     label: 'Standard',
@@ -117,6 +117,7 @@ function quoteFor(address: Address, currency: 'NGN' | 'USD' = 'NGN', amountMinor
     addressHash: addressHash(address, salt),
     salt,
     exp: Date.now() + 60_000,
+    scope,
   })
 }
 
@@ -264,6 +265,10 @@ describe('THE SECURITY PROPERTY: the buyer never supplies the destination', () =
     // The buyer's OWN cart is irrelevant to a gift: the explicit override is
     // what makes `getShippingRates` skip its own cart resolution.
     expect(call.guestLines).toBeUndefined()
+    // Every option this call returns must be a GIFT-scoped token — the whole
+    // point of the scope field is that it can never be spent at ordinary
+    // checkout.
+    expect(call.scope).toBe('gift')
   })
 
   // Phase 10c fix: `getShippingRates` SUMS the quantities of the lines it is
@@ -334,6 +339,24 @@ describe('the shipping quote is the integrity check', () => {
     expect(order.create).not.toHaveBeenCalled()
   })
 
+  // Symmetric to `placeOrder`'s gift-scope rejection (`checkout/data.test.ts`):
+  // a token minted by the ORDINARY checkout flow — same owner address, real
+  // signature, unexpired — must not be spendable here just because it
+  // happens to verify against the same address. Only `scope` distinguishes
+  // it from a genuine gift token.
+  it('refuses a checkout-scoped token, even when it verifies against the owner address', async () => {
+    const result = await placeGiftOrder({
+      shareToken: 'tok',
+      selections: [{ productId: 'p1', variantId: null }],
+      email: 'buyer@example.com',
+      chargeCurrency: 'NGN',
+      shippingToken: quoteFor(OWNER_AS_ADDRESS, 'NGN', 250_000, 'checkout'),
+    })
+
+    expect(result.ok).toBe(false)
+    expect(order.create).not.toHaveBeenCalled()
+  })
+
   it('refuses a tampered token', async () => {
     const token = quoteFor(OWNER_AS_ADDRESS)
     const [body, sig] = token.split('.')
@@ -361,6 +384,7 @@ describe('the shipping quote is the integrity check', () => {
       addressHash: addressHash(OWNER_AS_ADDRESS, expiredSalt),
       salt: expiredSalt,
       exp: Date.now() - 1,
+      scope: 'gift',
     })
 
     const result = await placeGiftOrder({

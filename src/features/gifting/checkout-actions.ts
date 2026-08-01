@@ -143,6 +143,12 @@ export async function getGiftShippingRates(input: unknown): Promise<ShippingOpti
     email: parsed.data.email,
     chargeCurrency: parsed.data.chargeCurrency,
     lines,
+    // Stamps every returned option's token with `scope: 'gift'` — see
+    // `ShippingQuotePayload.scope`'s doc comment. This is what makes the
+    // token this action hands back unusable at `placeOrder`, so a buyer
+    // holding it can't use it, combined with a guessed address, as a free
+    // online oracle for the wishlist owner's hidden `line1`/`postalCode`.
+    scope: 'gift',
   })
 }
 
@@ -176,6 +182,21 @@ export async function placeGiftOrder(input: unknown): Promise<CreateGiftOrderRes
     return GENERIC_ERROR
   }
   if (!quote) return QUOTE_EXPIRED
+
+  // Symmetric to the check `placeOrder` (`checkout/data.ts`) makes: a token
+  // minted by the ORDINARY checkout flow (`getShippingRates` with no
+  // `scope`, or explicitly `scope: 'checkout'`) must not be spendable here.
+  // Without this, a buyer could quote a normal checkout address for
+  // themselves and hand that (genuinely signed) token to `placeGiftOrder`
+  // instead of a gift-scoped one — not the address-oracle hazard `placeOrder`
+  // guards against (this action never takes a caller-supplied address to
+  // compare against), but still a token this action was never meant to
+  // accept. No backwards-compatibility fallback for a missing `scope` here,
+  // unlike `placeOrder`'s: the gift flow's `getGiftShippingRates` starts
+  // stamping `scope: 'gift'` on every token it mints in this SAME deploy, so
+  // there is no pre-existing gift token this would need to keep working for.
+  if (quote.scope !== 'gift') return QUOTE_EXPIRED
+
   if (quote.currency !== parsed.data.chargeCurrency) return GENERIC_ERROR
 
   return createGiftOrder({

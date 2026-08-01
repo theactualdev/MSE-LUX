@@ -401,6 +401,92 @@ describe('getShippingRates — quotes in the charge currency, not the address co
   })
 })
 
+describe('getShippingRates — token scope (closes the gift-token address oracle)', () => {
+  // Every option is stamped with `payload.scope`, so a token from ONE flow
+  // can never be spent on, or tested against, the other — see
+  // `ShippingQuotePayload.scope`'s doc comment.
+
+  it('defaults to scope "checkout" when the caller omits it', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+
+    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
+
+    expect(options).toHaveLength(1)
+    expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ scope: 'checkout' })
+  })
+
+  it('stamps scope "gift" end-to-end when the caller passes it — including the flat international branch', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+
+    const options = await getShippingRates({
+      address: US_ADDRESS,
+      email: EMAIL,
+      chargeCurrency: 'USD',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+      scope: 'gift',
+    })
+
+    expect(options).toHaveLength(1)
+    expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ scope: 'gift' })
+  })
+
+  it('stamps scope "gift" on a live ShipBubble-rate option', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'recv-scope' })
+    fetchRates.mockResolvedValue({ requestToken: 'req_tok_1', rates: [{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 350_000, currency: 'NGN', deliveryEta: '2-3 days' }] })
+
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }], scope: 'gift' })
+
+    expect(options).toHaveLength(1)
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ scope: 'gift' })
+  })
+
+  it('stamps scope "gift" on the flat NGN fallback option (ShipBubble outage path)', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'recv-scope-2' })
+    fetchRates.mockRejectedValue(new Error('ShipBubble is down'))
+
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }], scope: 'gift' })
+
+    expect(options).toHaveLength(1)
+    expect(options[0].id).toBe('fallback')
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ scope: 'gift' })
+  })
+
+  it('stamps scope "gift" on the guardFallbackOption path (malformed address)', async () => {
+    const malformedAddress = { ...NG_ADDRESS, country: undefined } as unknown as Address
+
+    const options = await getShippingRates({ address: malformedAddress, email: EMAIL, chargeCurrency: 'NGN', scope: 'gift' })
+
+    expect(options).toHaveLength(1)
+    expect(options[0].id).toBe('fallback')
+    expect(verifyQuote(options[0].token, malformedAddress)).toMatchObject({ scope: 'gift' })
+  })
+
+  it('stamps scope "gift" on the rate-limited international-branch option', async () => {
+    checkRateLimit.mockResolvedValue(false)
+
+    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD', scope: 'gift' })
+
+    expect(options).toHaveLength(1)
+    expect(options[0].id).toBe('international')
+    expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ scope: 'gift' })
+  })
+
+  it('stamps scope "gift" on the rate-limited domestic-fallback option', async () => {
+    checkRateLimit.mockResolvedValue(false)
+    getCurrentUserId.mockResolvedValue(USER_ID)
+
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', scope: 'gift' })
+
+    expect(options).toHaveLength(1)
+    expect(options[0].id).toBe('fallback')
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ scope: 'gift' })
+  })
+})
+
 describe('getShippingRates — fallback', () => {
   beforeEach(() => {
     getCurrentUserId.mockResolvedValue(USER_ID)

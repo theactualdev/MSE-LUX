@@ -114,13 +114,21 @@ function aggregateRawLines(rawLines: GuestOrderLine[]): GuestOrderLine[] {
 }
 
 /**
- * Signs a `{ label, amountMinor, currency, addressHash, salt, exp }` payload
- * into a full `ShippingOption`. `hash` and `salt` MUST be the exact pair
- * produced together by one `addressHash(address, salt)` call — every call
- * site below mints its salt with `newQuoteSalt()` immediately before hashing,
- * precisely so the salt threaded into the payload here is the same one the
- * hash was computed under (see `shipping-quote.ts`'s docblock for why a
- * mismatched pair would defeat the salt's whole purpose).
+ * Signs a `{ label, amountMinor, currency, addressHash, salt, exp, scope }`
+ * payload into a full `ShippingOption`. `hash` and `salt` MUST be the exact
+ * pair produced together by one `addressHash(address, salt)` call — every
+ * call site below mints its salt with `newQuoteSalt()` immediately before
+ * hashing, precisely so the salt threaded into the payload here is the same
+ * one the hash was computed under (see `shipping-quote.ts`'s docblock for why
+ * a mismatched pair would defeat the salt's whole purpose).
+ *
+ * `scope` records which flow this quote is good for — `'checkout'` or
+ * `'gift'` — so it travels with every option `getShippingRates` returns,
+ * ordinary or fallback alike. See `ShippingQuotePayload.scope`'s doc comment
+ * for the full rationale: without it, a gift buyer's legitimately-held
+ * gift-scoped token could be handed to `placeOrder` alongside a guessed
+ * address and used as a free online oracle for the recipient's hidden
+ * `line1`/`postalCode`.
  */
 function toOption(
   id: string,
@@ -129,10 +137,11 @@ function toOption(
   currency: 'NGN' | 'USD',
   hash: string,
   salt: string,
+  scope: 'checkout' | 'gift',
   deliveryEta?: string,
 ): ShippingOption {
   const exp = Date.now() + QUOTE_TTL_MS
-  const token = signQuote({ label, amountMinor, currency, addressHash: hash, salt, exp })
+  const token = signQuote({ label, amountMinor, currency, addressHash: hash, salt, exp, scope })
   return { id, label, amountMinor, currency, deliveryEta, token }
 }
 
@@ -184,10 +193,10 @@ function safeAddressHash(address: unknown): { hash: string; salt: string } {
  * boundary. A genuinely malformed address will be rejected again by
  * `placeOrder`'s own `addressSchema.safeParse` before anything is charged.
  */
-function guardFallbackOption(address: unknown, chargeCurrency: unknown): ShippingOption {
+function guardFallbackOption(address: unknown, chargeCurrency: unknown, scope: 'checkout' | 'gift'): ShippingOption {
   const { hash, salt } = safeAddressHash(address)
   const fallback = chargeCurrency === 'USD' ? FLAT_FALLBACK_USD : FLAT_FALLBACK_NGN
-  return toOption('fallback', fallback.label, fallback.amountMinor, fallback.currency, hash, salt, fallback.deliveryEta)
+  return toOption('fallback', fallback.label, fallback.amountMinor, fallback.currency, hash, salt, scope, fallback.deliveryEta)
 }
 
 /**
@@ -244,6 +253,20 @@ export async function getShippingRates(input: {
    * or total can be moved from here.
    */
   lines?: GuestOrderLine[]
+  /**
+   * Which flow is asking — `'checkout'` (default) for the ordinary
+   * address-entry step, `'gift'` for `getGiftShippingRates`. Stamped onto
+   * every returned option's token (`ShippingQuotePayload.scope`) so a token
+   * can only ever be spent on the flow that minted it: `placeOrder` requires
+   * `'checkout'`, `placeGiftOrder` requires `'gift'`. This exists so a gift
+   * token — legitimately bound to a wishlist owner's address the buyer was
+   * never shown — has no endpoint left where a caller can supply a guessed
+   * address and have it compared against that token, which is what made the
+   * token a free online oracle for the recipient's hidden `line1`/
+   * `postalCode` before this field existed. Defaults to `'checkout'` because
+   * every caller except the gift flow omits it.
+   */
+  scope?: 'checkout' | 'gift'
 }): Promise<ShippingOption[]> {
   // Public Server Action — a caller can POST with no body at all (or any
   // other falsy value), making `input` itself `undefined`/`null` at this
@@ -255,6 +278,13 @@ export async function getShippingRates(input: {
   // "double-throw" that used to escape as an unhandled rejection when
   // `input` was nullish).
   const safeInput = (input ?? {}) as Partial<typeof input>
+
+  // Resolved once, up front — outside the top-level try — so it's available
+  // both to the normal path below AND to the top-level catch's own
+  // last-resort `guardFallbackOption` call (see that call site). Anything
+  // other than the literal `'gift'` defaults to `'checkout'`, which also
+  // covers a malformed/garbage value at this public boundary.
+  const scope: 'checkout' | 'gift' = safeInput.scope === 'gift' ? 'gift' : 'checkout'
 
   try {
     // Phase 9c originally OVERRODE the client's currency with the server geo
@@ -329,12 +359,13 @@ export async function getShippingRates(input: {
             flat.currency,
             limitHash,
             limitSalt,
+            scope,
             flat.deliveryEta,
           ),
         ]
       }
 
-      return [guardFallbackOption(safeInput.address, chargeCurrency)]
+      return [guardFallbackOption(safeInput.address, chargeCurrency, scope)]
     }
 
     // `safeInput.address` is untrusted at this boundary (a public Server
@@ -344,7 +375,7 @@ export async function getShippingRates(input: {
     // straight out of the function; it gets one safe flat option instead,
     // exactly like any other unrecoverable failure below.
     const parsedAddress = addressSchema.safeParse(safeInput.address)
-    if (!parsedAddress.success) return [guardFallbackOption(safeInput.address, chargeCurrency)]
+    if (!parsedAddress.success) return [guardFallbackOption(safeInput.address, chargeCurrency, scope)]
 
     const address = parsedAddress.data
     const { email, guestLines, lines } = safeInput
@@ -359,7 +390,7 @@ export async function getShippingRates(input: {
     // no ShipBubble call, no FX.
     if (chargeCurrency !== 'NGN' || !nigeria) {
       const flat = chargeCurrency === 'USD' ? FLAT_INTERNATIONAL_USD : FLAT_INTERNATIONAL_NGN
-      return [toOption('international', flat.label, flat.amountMinor, flat.currency, hash, salt, flat.deliveryEta)]
+      return [toOption('international', flat.label, flat.amountMinor, flat.currency, hash, salt, scope, flat.deliveryEta)]
     }
 
     try {
@@ -437,13 +468,13 @@ export async function getShippingRates(input: {
       // every option is forced to NGN — the branch invariant — regardless of
       // whatever currency ShipBubble's response happens to label the rate
       // with (it's always NGN in practice for a NG receiver).
-      return rates.map((rate) => toOption(`${rate.courierId}:${rate.serviceCode}`, rate.label, rate.amountMinor, 'NGN', hash, salt, rate.deliveryEta))
+      return rates.map((rate) => toOption(`${rate.courierId}:${rate.serviceCode}`, rate.label, rate.amountMinor, 'NGN', hash, salt, scope, rate.deliveryEta))
     } catch (error) {
       // Never block checkout on a ShipBubble outage / bad config / unvalidatable
       // address / empty courier list — fall back to the flat NGN rate (this
       // branch is only reached when charging NGN to a Nigerian address).
       console.error('getShippingRates: ShipBubble path failed, falling back to a flat rate', error)
-      return [toOption('fallback', FLAT_FALLBACK_NGN.label, FLAT_FALLBACK_NGN.amountMinor, FLAT_FALLBACK_NGN.currency, hash, salt, FLAT_FALLBACK_NGN.deliveryEta)]
+      return [toOption('fallback', FLAT_FALLBACK_NGN.label, FLAT_FALLBACK_NGN.amountMinor, FLAT_FALLBACK_NGN.currency, hash, salt, scope, FLAT_FALLBACK_NGN.deliveryEta)]
     }
   } catch (error) {
     // Top-level safety net: `getShippingRates` must NEVER throw — it's a
@@ -475,7 +506,7 @@ export async function getShippingRates(input: {
     // incapable of escaping this function. Same "degrade to []" contract as
     // the missing-secret branch above, for the same reason.
     try {
-      return [guardFallbackOption(safeInput.address, safeInput.chargeCurrency)]
+      return [guardFallbackOption(safeInput.address, safeInput.chargeCurrency, scope)]
     } catch (fallbackError) {
       console.error('getShippingRates: could not build a last-resort fallback option', fallbackError)
       return []
