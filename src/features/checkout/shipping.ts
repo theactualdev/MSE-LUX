@@ -189,6 +189,32 @@ export async function getShippingRates(input: {
    */
   chargeCurrency: 'NGN' | 'USD'
   guestLines?: GuestOrderLine[]
+  /**
+   * Pre-resolved, SERVER-VALIDATED lines used verbatim instead of resolving
+   * from the caller's cart. The gift flow (Phase 10c) supplies these because
+   * the buyer's OWN cart is irrelevant to a gift order — without this, a
+   * signed-in buyer would have their own cart quoted instead of the gift.
+   * Never populate this from unvalidated client input: the gift caller
+   * derives it from the share token's wishlist membership.
+   *
+   * When supplied it bypasses `resolveRawLines` ENTIRELY — no session lookup,
+   * no cart read — so neither a signed-in caller's server cart nor a guest's
+   * `guestLines` can contribute a line to the quoted package.
+   *
+   * This IS a public Server Action, so a hostile caller can of course send
+   * `lines` directly and have a signed-in session's own cart skipped — worth
+   * stating plainly, because `guestLines` deliberately does NOT allow that.
+   * It grants no capability that wasn't already reachable: a quote token is
+   * bound to the ADDRESS, an amount and an expiry — never to a cart or a
+   * session — so anyone wanting a cheaper courier quote could already get one
+   * by calling this action with a light `guestLines` while signed out and
+   * spending the token afterwards. Under-declaring the package therefore
+   * costs shipping accuracy, exactly as it already could, and nothing more:
+   * every ORDER line is still re-priced from the authored catalog at
+   * placement (`placeOrder` / `createGiftOrder`), so no item price, subtotal
+   * or total can be moved from here.
+   */
+  lines?: GuestOrderLine[]
 }): Promise<ShippingOption[]> {
   // Public Server Action — a caller can POST with no body at all (or any
   // other falsy value), making `input` itself `undefined`/`null` at this
@@ -290,7 +316,7 @@ export async function getShippingRates(input: {
     if (!parsedAddress.success) return [guardFallbackOption(safeInput.address, chargeCurrency)]
 
     const address = parsedAddress.data
-    const { email, guestLines } = safeInput
+    const { email, guestLines, lines } = safeInput
     const hash = addressHash(address)
     const nigeria = isNigeria(address.country)
 
@@ -310,8 +336,11 @@ export async function getShippingRates(input: {
       // ShipBubble with an invalid sender code.
       if (!SHIPBUBBLE_ORIGIN_ADDRESS_CODE) throw new Error('SHIPBUBBLE_ORIGIN_ADDRESS_CODE is not configured')
 
-      const userId = await getCurrentUserId()
-      const rawLines = await resolveRawLines(userId, guestLines)
+      // An explicit `lines` override short-circuits cart resolution
+      // completely — `getCurrentUserId()` is not even called, so a signed-in
+      // gift buyer's own cart is never read, let alone quoted (see the
+      // `lines` field's doc comment above).
+      const rawLines = lines ?? (await resolveRawLines(await getCurrentUserId(), guestLines))
       const aggregatedLines = aggregateRawLines(rawLines)
 
       const productIds = Array.from(new Set(aggregatedLines.map((line) => line.productId)))

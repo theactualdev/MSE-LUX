@@ -270,6 +270,58 @@ describe('getShippingRates — guest', () => {
   })
 })
 
+describe('getShippingRates — explicit `lines` override (the gift flow, Phase 10c)', () => {
+  it('uses the supplied lines verbatim and never consults the session or the cart', async () => {
+    // A SIGNED-IN caller with a non-empty server cart of their own: the
+    // override must make both irrelevant, otherwise a gift would be quoted
+    // against the buyer's own basket.
+    getCurrentUserId.mockResolvedValue(USER_ID)
+    cartItem.findMany.mockResolvedValue([{ productId: PRODUCT_ID_2, variantId: null, quantity: 9 }])
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'recv-3' })
+    fetchRates.mockResolvedValue({ requestToken: 'req_tok_1', rates: [{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 400_000, currency: 'NGN', deliveryEta: '2-3 days' }] })
+
+    const options = await getShippingRates({
+      address: NG_ADDRESS,
+      email: EMAIL,
+      chargeCurrency: 'NGN',
+      lines: [{ productId: PRODUCT_ID, quantity: 1 }],
+    })
+
+    // Neither data source `resolveRawLines` would have read was touched.
+    expect(getCurrentUserId).not.toHaveBeenCalled()
+    expect(cartItem.findMany).not.toHaveBeenCalled()
+
+    // The package is sized from the SUPPLIED line only:
+    // weight = base(300) + PRODUCT.weightGrams(250) * 1 = 550; value = 500_000 * 1
+    expect(resolveProductsByIds).toHaveBeenCalledWith([PRODUCT_ID])
+    const call = fetchRates.mock.calls[0][0]
+    expect(call.packageItems).toEqual([{ name: 'MSE Lux order', description: 'Jewelry order', unitWeightGrams: 550, unit_amount: 500_000, quantity: 1 }])
+
+    expect(options).toHaveLength(1)
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).not.toBeNull()
+  })
+
+  it('ignores guestLines entirely when an override is present', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'recv-4' })
+    fetchRates.mockResolvedValue({ requestToken: 'req_tok_1', rates: [{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 400_000, currency: 'NGN', deliveryEta: '2-3 days' }] })
+
+    await getShippingRates({
+      address: NG_ADDRESS,
+      email: EMAIL,
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 8 }],
+      lines: [{ productId: PRODUCT_ID, quantity: 2 }],
+    })
+
+    // weight = base(300) + 250 * 2 = 800 (the override's quantity, not guestLines' 8)
+    const call = fetchRates.mock.calls[0][0]
+    expect(call.packageItems).toEqual([{ name: 'MSE Lux order', description: 'Jewelry order', unitWeightGrams: 800, unit_amount: 1_000_000, quantity: 1 }])
+  })
+})
+
 describe('getShippingRates — quotes in the charge currency, not the address country', () => {
   // The core Phase-7 currency invariant: every returned option's currency
   // equals `chargeCurrency` (never the address's country), so `placeOrder`'s

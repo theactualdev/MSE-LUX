@@ -11,6 +11,9 @@ import { verifyQuote } from '@/features/checkout/lib/shipping-quote'
 import { contactSchema, addressSchema } from '@/features/checkout/schema'
 import type { Address } from '@/features/checkout/schema'
 import { mapOrderRow } from '@/features/checkout/lib/order-view'
+// Shared with `gifting/gift-order.ts` — one `orderNumber` namespace and one
+// retry budget across every path that creates an Order (see that module).
+import { generateOrderNumber, MAX_ORDER_NUMBER_ATTEMPTS } from '@/features/checkout/lib/order-number'
 import { serverChargeCurrency } from '@/features/currency/lib/charge-currency-server'
 import { checkRateLimit, RATE_LIMITED_MESSAGE } from '@/lib/rate-limit'
 import type { PlaceOrderInput, PlaceOrderResult, GuestOrderLine } from '@/features/checkout/types'
@@ -72,29 +75,6 @@ function isUniqueViolation(error: unknown): boolean {
 /** Prisma's "record to update/delete not found" error. Matched structurally for the same reason. */
 function isRecordNotFound(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2025'
-}
-
-/** How many times to retry order placement on an `orderNumber` collision before giving up. Collisions on a random 6-digit space are rare; this only guards the tail. */
-const MAX_ORDER_NUMBER_ATTEMPTS = 5
-
-/**
- * `MSE-` + a random 6-digit number (`000000`-`999999`).
- *
- * A collision against the `orderNumber` unique constraint is retried with a
- * FRESH number in a FRESH `db.$transaction` — never inside the same
- * transaction the failed `create` ran in. Postgres aborts the entire
- * transaction on any failed statement: every later statement on that same
- * connection then fails with `25P02` ("current transaction is aborted"), not
- * the original `P2002` — so a retry-inside-the-transaction would never see
- * the error code it's looking for and would crash on the very collision it
- * exists to handle. `placeOrder` therefore wraps the WHOLE `db.$transaction`
- * call in the retry loop, not just this one `create`.
- */
-function generateOrderNumber(): string {
-  const digits = Math.floor(Math.random() * 1_000_000)
-    .toString()
-    .padStart(6, '0')
-  return `MSE-${digits}`
 }
 
 /** `line2`/`postalCode` collapse empty strings to `null` for the DB — the schema fields are optional strings, not "" placeholders. */
