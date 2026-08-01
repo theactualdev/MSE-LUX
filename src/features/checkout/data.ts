@@ -283,18 +283,21 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   // quote (never a distinct message) — a different error string here would
   // just recreate the oracle this check exists to close, one level up.
   //
-  // BACKWARDS COMPATIBILITY: `payload.scope` is a new field — a token minted
-  // by `getShippingRates` before this deploy has no `scope` at all.
-  // `undefined` is treated as `'checkout'` so an in-flight pre-deploy token
-  // (TTL 30 min) still works for ordinary checkout through the deploy window.
-  // `verifyQuote` returns `VerifiedQuotePayload`, whose `scope` is OPTIONAL
-  // precisely so this `??` reads as live code rather than a dead branch a
-  // later simplification pass might delete — see that type's doc comment.
-  // This fallback is safe for exactly that reason (it's temporary and self-
-  // healing) — it is NOT extended to the gift check below, because every gift
-  // token is newly minted (this deploy ships the gift flow's `scope: 'gift'`
-  // stamp at the same time as this check) and so always carries an explicit
-  // scope; there is no pre-deploy gift token to be lenient for.
+  // DEFENCE IN DEPTH, NOT A LIVE DEPLOY-WINDOW PATH: `payload.scope` reads as
+  // `undefined` only for a token minted before the field existed, and any
+  // token that old also predates `salt` — `verifyQuote` already rejects it a
+  // few lines up, because `addressHash(address, payload.salt)` (computed with
+  // `salt: undefined`) cannot match a hash produced with a real salt. So by
+  // the time `quote` reaches this line it was ALWAYS minted with an explicit
+  // `scope`, and `quote.scope` can never actually be `undefined` here. The
+  // `?? 'checkout'` is kept anyway as a harmless belt-and-suspenders default,
+  // not because there's a real pre-deploy token still in flight to be lenient
+  // for. `verifyQuote` returns `VerifiedQuotePayload`, whose `scope` is
+  // OPTIONAL precisely so this `??` reads as live code rather than a dead
+  // branch a later simplification pass might delete — see that type's doc
+  // comment. Not extended to the gift check below: every gift token has
+  // always carried an explicit `scope: 'gift'` since the gift flow shipped,
+  // so there is no equivalent case to be defensive about there.
   if ((quote.scope ?? 'checkout') !== 'checkout') return SHIPPING_EXPIRED
 
   if (quote.currency !== chargeCurrency) return INVALID_INPUT

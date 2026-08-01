@@ -72,15 +72,18 @@ export interface ShippingQuotePayload {
 /**
  * What `verifyQuote` actually hands back. Identical to `ShippingQuotePayload`
  * except that `scope` is OPTIONAL — and that difference is deliberate rather
- * than sloppy: `verifyQuote` casts decoded JSON, so a token minted before the
- * field existed (TTL 30 min, so possible right through a deploy window) really
- * does yield `undefined` at runtime. `placeOrder`'s
- * `(quote.scope ?? 'checkout')` backwards-compat fallback exists precisely for
- * that case; typing the verified payload as non-optional would make that `??`
- * look dead to the compiler and invite a future lint/simplification pass to
- * delete the thing keeping in-flight tokens working. `signQuote`'s INPUT stays
- * `ShippingQuotePayload` (scope required), so every mint site must still
- * supply one.
+ * than sloppy: `verifyQuote` casts decoded JSON, so at the TYPE level a token
+ * minted before the field existed would yield `undefined` at runtime. In
+ * practice that case is unreachable by the time a payload gets here: any
+ * token old enough to predate `scope` also predates `salt`, so its
+ * `addressHash` check fails first and `verifyQuote` returns `null` before
+ * this type is ever populated with a missing `scope`. `placeOrder`'s
+ * `(quote.scope ?? 'checkout')` fallback (`data.ts`) is therefore
+ * defence-in-depth, not a live deploy-window path — but `scope` stays
+ * optional here anyway so that `??` keeps reading as intentional code rather
+ * than a dead branch a later simplification pass might delete. `signQuote`'s
+ * INPUT stays `ShippingQuotePayload` (scope required), so every mint site
+ * must still supply one.
  */
 export type VerifiedQuotePayload = Omit<ShippingQuotePayload, 'scope'> & { scope?: 'checkout' | 'gift' }
 

@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { resolveShare } from '@/features/gifting/share'
 import { GiftCheckout } from '@/features/gifting/components/gift-checkout'
 import { parseSelections } from '@/features/gifting/lib/parse-selections'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 export const metadata: Metadata = {
   title: 'Gift checkout',
@@ -31,6 +32,13 @@ export const metadata: Metadata = {
  * `resolveShare` is `server-only` specifically so the address it returns can
  * never reach a client bundle, and this page is the boundary that must not
  * undo that by forwarding the wrong field.
+ *
+ * Rate-limited (`wishlistShare` — see that bucket's doc in `lib/rate-limit.ts`,
+ * "Public share-page reads and gift-checkout actions"): same DB-round-trip
+ * cost as the share page above (`resolveShare`'s Wishlist+items join). On a
+ * limit hit this renders the SAME neutral not-found state as an unresolvable
+ * token, deliberately — a distinguishable "rate limited" state would itself
+ * tell a prober the token is real, undoing `resolveShare`'s own null-collapse.
  */
 export default async function GiftCheckoutPage({
   params,
@@ -42,7 +50,8 @@ export default async function GiftCheckoutPage({
   const { token } = await params
   const { selections: rawSelections } = await searchParams
 
-  const share = await resolveShare(token)
+  const allowed = await checkRateLimit('wishlistShare')
+  const share = allowed ? await resolveShare(token) : null
 
   if (!share) {
     return (

@@ -8,6 +8,7 @@ import { cn } from '@/lib/utils'
 import { resolveShare } from '@/features/gifting/share'
 import { resolveProductsByIds } from '@/features/catalog/server/resolve-products'
 import { GiftSelection } from '@/features/gifting/components/gift-selection'
+import { checkRateLimit } from '@/lib/rate-limit'
 
 export const metadata: Metadata = {
   title: 'A gift for you',
@@ -32,6 +33,14 @@ export const metadata: Metadata = {
  * cookie — the exact same mechanism every other storefront price uses (see
  * `ProductCard`) — so there is no separate currency resolution to do on this
  * page.
+ *
+ * Rate-limited (`wishlistShare` — see that bucket's doc in `lib/rate-limit.ts`,
+ * "Public share-page reads and gift-checkout actions"): each render here does
+ * a Wishlist+items join plus a `resolveProductsByIds` over the full product
+ * relation graph, exactly the DB round-trips the bucket exists to bound. On a
+ * limit hit this renders the SAME neutral not-found state as an unresolvable
+ * token, deliberately — a distinguishable "rate limited" state would itself
+ * tell a prober the token is real, undoing `resolveShare`'s own null-collapse.
  */
 export default async function SharedWishlistPage({
   params,
@@ -39,7 +48,8 @@ export default async function SharedWishlistPage({
   params: Promise<{ token: string }>
 }) {
   const { token } = await params
-  const share = await resolveShare(token)
+  const allowed = await checkRateLimit('wishlistShare')
+  const share = allowed ? await resolveShare(token) : null
 
   if (!share) {
     return (

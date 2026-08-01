@@ -61,6 +61,19 @@ function firstName(fullName: string): string {
   return fullName.trim().split(/\s+/)[0] ?? fullName
 }
 
+/**
+ * The greeting name for the email's "Hi ___," line. For a GIFT order,
+ * `data.customerName` (the order snapshot's `shipFullName`) is the
+ * RECIPIENT's name, not the buyer's — the buyer is who this email actually
+ * goes to (see `recipientBlock` below), and the order row holds no buyer
+ * name to greet them with. A neutral "there" avoids calling the buyer by the
+ * person they're sending a gift to. Non-gift orders are unaffected: their
+ * `customerName` genuinely is the person receiving the email.
+ */
+function greetingName(data: OrderEmailData): string {
+  return data.isGift ? 'there' : firstName(data.customerName)
+}
+
 function money(amountMinor: number, currency: Currency): string {
   return formatMoney({ amountMinor, currency })
 }
@@ -194,7 +207,7 @@ export function orderConfirmationEmail(data: OrderEmailData): { subject: string;
   const orderUrl = absoluteUrl(`/order/${data.orderNumber}`)
 
   const body = `
-    <p style="margin: 0 0 16px 0; font-size: 16px; color: ${INK};">Hi ${escapeHtml(firstName(data.customerName))},</p>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: ${INK};">Hi ${escapeHtml(greetingName(data))},</p>
     <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: ${INK};">
       Thank you for your order. We're preparing it now and will email you again once it ships.
     </p>
@@ -203,7 +216,7 @@ export function orderConfirmationEmail(data: OrderEmailData): { subject: string;
     ${totalsTable(data, currency)}
     <p style="margin: 24px 0 4px 0; font-size: 13px; font-weight: bold; color: ${INK};">${data.isGift ? 'Gift for' : 'Shipping to'}</p>
     ${recipientBlock(data)}
-    ${button(orderUrl, 'View your order')}
+    ${data.isGift ? '' : button(orderUrl, 'View your order')}
   `
 
   return {
@@ -221,7 +234,7 @@ export function orderShippedEmail(
   const orderUrl = absoluteUrl(`/order/${data.orderNumber}`)
 
   const body = `
-    <p style="margin: 0 0 16px 0; font-size: 16px; color: ${INK};">Hi ${escapeHtml(firstName(data.customerName))},</p>
+    <p style="margin: 0 0 16px 0; font-size: 16px; color: ${INK};">Hi ${escapeHtml(greetingName(data))},</p>
     <p style="margin: 0 0 20px 0; font-size: 14px; line-height: 1.6; color: ${INK};">
       Your order is on its way.
     </p>
@@ -240,7 +253,7 @@ export function orderShippedEmail(
     ${totalsTable(data, currency)}
     <p style="margin: 24px 0 4px 0; font-size: 13px; font-weight: bold; color: ${INK};">${data.isGift ? 'Gift for' : 'Shipping to'}</p>
     ${recipientBlock(data)}
-    ${button(orderUrl, 'View your order')}
+    ${data.isGift ? '' : button(orderUrl, 'View your order')}
   `
 
   return {

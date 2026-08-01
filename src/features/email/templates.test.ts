@@ -133,6 +133,28 @@ describe('orderConfirmationEmail', () => {
     expect(html).toContain('Gift for')
     expect(html).not.toContain('Shipping to')
   })
+
+  it('a GIFT order greets the buyer neutrally, never the recipient by name', () => {
+    // GIFT_ORDER.customerName is 'Ada Obi' (inherited from NGN_ORDER) — that's
+    // the order snapshot's shipFullName, i.e. the RECIPIENT, not the buyer.
+    // The greeting must not name them.
+    const { html } = orderConfirmationEmail(GIFT_ORDER)
+    expect(html).toContain('Hi there,')
+    expect(html).not.toContain('Hi Ada,')
+  })
+
+  it('a GIFT order has no /order/ link or "View your order" button — that lookup is profileId-scoped and always fails for a gift order', () => {
+    const { html } = orderConfirmationEmail(GIFT_ORDER)
+    expect(html).not.toContain('/order/')
+    expect(html).not.toContain('View your order')
+  })
+
+  it('a NON-gift order still greets with the shipping first name and still has the order button', () => {
+    const { html } = orderConfirmationEmail(NGN_ORDER)
+    expect(html).toContain('Hi Ada,')
+    expect(html).toContain(absoluteUrl(`/order/${NGN_ORDER.orderNumber}`))
+    expect(html).toContain('View your order')
+  })
 })
 
 describe('orderShippedEmail', () => {
@@ -193,6 +215,23 @@ describe('orderShippedEmail', () => {
     expect(html).not.toContain('101241')
     expect(html).toContain('Gift for')
     expect(html).not.toContain('Shipping to')
+  })
+
+  it('a GIFT order greets the buyer neutrally and has no /order/ link or button', () => {
+    const shippedGift = { ...GIFT_ORDER, carrier: 'DHL Express', trackingNumber: 'DHL123456789' }
+    const { html } = orderShippedEmail(shippedGift)
+
+    expect(html).toContain('Hi there,')
+    expect(html).not.toContain('Hi Ada,')
+    expect(html).not.toContain('/order/')
+    expect(html).not.toContain('View your order')
+  })
+
+  it('a NON-gift order still greets with the shipping first name and still has the order button', () => {
+    const { html } = orderShippedEmail(SHIPPED)
+    expect(html).toContain('Hi Ada,')
+    expect(html).toContain(absoluteUrl(`/order/${SHIPPED.orderNumber}`))
+    expect(html).toContain('View your order')
   })
 })
 

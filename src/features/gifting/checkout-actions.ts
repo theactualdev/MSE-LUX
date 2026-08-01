@@ -193,7 +193,12 @@ export async function getGiftShippingRates(input: unknown): Promise<ShippingOpti
 }
 
 export async function placeGiftOrder(input: unknown): Promise<CreateGiftOrderResult> {
-  if (!(await checkRateLimit('wishlistShare'))) return RATE_LIMITED
+  // `checkout`, not `wishlistShare` — this is the order-CREATING half of the
+  // gift flow (mirrors `placeOrder`, `checkout/data.ts`, which uses the same
+  // bucket for the same reason: it writes a PENDING order). `wishlistShare`
+  // is sized for reads (share-page renders, `getGiftShippingRates`); sharing
+  // it here would throttle a write with a read-sized budget.
+  if (!(await checkRateLimit('checkout'))) return RATE_LIMITED
 
   const parsed = placeSchema.safeParse(input)
   if (!parsed.success) return GENERIC_ERROR

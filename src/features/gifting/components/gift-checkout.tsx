@@ -99,10 +99,15 @@ export function GiftCheckout({ token, selections, recipientFirstName, city }: Gi
 
     setLoadingRates(false)
 
-    // `getGiftShippingRates` never throws, but an empty array means it
-    // couldn't build even its own last-resort fallback option — there is
-    // nothing selectable, so stay on the email step with a retryable message
-    // rather than advancing to an empty shipping step.
+    // `getGiftShippingRates` degrades EXPECTED failures (bad input, an
+    // unknown/disabled share, a misconfigured quote secret) to `[]` rather
+    // than throwing — but per that action's own doc comment, `resolveShare`
+    // can still throw on a genuine DB failure, exactly as `placeOrder` is
+    // left unguarded against `createGiftOrder`/`resolveShare` rethrowing
+    // below. So an empty array here specifically means "resolved to nothing
+    // selectable" (no rates, no fallback option), not "can never throw" —
+    // there is nothing selectable, so stay on the email step with a
+    // retryable message rather than advancing to an empty shipping step.
     if (options.length === 0) {
       setError('Shipping options are temporarily unavailable. Please try again in a moment.')
       return

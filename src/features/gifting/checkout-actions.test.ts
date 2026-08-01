@@ -175,8 +175,8 @@ afterEach(() => {
   delete process.env.SHIPBUBBLE_QUOTE_SECRET
 })
 
-describe('rate limiting (the wishlistShare window)', () => {
-  it('getGiftShippingRates: a limited request neither resolves the share nor quotes', async () => {
+describe('rate limiting', () => {
+  it('getGiftShippingRates: a limited request neither resolves the share nor quotes (the wishlistShare read window)', async () => {
     checkRateLimit.mockResolvedValue(false)
 
     const options = await getGiftShippingRates({
@@ -192,7 +192,7 @@ describe('rate limiting (the wishlistShare window)', () => {
     expect(buildShippingRates).not.toHaveBeenCalled()
   })
 
-  it('placeGiftOrder: a limited request neither resolves the share nor creates an order', async () => {
+  it('placeGiftOrder: a limited request neither resolves the share nor creates an order (the checkout WRITE window, not wishlistShare)', async () => {
     checkRateLimit.mockResolvedValue(false)
 
     const result = await placeGiftOrder({
@@ -204,6 +204,7 @@ describe('rate limiting (the wishlistShare window)', () => {
     })
 
     expect(result).toEqual({ ok: false, error: 'Too many attempts. Please wait a moment and try again.' })
+    expect(checkRateLimit).toHaveBeenCalledWith('checkout')
     expect(resolveShare).not.toHaveBeenCalled()
     expect(order.create).not.toHaveBeenCalled()
   })
