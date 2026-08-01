@@ -102,6 +102,12 @@ export const RATE_LIMITS = {
   // attacks. CGNAT-aware like the rest — a household sharing one carrier IP
   // browsing a gift list must never be throttled.
   wishlistShare: { limit: 60, windowSeconds: 60 },
+  // `validateDiscountCode` is a CODE-GUESSING surface: a public endpoint that
+  // answers "does this code exist and work?". The generic rejection message
+  // stops it confirming WHICH failure occurred, but only this bucket bounds
+  // enumeration. CGNAT-aware like the rest — a household behind one carrier IP
+  // trying a code from an email must never be throttled.
+  discountCode: { limit: 20, windowSeconds: 60 },
 } as const
 
 export type RateLimitKind = keyof typeof RATE_LIMITS

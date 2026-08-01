@@ -203,6 +203,26 @@ model ProductCollection {
   @@index([collectionId])
 }
 
+// --- Discounts ---
+//
+// Percentage-only by design: the store's prices are dual-authored (NGN and USD
+// set independently, no FX in the charge path), so a FIXED amount would have to
+// be authored twice and could drift. A percentage is currency-agnostic.
+//
+// `timesUsed` counts PAID orders only, incremented inside `markOrderPaid`'s
+// fulfilment transaction. An abandoned checkout therefore never consumes a use.
+model DiscountCode {
+  id         String    @id @default(cuid())
+  code       String    @unique
+  percentOff Int
+  active     Boolean   @default(true)
+  expiresAt  DateTime?
+  maxUses    Int?
+  timesUsed  Int       @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+}
+
 // --- Identity ---
 
 enum Role {
@@ -434,6 +454,16 @@ model Order {
   shippingMinor Int
   taxMinor      Int
   totalMinor    Int
+
+  // --- Discount (Phase 10b) ---
+  // SNAPSHOTTED, not a foreign key. `Order` is snapshot-based throughout, and a
+  // code archived or renamed later must never change what an order says the
+  // customer was charged. `discountMinor` defaults to 0 so every pre-existing
+  // order stays arithmetically correct with no backfill, and so
+  // `total = subtotal - discountMinor + shipping + tax` holds universally.
+  discountCode    String?
+  discountPercent Int?
+  discountMinor   Int     @default(0)
 
   // --- Gift orders (Phase 10c) ---
   // `isGift` drives address redaction in the buyer's emails and the admin's
