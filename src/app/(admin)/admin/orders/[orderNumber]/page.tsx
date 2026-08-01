@@ -6,6 +6,7 @@ import { getAdminOrder } from '@/features/admin/orders/data'
 import { StatusBadge } from '@/features/admin/orders/components/status-badge'
 import { OrderActions } from '@/features/admin/orders/components/order-actions'
 import { CartSummary } from '@/features/cart/components/cart-summary'
+import { Badge } from '@/components/ui/badge'
 import { formatMoney } from '@/lib/money/format'
 
 interface OrderDetailPageProps {
@@ -61,8 +62,18 @@ export default async function AdminOrderDetailPage({ params }: OrderDetailPagePr
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="font-display text-2xl font-semibold text-foreground">Order {order.orderNumber}</h1>
           <StatusBadge status={order.status} />
+          {order.isGift ? <Badge variant="secondary">Gift</Badge> : null}
         </div>
       </div>
+
+      {order.isGift ? (
+        <div
+          role="note"
+          className="rounded-xl border border-primary/30 bg-primary/5 p-4 text-sm font-medium text-foreground"
+        >
+          Gift order &mdash; do not include a price slip or invoice in the parcel.
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-1 rounded-xl border border-border p-4">
         <h2 className="text-sm font-medium text-foreground">Fulfilment timeline</h2>

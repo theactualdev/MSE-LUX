@@ -148,6 +148,7 @@ export default async function AdminOrdersPage({
               </div>
               <div className="flex items-center gap-3">
                 <StatusBadge status={order.status} />
+                {order.isGift ? <Badge variant="secondary">Gift</Badge> : null}
                 {order.paid ? (
                   <span className="text-xs font-medium text-muted-foreground" aria-label="Paid">
                     &bull; Paid

@@ -7,6 +7,7 @@ const NGN_ORDER: OrderEmailData = {
   orderNumber: 'ORD-1001',
   customerName: 'Ada Obi',
   currency: 'NGN',
+  isGift: false,
   lines: [
     { name: 'Gold Signet Ring', variantLabel: 'Size 7', quantity: 1, lineTotalMinor: 4_500_000 },
     { name: 'Silver Bangle', quantity: 2, lineTotalMinor: 2_000_000 },
@@ -56,6 +57,21 @@ const UNESCAPED_ORDER: OrderEmailData = {
   },
 }
 
+const GIFT_ORDER: OrderEmailData = {
+  ...NGN_ORDER,
+  orderNumber: 'ORD-3003',
+  isGift: true,
+  giftRecipientName: 'Adaeze',
+  shippingAddress: {
+    line1: '14 Adeola Odeku Street',
+    line2: 'Victoria Island',
+    city: 'Lagos',
+    state: 'Lagos',
+    country: 'Nigeria',
+    postalCode: '101241',
+  },
+}
+
 describe('orderConfirmationEmail', () => {
   it('subject contains the order number', () => {
     const { subject } = orderConfirmationEmail(NGN_ORDER)
@@ -96,6 +112,27 @@ describe('orderConfirmationEmail', () => {
     expect(html).toContain('Tom &amp; Jerry')
     expect(html).toContain('S&amp;M &quot;special&quot;')
   })
+
+  it('a NON-gift order still renders the full address block byte-for-byte', () => {
+    const { html } = orderConfirmationEmail(NGN_ORDER)
+    expect(html).toContain(
+      '<p style="margin: 0; font-size: 13px; line-height: 1.6; color: #78716c;">\n      12 Admiralty Way<br />Lekki Phase 1<br />Lagos, Lagos<br />Nigeria\n    </p>',
+    )
+    expect(html).toContain('Shipping to')
+    expect(html).not.toContain('Gift for')
+  })
+
+  it('a GIFT order redacts the recipient address to name + city/state/country only', () => {
+    const { html } = orderConfirmationEmail(GIFT_ORDER)
+
+    expect(html).toContain('Adaeze')
+    expect(html).toContain('Lagos')
+    expect(html).not.toContain('14 Adeola Odeku Street')
+    expect(html).not.toContain('Victoria Island')
+    expect(html).not.toContain('101241')
+    expect(html).toContain('Gift for')
+    expect(html).not.toContain('Shipping to')
+  })
 })
 
 describe('orderShippedEmail', () => {
@@ -134,6 +171,28 @@ describe('orderShippedEmail', () => {
     expect(html).not.toContain('<script>alert(1)</script>')
     expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
     expect(html).not.toContain('<img src=x onerror=alert(1)>')
+  })
+
+  it('a NON-gift order still renders the full address block byte-for-byte', () => {
+    const { html } = orderShippedEmail(SHIPPED)
+    expect(html).toContain(
+      '<p style="margin: 0; font-size: 13px; line-height: 1.6; color: #78716c;">\n      12 Admiralty Way<br />Lekki Phase 1<br />Lagos, Lagos<br />Nigeria\n    </p>',
+    )
+    expect(html).toContain('Shipping to')
+    expect(html).not.toContain('Gift for')
+  })
+
+  it('a GIFT order redacts the recipient address to name + city/state/country only', () => {
+    const shippedGift = { ...GIFT_ORDER, carrier: 'DHL Express', trackingNumber: 'DHL123456789' }
+    const { html } = orderShippedEmail(shippedGift)
+
+    expect(html).toContain('Adaeze')
+    expect(html).toContain('Lagos')
+    expect(html).not.toContain('14 Adeola Odeku Street')
+    expect(html).not.toContain('Victoria Island')
+    expect(html).not.toContain('101241')
+    expect(html).toContain('Gift for')
+    expect(html).not.toContain('Shipping to')
   })
 })
 

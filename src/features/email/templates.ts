@@ -18,7 +18,20 @@ export interface OrderEmailData {
   shippingMinor: number
   taxMinor: number
   totalMinor: number
-  shippingAddress: { line1: string; line2?: string; city: string; state: string; country: string }
+  shippingAddress: {
+    line1: string
+    line2?: string
+    city: string
+    state: string
+    country: string
+    postalCode?: string
+  }
+  // Phase 10c gift purchasing. A gift order's confirmation/shipped email goes
+  // to the BUYER, not the recipient — see `recipientBlock` below for why
+  // `giftRecipientName` (first name only) is the only piece of the
+  // recipient's identity this module is allowed to show them.
+  isGift: boolean
+  giftRecipientName?: string
 }
 
 const INK = '#1c1917'
@@ -104,6 +117,23 @@ function addressBlock(address: OrderEmailData['shippingAddress']): string {
     </p>`
 }
 
+/**
+ * Buyer-facing recipient block. For a GIFT the buyer must never see where the
+ * parcel is going beyond locality — this email goes to the person who paid,
+ * not the person receiving. First name + city/state/country only: no street,
+ * no line2, no postal code. (Phase 10c; without this the confirmation email
+ * would disclose the recipient's home address to whoever bought the gift.)
+ */
+function recipientBlock(data: OrderEmailData): string {
+  if (!data.isGift) return addressBlock(data.shippingAddress)
+  const a = data.shippingAddress
+  const parts = [data.giftRecipientName ?? 'Your recipient', `${a.city}, ${a.state}`, a.country]
+  return `
+    <p style="margin: 0; font-size: 13px; line-height: 1.6; color: ${MUTED};">
+      ${parts.map((line) => escapeHtml(line)).join('<br />')}
+    </p>`
+}
+
 /** A plain `<a>` styled as a button — email clients strip `<button>` and most JS, so this is the only reliable CTA. */
 function button(href: string, label: string): string {
   return `
@@ -171,8 +201,8 @@ export function orderConfirmationEmail(data: OrderEmailData): { subject: string;
     <p style="margin: 0 0 16px 0; font-size: 13px; color: ${MUTED};">Order <strong style="color: ${INK};">${orderNumber}</strong></p>
     ${lineItemsTable(data.lines, currency)}
     ${totalsTable(data, currency)}
-    <p style="margin: 24px 0 4px 0; font-size: 13px; font-weight: bold; color: ${INK};">Shipping to</p>
-    ${addressBlock(data.shippingAddress)}
+    <p style="margin: 24px 0 4px 0; font-size: 13px; font-weight: bold; color: ${INK};">${data.isGift ? 'Gift for' : 'Shipping to'}</p>
+    ${recipientBlock(data)}
     ${button(orderUrl, 'View your order')}
   `
 
@@ -208,8 +238,8 @@ export function orderShippedEmail(
     </table>
     ${lineItemsTable(data.lines, currency)}
     ${totalsTable(data, currency)}
-    <p style="margin: 24px 0 4px 0; font-size: 13px; font-weight: bold; color: ${INK};">Shipping to</p>
-    ${addressBlock(data.shippingAddress)}
+    <p style="margin: 24px 0 4px 0; font-size: 13px; font-weight: bold; color: ${INK};">${data.isGift ? 'Gift for' : 'Shipping to'}</p>
+    ${recipientBlock(data)}
     ${button(orderUrl, 'View your order')}
   `
 

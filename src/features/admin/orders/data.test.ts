@@ -39,6 +39,7 @@ describe('listAdminOrders', () => {
       totalMinor: number
       currency: string
       paidAt: Date
+      isGift: boolean
     }> = [
       {
         orderNumber: 'MSE-001',
@@ -48,6 +49,7 @@ describe('listAdminOrders', () => {
         totalMinor: 50000,
         currency: 'NGN',
         paidAt: new Date('2026-07-20'),
+        isGift: false,
       },
     ]
     order.findMany.mockResolvedValue(mockOrders)
@@ -68,6 +70,7 @@ describe('listAdminOrders', () => {
         totalMinor: true,
         currency: true,
         paidAt: true,
+        isGift: true,
       },
     })
     expect(order.count).toHaveBeenCalledWith({ where: {} })
@@ -83,7 +86,29 @@ describe('listAdminOrders', () => {
       totalMinor: 50000,
       currency: 'NGN',
       paid: true,
+      isGift: false,
     })
+  })
+
+  it('surfaces isGift: true for a gift order', async () => {
+    const mockOrders = [
+      {
+        orderNumber: 'MSE-004',
+        placedAt: new Date('2026-07-20'),
+        email: 'buyer@test.com',
+        status: 'PENDING',
+        totalMinor: 50000,
+        currency: 'NGN',
+        paidAt: null,
+        isGift: true,
+      },
+    ]
+    order.findMany.mockResolvedValue(mockOrders)
+    order.count.mockResolvedValue(1)
+
+    const result = await listAdminOrders({})
+
+    expect(result.orders[0].isGift).toBe(true)
   })
 
   it('returns paid: false when paidAt is null', async () => {
@@ -391,6 +416,8 @@ describe('getAdminOrder', () => {
       deliveredAt: new Date('2026-07-25T14:00:00Z'),
       cancelledAt: null,
       shipbubbleOrderId: 'sb_123456',
+      isGift: false,
+      giftRecipientName: null,
     }
     order.findUnique.mockResolvedValue(mockOrderRow)
 
@@ -408,6 +435,53 @@ describe('getAdminOrder', () => {
     expect(result?.deliveredAt).toBe('2026-07-25T14:00:00.000Z')
     expect(result?.cancelledAt).toBeNull()
     expect(result?.shipbubbleOrderId).toBe('sb_123456')
+    expect(result?.isGift).toBe(false)
+    expect(result?.giftRecipientName).toBeNull()
+  })
+
+  it('surfaces isGift: true and giftRecipientName for a gift order — the admin still sees the full address, but is flagged to ship it as a gift', async () => {
+    const mockOrderRow = {
+      orderNumber: 'MSE-1c',
+      email: 'buyer@example.com',
+      status: 'PROCESSING',
+      placedAt: new Date('2026-07-20'),
+      shipFullName: 'Adaeze Okafor',
+      shipPhone: '+234123456789',
+      shipLine1: '14 Adeola Odeku Street',
+      shipLine2: null,
+      shipCity: 'Lagos',
+      shipState: 'Lagos',
+      shipCountry: 'NG',
+      shipPostalCode: '101241',
+      shippingLabel: 'Standard',
+      currency: 'NGN',
+      subtotalMinor: 45000,
+      shippingMinor: 2000,
+      taxMinor: 3000,
+      totalMinor: 50000,
+      lines: [],
+      trackingCarrier: null,
+      trackingNumber: null,
+      paidAt: null,
+      paystackReference: null,
+      refundOwed: false,
+      refundedAt: null,
+      refundReference: null,
+      shippedAt: null,
+      deliveredAt: null,
+      cancelledAt: null,
+      shipbubbleOrderId: null,
+      isGift: true,
+      giftRecipientName: 'Adaeze',
+    }
+    order.findUnique.mockResolvedValue(mockOrderRow)
+
+    const result = await getAdminOrder('MSE-1c')
+
+    expect(result?.isGift).toBe(true)
+    expect(result?.giftRecipientName).toBe('Adaeze')
+    // the admin detail keeps the FULL address — they have to ship it
+    expect(result?.address.line1).toBe('14 Adeola Odeku Street')
   })
 
   it('surfaces refundedAt/refundReference once the refund has been recorded', async () => {

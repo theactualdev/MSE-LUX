@@ -62,6 +62,8 @@ function baseOrder(overrides: Record<string, unknown> = {}) {
     shipCountry: 'NG',
     trackingCarrier: 'GIG',
     trackingNumber: 'TRK-1',
+    isGift: false,
+    giftRecipientName: null,
     lines: [
       { productName: 'Gold Ring', variantLabel: 'Size 7', quantity: 1, lineTotalMinor: 25_000 },
       { productName: 'Silver Chain', variantLabel: null, quantity: 2, lineTotalMinor: 15_000 },
@@ -89,6 +91,8 @@ const EXPECTED_EMAIL_DATA = {
     state: 'Lagos',
     country: 'NG',
   },
+  isGift: false,
+  giftRecipientName: undefined,
 }
 
 describe('sendOrderConfirmation', () => {
@@ -116,6 +120,18 @@ describe('sendOrderConfirmation', () => {
       to: EMAIL,
       subject: CONFIRMATION_TEMPLATE.subject,
       html: CONFIRMATION_TEMPLATE.html,
+    })
+  })
+
+  it('maps isGift/giftRecipientName from the order row exactly', async () => {
+    order.findUnique.mockResolvedValue(baseOrder({ isGift: true, giftRecipientName: 'Adaeze' }))
+
+    await sendOrderConfirmation(ORDER_NUMBER)
+
+    expect(orderConfirmationEmailMock).toHaveBeenCalledWith({
+      ...EXPECTED_EMAIL_DATA,
+      isGift: true,
+      giftRecipientName: 'Adaeze',
     })
   })
 

@@ -42,6 +42,8 @@ interface OrderRowForEmail {
   shipCountry: string
   trackingCarrier: string | null
   trackingNumber: string | null
+  isGift: boolean
+  giftRecipientName: string | null
   lines: OrderLineRowForEmail[]
 }
 
@@ -68,6 +70,8 @@ function toEmailData(order: OrderRowForEmail): OrderEmailData {
       state: order.shipState,
       country: order.shipCountry,
     },
+    isGift: order.isGift,
+    giftRecipientName: order.giftRecipientName ?? undefined,
   }
 }
 

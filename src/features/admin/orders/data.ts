@@ -24,6 +24,7 @@ export interface AdminOrderListItem {
   totalMinor: number
   currency: string
   paid: boolean
+  isGift: boolean
 }
 
 export interface ListAdminOrdersInput {
@@ -51,6 +52,8 @@ export type AdminOrderDetail = OrderView & {
   deliveredAt: string | null
   cancelledAt: string | null
   shipbubbleOrderId: string | null
+  isGift: boolean
+  giftRecipientName: string | null
 }
 
 /**
@@ -113,6 +116,7 @@ export async function listAdminOrders(input: ListAdminOrdersInput = {}): Promise
         totalMinor: true,
         currency: true,
         paidAt: true,
+        isGift: true,
       },
     }),
     db.order.count({ where }),
@@ -127,6 +131,7 @@ export async function listAdminOrders(input: ListAdminOrdersInput = {}): Promise
     totalMinor: row.totalMinor,
     currency: row.currency,
     paid: row.paidAt !== null,
+    isGift: row.isGift,
   }))
 
   // Calculate page count
@@ -179,5 +184,7 @@ export async function getAdminOrder(orderNumber: string): Promise<AdminOrderDeta
     deliveredAt: row.deliveredAt?.toISOString() ?? null,
     cancelledAt: row.cancelledAt?.toISOString() ?? null,
     shipbubbleOrderId: row.shipbubbleOrderId ?? null,
+    isGift: row.isGift,
+    giftRecipientName: row.giftRecipientName ?? null,
   }
 }
