@@ -166,11 +166,13 @@ const SHIPPING_QUOTE_SECRET = 'test-shipping-quote-secret'
  * token for the negative-path tests.
  */
 function validShippingToken(overrides: { amountMinor?: number; currency?: 'NGN' | 'USD'; label?: string; exp?: number; address?: Address } = {}) {
+  const salt = 'fixed-test-salt'
   return signQuote({
     label: overrides.label ?? 'Lagos delivery',
     amountMinor: overrides.amountMinor ?? 250_000,
     currency: overrides.currency ?? 'NGN',
-    addressHash: addressHash(overrides.address ?? ADDRESS),
+    addressHash: addressHash(overrides.address ?? ADDRESS, salt),
+    salt,
     exp: overrides.exp ?? Date.now() + 60_000,
   })
 }
@@ -457,7 +459,8 @@ describe('placeOrder — guest checkout', () => {
   it('rejects a tampered shipping token (payload edited without re-signing) without writing an order', async () => {
     const token = validShippingToken()
     const [body, sig] = token.split('.')
-    const tamperedPayload = { label: 'Lagos delivery', amountMinor: 1, currency: 'NGN', addressHash: addressHash(ADDRESS), exp: Date.now() + 60_000 }
+    const tamperedSalt = 'fixed-test-salt'
+    const tamperedPayload = { label: 'Lagos delivery', amountMinor: 1, currency: 'NGN', addressHash: addressHash(ADDRESS, tamperedSalt), salt: tamperedSalt, exp: Date.now() + 60_000 }
     const tamperedBody = Buffer.from(JSON.stringify(tamperedPayload)).toString('base64url')
     const tamperedToken = `${tamperedBody}.${sig}`
     expect(tamperedBody).not.toBe(body) // sanity: the body really changed

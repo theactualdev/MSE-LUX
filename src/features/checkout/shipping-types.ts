@@ -11,6 +11,13 @@ export interface ShippingQuotePayload {
   amountMinor: number
   currency: 'NGN' | 'USD'
   addressHash: string
+  /**
+   * A random per-quote salt (`newQuoteSalt()`, `lib/shipping-quote.ts`) mixed
+   * into `addressHash` so a hash is only meaningful alongside the salt that
+   * produced it — see that file's docblock for why this closes the
+   * online-oracle hole a keyed-but-unsalted digest still left open.
+   */
+  salt: string
   exp: number // epoch ms
 }
 

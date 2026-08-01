@@ -109,11 +109,13 @@ const P1: Product = {
 }
 
 function quoteFor(address: Address, currency: 'NGN' | 'USD' = 'NGN', amountMinor = 250_000): string {
+  const salt = 'fixed-test-salt'
   return signQuote({
     label: 'Standard',
     amountMinor,
     currency,
-    addressHash: addressHash(address),
+    addressHash: addressHash(address, salt),
+    salt,
     exp: Date.now() + 60_000,
   })
 }
@@ -351,11 +353,13 @@ describe('the shipping quote is the integrity check', () => {
   })
 
   it('refuses an expired token', async () => {
+    const expiredSalt = 'fixed-test-salt'
     const expired = signQuote({
       label: 'Standard',
       amountMinor: 250_000,
       currency: 'NGN',
-      addressHash: addressHash(OWNER_AS_ADDRESS),
+      addressHash: addressHash(OWNER_AS_ADDRESS, expiredSalt),
+      salt: expiredSalt,
       exp: Date.now() - 1,
     })
 

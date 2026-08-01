@@ -4,7 +4,7 @@ import { db } from '@/lib/db'
 import { getCurrentUserId } from '@/features/auth/claims'
 import { resolveProductsByIds } from '@/features/catalog/server/resolve-products'
 import { validateAddress, fetchRates } from '@/features/checkout/lib/shipbubble'
-import { signQuote, addressHash } from '@/features/checkout/lib/shipping-quote'
+import { signQuote, addressHash, newQuoteSalt } from '@/features/checkout/lib/shipping-quote'
 import { serverChargeCurrency } from '@/features/currency/lib/charge-currency-server'
 import { checkRateLimit } from '@/lib/rate-limit'
 import {
@@ -113,17 +113,26 @@ function aggregateRawLines(rawLines: GuestOrderLine[]): GuestOrderLine[] {
   return Array.from(byKey.values())
 }
 
-/** Signs a `{ label, amountMinor, currency, addressHash, exp }` payload into a full `ShippingOption`. */
+/**
+ * Signs a `{ label, amountMinor, currency, addressHash, salt, exp }` payload
+ * into a full `ShippingOption`. `hash` and `salt` MUST be the exact pair
+ * produced together by one `addressHash(address, salt)` call — every call
+ * site below mints its salt with `newQuoteSalt()` immediately before hashing,
+ * precisely so the salt threaded into the payload here is the same one the
+ * hash was computed under (see `shipping-quote.ts`'s docblock for why a
+ * mismatched pair would defeat the salt's whole purpose).
+ */
 function toOption(
   id: string,
   label: string,
   amountMinor: number,
   currency: 'NGN' | 'USD',
   hash: string,
+  salt: string,
   deliveryEta?: string,
 ): ShippingOption {
   const exp = Date.now() + QUOTE_TTL_MS
-  const token = signQuote({ label, amountMinor, currency, addressHash: hash, exp })
+  const token = signQuote({ label, amountMinor, currency, addressHash: hash, salt, exp })
   return { id, label, amountMinor, currency, deliveryEta, token }
 }
 
@@ -145,17 +154,27 @@ function tomorrowIsoDate(): string {
  * fallback option can always be built (and later re-verified with
  * `verifyQuote`) without risking a second throw while we're already handling
  * the first one.
+ *
+ * Returns the hash TOGETHER WITH the salt it was computed under — `salt` is
+ * generated fresh right here with `newQuoteSalt()` — so the caller has the
+ * exact pair `toOption` needs; it can never accidentally sign a hash against
+ * a different salt than the one that produced it.
  */
-function safeAddressHash(address: unknown): string {
+function safeAddressHash(address: unknown): { hash: string; salt: string } {
   const src = address && typeof address === 'object' ? (address as Record<string, unknown>) : {}
   const str = (value: unknown) => (typeof value === 'string' ? value : '')
-  return addressHash({
-    line1: str(src.line1),
-    city: str(src.city),
-    state: str(src.state),
-    country: str(src.country),
-    postalCode: str(src.postalCode),
-  } as Address)
+  const salt = newQuoteSalt()
+  const hash = addressHash(
+    {
+      line1: str(src.line1),
+      city: str(src.city),
+      state: str(src.state),
+      country: str(src.country),
+      postalCode: str(src.postalCode),
+    } as Address,
+    salt,
+  )
+  return { hash, salt }
 }
 
 /**
@@ -166,9 +185,9 @@ function safeAddressHash(address: unknown): string {
  * `placeOrder`'s own `addressSchema.safeParse` before anything is charged.
  */
 function guardFallbackOption(address: unknown, chargeCurrency: unknown): ShippingOption {
-  const hash = safeAddressHash(address)
+  const { hash, salt } = safeAddressHash(address)
   const fallback = chargeCurrency === 'USD' ? FLAT_FALLBACK_USD : FLAT_FALLBACK_NGN
-  return toOption('fallback', fallback.label, fallback.amountMinor, fallback.currency, hash, fallback.deliveryEta)
+  return toOption('fallback', fallback.label, fallback.amountMinor, fallback.currency, hash, salt, fallback.deliveryEta)
 }
 
 /**
@@ -300,7 +319,8 @@ export async function getShippingRates(input: {
       const parsedForLimit = addressSchema.safeParse(safeInput.address)
       if (parsedForLimit.success && (chargeCurrency !== 'NGN' || !isNigeria(parsedForLimit.data.country))) {
         const flat = chargeCurrency === 'USD' ? FLAT_INTERNATIONAL_USD : FLAT_INTERNATIONAL_NGN
-        const limitHash = addressHash(parsedForLimit.data)
+        const limitSalt = newQuoteSalt()
+        const limitHash = addressHash(parsedForLimit.data, limitSalt)
         return [
           toOption(
             'international',
@@ -308,6 +328,7 @@ export async function getShippingRates(input: {
             flat.amountMinor,
             flat.currency,
             limitHash,
+            limitSalt,
             flat.deliveryEta,
           ),
         ]
@@ -327,7 +348,8 @@ export async function getShippingRates(input: {
 
     const address = parsedAddress.data
     const { email, guestLines, lines } = safeInput
-    const hash = addressHash(address)
+    const salt = newQuoteSalt()
+    const hash = addressHash(address, salt)
     const nigeria = isNigeria(address.country)
 
     // ShipBubble only ever quotes in NGN, so live rates can only be offered
@@ -337,7 +359,7 @@ export async function getShippingRates(input: {
     // no ShipBubble call, no FX.
     if (chargeCurrency !== 'NGN' || !nigeria) {
       const flat = chargeCurrency === 'USD' ? FLAT_INTERNATIONAL_USD : FLAT_INTERNATIONAL_NGN
-      return [toOption('international', flat.label, flat.amountMinor, flat.currency, hash, flat.deliveryEta)]
+      return [toOption('international', flat.label, flat.amountMinor, flat.currency, hash, salt, flat.deliveryEta)]
     }
 
     try {
@@ -415,13 +437,13 @@ export async function getShippingRates(input: {
       // every option is forced to NGN — the branch invariant — regardless of
       // whatever currency ShipBubble's response happens to label the rate
       // with (it's always NGN in practice for a NG receiver).
-      return rates.map((rate) => toOption(`${rate.courierId}:${rate.serviceCode}`, rate.label, rate.amountMinor, 'NGN', hash, rate.deliveryEta))
+      return rates.map((rate) => toOption(`${rate.courierId}:${rate.serviceCode}`, rate.label, rate.amountMinor, 'NGN', hash, salt, rate.deliveryEta))
     } catch (error) {
       // Never block checkout on a ShipBubble outage / bad config / unvalidatable
       // address / empty courier list — fall back to the flat NGN rate (this
       // branch is only reached when charging NGN to a Nigerian address).
       console.error('getShippingRates: ShipBubble path failed, falling back to a flat rate', error)
-      return [toOption('fallback', FLAT_FALLBACK_NGN.label, FLAT_FALLBACK_NGN.amountMinor, FLAT_FALLBACK_NGN.currency, hash, FLAT_FALLBACK_NGN.deliveryEta)]
+      return [toOption('fallback', FLAT_FALLBACK_NGN.label, FLAT_FALLBACK_NGN.amountMinor, FLAT_FALLBACK_NGN.currency, hash, salt, FLAT_FALLBACK_NGN.deliveryEta)]
     }
   } catch (error) {
     // Top-level safety net: `getShippingRates` must NEVER throw — it's a

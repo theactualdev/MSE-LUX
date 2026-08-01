@@ -7,7 +7,7 @@ beforeEach(() => {
   process.env.SHIPBUBBLE_QUOTE_SECRET = 'test-secret'
 })
 
-const { addressHash, signQuote, verifyQuote } = await import('@/features/checkout/lib/shipping-quote')
+const { addressHash, newQuoteSalt, signQuote, verifyQuote } = await import('@/features/checkout/lib/shipping-quote')
 
 const address: Address = {
   fullName: 'Ada Lovelace',
@@ -20,12 +20,15 @@ const address: Address = {
   postalCode: '101241',
 }
 
+const SALT = 'fixed-test-salt'
+
 function makePayload(overrides: Partial<ShippingQuotePayload> = {}): ShippingQuotePayload {
   return {
     label: 'GIG Logistics — Express',
     amountMinor: 350_000,
     currency: 'NGN' as const,
-    addressHash: addressHash(address),
+    addressHash: addressHash(address, overrides.salt ?? SALT),
+    salt: SALT,
     exp: Date.now() + 30 * 60 * 1000,
     ...overrides,
   }
@@ -46,7 +49,7 @@ describe('addressHash', () => {
       postalCode: ' 101241 ',
     }
 
-    expect(addressHash(a)).toBe(addressHash(b))
+    expect(addressHash(a, SALT)).toBe(addressHash(b, SALT))
   })
 
   it('treats a missing postalCode/line2 as empty string (not undefined)', () => {
@@ -54,27 +57,31 @@ describe('addressHash', () => {
     const withoutPostal: Address = { ...address }
     delete (withoutPostal as { postalCode?: string }).postalCode
 
-    expect(addressHash(withEmptyPostal)).toBe(addressHash(withoutPostal))
+    expect(addressHash(withEmptyPostal, SALT)).toBe(addressHash(withoutPostal, SALT))
   })
 
   it('produces a different hash when line1 differs', () => {
-    expect(addressHash(address)).not.toBe(addressHash({ ...address, line1: '99 Different Street' }))
+    expect(addressHash(address, SALT)).not.toBe(addressHash({ ...address, line1: '99 Different Street' }, SALT))
   })
 
   it('produces a different hash when city differs', () => {
-    expect(addressHash(address)).not.toBe(addressHash({ ...address, city: 'Lekki' }))
+    expect(addressHash(address, SALT)).not.toBe(addressHash({ ...address, city: 'Lekki' }, SALT))
   })
 
   it('produces a different hash when state differs', () => {
-    expect(addressHash(address)).not.toBe(addressHash({ ...address, state: 'Ogun' }))
+    expect(addressHash(address, SALT)).not.toBe(addressHash({ ...address, state: 'Ogun' }, SALT))
   })
 
   it('produces a different hash when country differs', () => {
-    expect(addressHash(address)).not.toBe(addressHash({ ...address, country: 'Ghana' }))
+    expect(addressHash(address, SALT)).not.toBe(addressHash({ ...address, country: 'Ghana' }, SALT))
   })
 
   it('produces a different hash when postalCode differs', () => {
-    expect(addressHash(address)).not.toBe(addressHash({ ...address, postalCode: '900001' }))
+    expect(addressHash(address, SALT)).not.toBe(addressHash({ ...address, postalCode: '900001' }, SALT))
+  })
+
+  it('produces a different hash when the salt differs, for the SAME address', () => {
+    expect(addressHash(address, SALT)).not.toBe(addressHash(address, 'a-different-salt'))
   })
 
   // Phase 10c fix: this digest travels inside the quote token, whose payload
@@ -83,30 +90,58 @@ describe('addressHash', () => {
   // brute-forceable `line1`/`postalCode` and recovering the exact address the
   // feature exists to hide. It is now keyed with SHIPBUBBLE_QUOTE_SECRET.
   it('is KEYED: the same address hashes differently under a different secret', () => {
-    const underTestSecret = addressHash(address)
+    const underTestSecret = addressHash(address, SALT)
 
     process.env.SHIPBUBBLE_QUOTE_SECRET = 'a-completely-different-secret'
-    expect(addressHash(address)).not.toBe(underTestSecret)
+    expect(addressHash(address, SALT)).not.toBe(underTestSecret)
 
     // ...and is stable again once the original secret is restored.
     process.env.SHIPBUBBLE_QUOTE_SECRET = 'test-secret'
-    expect(addressHash(address)).toBe(underTestSecret)
+    expect(addressHash(address, SALT)).toBe(underTestSecret)
   })
 
   it('is not the plain unsalted SHA-256 of the joined fields (the pre-fix oracle)', () => {
-    const joined = ['12 adeola odeku street', 'victoria island', 'lagos', 'nigeria', '101241'].join('|')
+    const joined = [SALT, '12 adeola odeku street', 'victoria island', 'lagos', 'nigeria', '101241'].join('|')
     const unsalted = createHash('sha256').update(joined).digest('hex')
 
     // Sanity: that IS the exact string the digest is taken over...
-    expect(createHmac('sha256', 'test-secret').update(joined).digest('hex')).toBe(addressHash(address))
+    expect(createHmac('sha256', 'test-secret').update(joined).digest('hex')).toBe(addressHash(address, SALT))
     // ...and the unkeyed digest of it no longer matches, so a candidate
     // address can't be tested without the secret.
-    expect(addressHash(address)).not.toBe(unsalted)
+    expect(addressHash(address, SALT)).not.toBe(unsalted)
   })
 
   it('throws on a missing SHIPBUBBLE_QUOTE_SECRET, like every other function here', () => {
     delete process.env.SHIPBUBBLE_QUOTE_SECRET
-    expect(() => addressHash(address)).toThrow(/SHIPBUBBLE_QUOTE_SECRET/)
+    expect(() => addressHash(address, SALT)).toThrow(/SHIPBUBBLE_QUOTE_SECRET/)
+  })
+
+  // THE REGRESSION GUARD for the online-oracle fix: `getShippingRates` is a
+  // public Server Action, so keying alone (the earlier fix) wasn't enough — a
+  // caller holding a genuine token could mint their OWN token for a candidate
+  // address and compare its `addressHash` against the one they already hold.
+  // A random per-quote salt closes that: two tokens signed for the SAME
+  // address must carry different salts and different hashes, yet each must
+  // still verify against that address. If someone later removes the salt
+  // (e.g. reverts to a fixed/shared salt), the two hashes below collapse to
+  // the same value and this test fails.
+  it('two tokens signed for the same address carry different salts and different hashes, and each still verifies', () => {
+    const saltA = newQuoteSalt()
+    const saltB = newQuoteSalt()
+    expect(saltA).not.toBe(saltB)
+
+    const hashA = addressHash(address, saltA)
+    const hashB = addressHash(address, saltB)
+    expect(hashA).not.toBe(hashB)
+
+    const payloadA = makePayload({ addressHash: hashA, salt: saltA })
+    const payloadB = makePayload({ addressHash: hashB, salt: saltB })
+
+    const tokenA = signQuote(payloadA)
+    const tokenB = signQuote(payloadB)
+
+    expect(verifyQuote(tokenA, address)).toEqual(payloadA)
+    expect(verifyQuote(tokenB, address)).toEqual(payloadB)
   })
 })
 
