@@ -21,16 +21,42 @@ function requireSecret(): string {
 }
 
 /**
- * A stable SHA-256 hex over the normalized destination fields that matter for
- * a shipping quote — `line1|city|state|country|postalCode`, each trimmed and
- * lowercased (a missing `postalCode`/`line2` normalizes to `''`). Deliberately
- * excludes `fullName`/`phone`/`line2`: a quote is bound to the delivery
- * location, and those don't change the rate.
+ * A stable KEYED (HMAC-SHA256) digest over the normalized destination fields
+ * that matter for a shipping quote — `line1|city|state|country|postalCode`,
+ * each trimmed and lowercased (a missing `postalCode`/`line2` normalizes to
+ * `''`). Deliberately excludes `fullName`/`phone`/`line2`: a quote is bound to
+ * the delivery location, and those don't change the rate.
+ *
+ * WHY KEYED RATHER THAN A PLAIN `createHash` (Phase 10c fix): this digest is
+ * embedded in the quote token's payload, and that payload is plain
+ * base64url — the buyer's browser holds it and can read it. An UNSALTED
+ * SHA-256 is therefore an offline oracle for the address it commits to. That
+ * is fatal on the gift flow specifically: the buyer is TOLD the recipient's
+ * city/state/country by design, so only `line1` and `postalCode` are unknown
+ * and a candidate list from public street data is small enough to hash
+ * exhaustively — recovering the exact address this whole feature exists to
+ * hide. Keying the digest with `SHIPBUBBLE_QUOTE_SECRET` (the same secret
+ * `signQuote` uses; there is only one) removes the oracle: without the secret
+ * no candidate can be tested at all. The verification property is unchanged —
+ * `verifyQuote` recomputes this on the server, where the secret is available.
+ *
+ * CONSEQUENCE: changing the digest INVALIDATES in-flight quote tokens. That is
+ * acceptable — the TTL is 30 minutes, so the window is small and self-healing
+ * (a stale token surfaces as the ordinary "quote expired, please try again"),
+ * and nothing persisted depends on it: `addressHash` is never written to a
+ * column, it only ever lives inside a token.
+ *
+ * A missing `SHIPBUBBLE_QUOTE_SECRET` now throws here as it already did in
+ * `signQuote`/`verifyQuote` — a server misconfiguration, not a bad input. See
+ * `shipping.ts`'s `hasQuoteSecret` guard: every path in `getShippingRates`
+ * that reaches this function already had to survive `signQuote` throwing on
+ * the same missing secret, so this adds no new escape route.
  */
 export function addressHash(address: Address): string {
+  const secret = requireSecret()
   const normalize = (value: string | undefined) => (value ?? '').trim().toLowerCase()
   const parts = [address.line1, address.city, address.state, address.country, address.postalCode].map(normalize)
-  return crypto.createHash('sha256').update(parts.join('|')).digest('hex')
+  return crypto.createHmac('sha256', secret).update(parts.join('|')).digest('hex')
 }
 
 /**

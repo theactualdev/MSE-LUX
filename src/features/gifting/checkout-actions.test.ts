@@ -264,6 +264,47 @@ describe('THE SECURITY PROPERTY: the buyer never supplies the destination', () =
     expect(call.guestLines).toBeUndefined()
   })
 
+  // Phase 10c fix: `getShippingRates` SUMS the quantities of the lines it is
+  // handed, and `createGiftOrder` collapses duplicate selections — so before
+  // this fix a request repeating one productId 50 times (the schema's own cap)
+  // was quoted as a 50-unit package while the resulting order carried a single
+  // qty-1 line. The buyer paid the inflated shipping for a package that never
+  // existed. Quote and order must describe the same contents by construction.
+  it('collapses duplicate selections before quoting — 50 copies of one product quote a ONE-unit package', async () => {
+    const fifty = Array.from({ length: 50 }, () => ({ productId: 'p1', variantId: null }))
+
+    await getGiftShippingRates({
+      shareToken: 'tok',
+      selections: fifty,
+      email: 'buyer@example.com',
+      chargeCurrency: 'NGN',
+    })
+
+    expect(getShippingRates.mock.calls[0][0].lines).toEqual([{ productId: 'p1', variantId: undefined, quantity: 1 }])
+  })
+
+  it('dedupes per (productId, variantId) — distinct variants of one product stay distinct lines', async () => {
+    await getGiftShippingRates({
+      shareToken: 'tok',
+      selections: [
+        { productId: 'p1', variantId: 'v1' },
+        { productId: 'p1', variantId: 'v1' },
+        { productId: 'p1', variantId: 'v2' },
+        { productId: 'p1', variantId: null },
+        { productId: 'p2', variantId: null },
+      ],
+      email: 'buyer@example.com',
+      chargeCurrency: 'NGN',
+    })
+
+    expect(getShippingRates.mock.calls[0][0].lines).toEqual([
+      { productId: 'p1', variantId: 'v1', quantity: 1 },
+      { productId: 'p1', variantId: 'v2', quantity: 1 },
+      { productId: 'p1', variantId: undefined, quantity: 1 },
+      { productId: 'p2', variantId: undefined, quantity: 1 },
+    ])
+  })
+
   it('getGiftShippingRates returns no options when nothing selected is on the list', async () => {
     const options = await getGiftShippingRates({
       shareToken: 'tok',

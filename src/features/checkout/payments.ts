@@ -48,22 +48,52 @@ function generateReference(orderNumber: string): string {
 }
 
 /**
- * Loads the order for `orderNumber`, scoped to the caller. A signed-in caller
- * only sees their own orders (`profileId: userId`). A guest (`userId` null)
- * has no profile, so `profileId: null` alone matches EVERY guest order — that
- * would let an anonymous caller enumerate order numbers and pay for (take
- * over) a stranger's order. So the guest path additionally requires the
- * httpOnly `mse_guest_order` cookie that `placeOrder` set to name THIS order:
- * a session-bound proof the caller is the one who placed it. Returns `null`
- * (indistinguishable from "not found") when the cookie doesn't match, so the
- * action never reveals whether an order number exists.
+ * Loads the order for `orderNumber`, scoped to the caller. There are TWO
+ * independent ownership claims, and either one is sufficient:
+ *
+ * 1. THE ACCOUNT CLAIM — a signed-in caller owns the orders stamped with
+ *    their `profileId`. Checked first because it's the ordinary path and
+ *    needs no cookie at all.
+ *
+ * 2. THE SESSION CLAIM — the httpOnly `mse_guest_order` cookie naming THIS
+ *    order number, set server-side at placement. This is the only claim a
+ *    guest can have (they have no profile), and `profileId: null` alone
+ *    matches EVERY profile-less order, so without the cookie an anonymous
+ *    caller could enumerate order numbers and pay for (take over) a
+ *    stranger's order. The cookie is the session-bound proof the caller is
+ *    the one who placed it.
+ *
+ * WHY THE SESSION CLAIM IS HONOURED FOR A SIGNED-IN CALLER TOO (Phase 10c):
+ * gift orders are created with `profileId: null` BY DESIGN (`gift-order.ts`
+ * rule 2 — an order stamped with the wishlist owner's profile would show up
+ * in their account and spoil the surprise), and the buyer may well be signed
+ * in. Restricting the cookie branch to `userId === null`, as this function
+ * did when only guest orders were profile-less, meant a signed-in gifter's
+ * lookup required `profileId === userId` and could never match the order they
+ * had just placed — no Paystack popup, an orphaned PENDING row. Honouring the
+ * cookie regardless of `userId` does not weaken the guest gate: the cookie is
+ * httpOnly and only ever set server-side at placement, so it is exactly the
+ * same proof it always was. It closes the seam between `profileId: null` gift
+ * orders and an ownership check that predates them.
+ *
+ * The cookie branch is deliberately scoped to `profileId: null` orders ONLY,
+ * so it can never become a way to claim ANOTHER account's order: a cookie
+ * naming an order that belongs to some other profile matches nothing here,
+ * and then fails the account claim too.
+ *
+ * Returns `null` (indistinguishable from "not found") whenever neither claim
+ * holds, so the action never reveals whether an order number exists.
  */
 async function loadOwnedOrder(orderNumber: string, userId: string | null) {
-  if (!userId) {
-    const cookieStore = await cookies()
-    if (cookieStore.get('mse_guest_order')?.value !== orderNumber) return null
+  if (userId) {
+    const owned = await db.order.findFirst({ where: { orderNumber, profileId: userId } })
+    if (owned) return owned
   }
-  return db.order.findFirst({ where: { orderNumber, profileId: userId } })
+
+  const cookieStore = await cookies()
+  if (cookieStore.get('mse_guest_order')?.value !== orderNumber) return null
+
+  return db.order.findFirst({ where: { orderNumber, profileId: null } })
 }
 
 /**

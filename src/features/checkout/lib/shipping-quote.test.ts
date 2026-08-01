@@ -1,3 +1,4 @@
+import { createHash, createHmac } from 'node:crypto'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { Address } from '@/features/checkout/schema'
 import type { ShippingQuotePayload } from '@/features/checkout/shipping-types'
@@ -74,6 +75,38 @@ describe('addressHash', () => {
 
   it('produces a different hash when postalCode differs', () => {
     expect(addressHash(address)).not.toBe(addressHash({ ...address, postalCode: '900001' }))
+  })
+
+  // Phase 10c fix: this digest travels inside the quote token, whose payload
+  // the buyer's browser can read. Unsalted, it was an offline oracle — and on
+  // the gift flow the buyer already knows city/state/country, leaving a
+  // brute-forceable `line1`/`postalCode` and recovering the exact address the
+  // feature exists to hide. It is now keyed with SHIPBUBBLE_QUOTE_SECRET.
+  it('is KEYED: the same address hashes differently under a different secret', () => {
+    const underTestSecret = addressHash(address)
+
+    process.env.SHIPBUBBLE_QUOTE_SECRET = 'a-completely-different-secret'
+    expect(addressHash(address)).not.toBe(underTestSecret)
+
+    // ...and is stable again once the original secret is restored.
+    process.env.SHIPBUBBLE_QUOTE_SECRET = 'test-secret'
+    expect(addressHash(address)).toBe(underTestSecret)
+  })
+
+  it('is not the plain unsalted SHA-256 of the joined fields (the pre-fix oracle)', () => {
+    const joined = ['12 adeola odeku street', 'victoria island', 'lagos', 'nigeria', '101241'].join('|')
+    const unsalted = createHash('sha256').update(joined).digest('hex')
+
+    // Sanity: that IS the exact string the digest is taken over...
+    expect(createHmac('sha256', 'test-secret').update(joined).digest('hex')).toBe(addressHash(address))
+    // ...and the unkeyed digest of it no longer matches, so a candidate
+    // address can't be tested without the secret.
+    expect(addressHash(address)).not.toBe(unsalted)
+  })
+
+  it('throws on a missing SHIPBUBBLE_QUOTE_SECRET, like every other function here', () => {
+    delete process.env.SHIPBUBBLE_QUOTE_SECRET
+    expect(() => addressHash(address)).toThrow(/SHIPBUBBLE_QUOTE_SECRET/)
   })
 })
 

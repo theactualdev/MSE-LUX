@@ -167,6 +167,93 @@ describe('initializePayment', () => {
     expect(initializeTransaction).not.toHaveBeenCalled()
   })
 
+  // Phase 10c fix: gift orders are written with `profileId: null` BY DESIGN
+  // (`gift-order.ts` rule 2 — the wishlist owner must never see the order),
+  // and the buyer is often SIGNED IN. The old ownership check only consulted
+  // the `mse_guest_order` cookie when `userId` was null, so a signed-in
+  // gifter's lookup required `profileId === userId` and could never match the
+  // order they had just placed: ORDER_NOT_FOUND, no Paystack popup, an
+  // orphaned PENDING row. The cookie is now a valid claim regardless of
+  // `userId` — but scoped to `profileId: null` orders only.
+  describe('the mse_guest_order cookie is a valid ownership claim for a SIGNED-IN caller too', () => {
+    /** Routes each `findFirst` by the `profileId` it scopes on, so a test can say exactly which row exists. */
+    function findFirstByProfile(rows: { own?: unknown; profileless?: unknown }) {
+      return async ({ where }: { where: { profileId: string | null } }) =>
+        (where.profileId === null ? rows.profileless : rows.own) ?? null
+    }
+
+    it('signed-in buyer WITH the matching cookie: loads the profileId-null gift order and pays for it', async () => {
+      getCurrentUserId.mockResolvedValue(USER_ID)
+      cookieStore.get.mockReturnValue({ value: ORDER_NUMBER })
+      order.findFirst.mockImplementation(findFirstByProfile({ profileless: baseOrder({ profileId: null }) }))
+      initializeTransaction.mockResolvedValue({ accessCode: 'access_gift', reference: 'generated-ref' })
+      order.update.mockResolvedValue(baseOrder({ profileId: null }))
+
+      const result = await initializePayment(ORDER_NUMBER)
+
+      expect(order.findFirst).toHaveBeenCalledWith({ where: { orderNumber: ORDER_NUMBER, profileId: null } })
+      expect(result).toEqual({ ok: true, accessCode: 'access_gift', publicKey: PUBLIC_KEY })
+      expect(initializeTransaction.mock.calls[0][0].amountMinor).toBe(787_500)
+    })
+
+    it('signed-in buyer WITHOUT the cookie: cannot load the profileId-null gift order', async () => {
+      getCurrentUserId.mockResolvedValue(USER_ID)
+      cookieStore.get.mockReturnValue(undefined)
+      order.findFirst.mockImplementation(findFirstByProfile({ profileless: baseOrder({ profileId: null }) }))
+
+      const result = await initializePayment(ORDER_NUMBER)
+
+      expect(result).toEqual({ error: expect.any(String) })
+      expect(order.findFirst).not.toHaveBeenCalledWith({ where: { orderNumber: ORDER_NUMBER, profileId: null } })
+      expect(initializeTransaction).not.toHaveBeenCalled()
+    })
+
+    it('signed-in user with NO cookie still loads their OWN (profileId: userId) order — the ordinary account path is untouched', async () => {
+      getCurrentUserId.mockResolvedValue(USER_ID)
+      cookieStore.get.mockReturnValue(undefined)
+      order.findFirst.mockImplementation(findFirstByProfile({ own: baseOrder() }))
+      initializeTransaction.mockResolvedValue({ accessCode: 'access_own', reference: 'generated-ref' })
+      order.update.mockResolvedValue(baseOrder())
+
+      const result = await initializePayment(ORDER_NUMBER)
+
+      expect(order.findFirst).toHaveBeenCalledWith({ where: { orderNumber: ORDER_NUMBER, profileId: USER_ID } })
+      expect(result).toEqual({ ok: true, accessCode: 'access_own', publicKey: PUBLIC_KEY })
+    })
+
+    // The reason the cookie branch is scoped to `profileId: null`: otherwise a
+    // stale/forged-looking cookie naming an order that belongs to ANOTHER
+    // signed-in account would become a way to take that order over.
+    it('signed-in user whose cookie names ANOTHER ACCOUNT\'S order: gets nothing — the cookie branch only ever matches profile-less orders', async () => {
+      const OTHER_USER_ID = '22222222-2222-4222-8222-222222222222'
+      getCurrentUserId.mockResolvedValue(USER_ID)
+      cookieStore.get.mockReturnValue({ value: ORDER_NUMBER })
+      // The row exists, but it belongs to someone else: neither
+      // `{ profileId: USER_ID }` nor `{ profileId: null }` can match it.
+      order.findFirst.mockImplementation(async ({ where }: { where: { profileId: string | null } }) =>
+        where.profileId === OTHER_USER_ID ? baseOrder({ profileId: OTHER_USER_ID }) : null,
+      )
+
+      const result = await initializePayment(ORDER_NUMBER)
+
+      expect(result).toEqual({ error: expect.any(String) })
+      expect(initializeTransaction).not.toHaveBeenCalled()
+      expect(order.update).not.toHaveBeenCalled()
+    })
+
+    it('guest with a WRONG cookie value still gets nothing (unchanged) — no DB query at all', async () => {
+      getCurrentUserId.mockResolvedValue(null)
+      cookieStore.get.mockReturnValue({ value: 'MSE-999999' })
+      order.findFirst.mockImplementation(findFirstByProfile({ profileless: baseOrder({ profileId: null }) }))
+
+      const result = await initializePayment(ORDER_NUMBER)
+
+      expect(result).toEqual({ error: expect.any(String) })
+      expect(order.findFirst).not.toHaveBeenCalled()
+      expect(initializeTransaction).not.toHaveBeenCalled()
+    })
+  })
+
   it('order not found: returns { error }, never calls initializeTransaction', async () => {
     getCurrentUserId.mockResolvedValue(USER_ID)
     order.findFirst.mockResolvedValue(null)

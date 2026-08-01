@@ -35,10 +35,16 @@ import type { ResolvedShare } from '@/features/gifting/share'
  * obtained from the ordinary checkout for their own home — cannot be spent on
  * a gift order.
  *
- * NEVER THROWS OUT: `getGiftShippingRates` degrades to `[]` (the gift
- * checkout UI treats that as "shipping unavailable", exactly as the ordinary
- * checkout does) and `placeGiftOrder` to a typed `{ ok: false, error }` with
- * fixed, non-leaking copy.
+ * EVERY EXPECTED FAILURE IS A TYPED RESULT, never a throw:
+ * `getGiftShippingRates` degrades to `[]` (the gift checkout UI treats that as
+ * "shipping unavailable", exactly as the ordinary checkout does) and
+ * `placeGiftOrder` to a typed `{ ok: false, error }` with fixed, non-leaking
+ * copy — including the misconfigured-server case where `verifyQuote` throws,
+ * which is caught explicitly below. A genuinely UNEXPECTED error still
+ * propagates (`createGiftOrder` rethrows an unrecognized DB error;
+ * `resolveShare` can throw on a DB failure) — deliberately, and exactly as
+ * `placeOrder` behaves: those are bugs or outages, not refusals, and
+ * swallowing them into "please try again" would hide them.
  */
 
 const selectionSchema = z.object({
@@ -85,17 +91,36 @@ function destinationOf(share: ResolvedShare): Address {
 }
 
 /**
- * Keeps only selections actually on the shared wishlist and turns them into
- * quantity-1 lines. `createGiftOrder` filters again against the same
- * `share.productIds` — this is not redundant: the two calls are independent
- * requests and the list can change between them, and neither function may
- * depend on the other having filtered.
+ * Keeps only selections actually on the shared wishlist, COLLAPSES DUPLICATES,
+ * and turns what's left into quantity-1 lines. `createGiftOrder` filters and
+ * collapses again against the same `share.productIds` — this is not redundant:
+ * the two calls are independent requests and the list can change between them,
+ * and neither function may depend on the other having done it.
+ *
+ * The dedupe uses the SAME `productId::variantId` map key as
+ * `gift-order.ts`'s `allowedSelections`, and that is the point: without it the
+ * two functions describe different packages for the same request. A crafted
+ * request repeating one productId 50 times (the schema's own cap) quoted a
+ * 50-unit package here, while `createGiftOrder` collapsed it to a single
+ * qty-1 line — so the buyer was charged the inflated shipping of a package the
+ * order never contained. Quote and order must agree by construction.
  */
 function giftLines(share: ResolvedShare, selections: z.infer<typeof selectionSchema>[]) {
   const onList = new Set(share.productIds)
-  return selections
-    .filter((selection) => onList.has(selection.productId))
-    .map((selection) => ({ productId: selection.productId, variantId: selection.variantId ?? undefined, quantity: 1 }))
+  const byKey = new Map<string, { productId: string; variantId: string | undefined; quantity: number }>()
+
+  for (const selection of selections) {
+    if (!onList.has(selection.productId)) continue
+    // Rule 3 (`gift-order.ts`): a wishlist has no quantity, so a repeated
+    // selection is ONE gift — quantity stays 1, it never adds up.
+    byKey.set(`${selection.productId}::${selection.variantId ?? ''}`, {
+      productId: selection.productId,
+      variantId: selection.variantId ?? undefined,
+      quantity: 1,
+    })
+  }
+
+  return Array.from(byKey.values())
 }
 
 export async function getGiftShippingRates(input: unknown): Promise<ShippingOption[]> {

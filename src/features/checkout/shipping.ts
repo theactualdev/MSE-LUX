@@ -58,6 +58,16 @@ import type { ShippingOption } from '@/features/checkout/shipping-types'
  * catch is where every throwing path in this function ultimately lands, so
  * guarding ONLY there is enough to keep the whole function's "never throws"
  * contract even when signing is impossible — see `hasQuoteSecret` below.
+ *
+ * Since Phase 10c `addressHash` is KEYED with that same secret (it was an
+ * unsalted digest, which made the token an offline oracle for the recipient's
+ * street address — see `shipping-quote.ts`), so it now throws on a missing
+ * secret too. That changes WHICH line throws first on an unconfigured server,
+ * never whether the throw is contained: every `addressHash` call site here is
+ * a place that would have thrown moments later at `signQuote` anyway, they all
+ * sit inside the top-level try, and the one call the top-level CATCH makes
+ * (`guardFallbackOption` -> `safeAddressHash`) is already behind the
+ * `hasQuoteSecret()` early-return AND inside that catch's own inner try.
  */
 
 /** Quote validity window — matches the plan's "e.g. 30 min" quote lifetime. */
