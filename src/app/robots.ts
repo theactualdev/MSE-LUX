@@ -39,6 +39,10 @@ export default function robots(): MetadataRoute.Robots {
         // AFTER that fetch runs — robots.txt is the layer that actually
         // stops a crawler from triggering the request in the first place.
         '/newsletter',
+        // Share links are private-by-obscurity (a 256-bit token, not a
+        // login) and must never be indexed or crawled — a crawler following
+        // a leaked link would surface someone else's gift wishlist.
+        '/wishlist/shared',
       ],
     },
     sitemap: `${SITE_URL}/sitemap.xml`,

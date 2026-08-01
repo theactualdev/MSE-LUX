@@ -36,6 +36,8 @@ describe('robots', () => {
       // The confirm/unsubscribe fetch is the side effect; robots.txt is
       // what stops a crawler from ever triggering it.
       '/newsletter',
+      // Share links are private-by-obscurity — never indexed or crawled.
+      '/wishlist/shared',
     ])
   })
 
