@@ -7,6 +7,7 @@ import { useServerWishlistStore } from '@/features/wishlist/server-wishlist-stor
 import { products } from '@/features/catalog/data/products'
 import { useSession } from '@/features/auth/use-session'
 import { getServerWishlistIds } from '@/features/wishlist/data'
+import { getSharePanelDataAction } from '@/features/gifting/actions'
 
 // A variantless saved product renders `<AddToCart>`, which reads `useCart()`
 // — pulling in `useSession()` (the real Supabase browser client, which
@@ -14,7 +15,13 @@ import { getServerWishlistIds } from '@/features/wishlist/data'
 // `resolveProductsByIds` server action (mocked below so the async product
 // grid resolves without hitting the real catalog loader). `useWishlist()`'s
 // signed-in path pulls in `@/features/wishlist/data`'s server actions too —
-// mocked the same way `use-wishlist.test.tsx` mocks them.
+// mocked the same way `use-wishlist.test.tsx` mocks them. `SharePanel`
+// (rendered unconditionally by `WishlistView`, Phase 10c) reads the SAME
+// `useSession()` mock — signed-out by default here, matching this file's
+// focus on the product grid rather than the share panel (that's
+// `share-panel.test.tsx`'s job) — and, now that it fetches client-side
+// (Phase 10c follow-up), its own data action, mocked to resolve `null` so it
+// renders as fast as the signed-out prompt without a dangling promise.
 vi.mock('@/features/auth/use-session', () => ({ useSession: vi.fn(() => ({ signedIn: false, role: 'CUSTOMER', loading: false })) }))
 vi.mock('@/features/catalog/server/resolve-products', () => ({
   resolveProductsByIds: vi.fn(async (ids: string[]) => products.filter((p) => ids.includes(p.id))),
@@ -24,18 +31,16 @@ vi.mock('@/features/wishlist/data', () => ({
   addWishlistItem: vi.fn(),
   removeWishlistItem: vi.fn(),
 }))
-// `SharePanel` (rendered unconditionally by `WishlistView`, Phase 10c) pulls
-// in the three share Server Actions — mocked the same way
-// `share-panel.test.tsx` mocks them, so this file needn't also drag in
-// `@/lib/db`/Supabase to render the default (signed-out) panel state.
 vi.mock('@/features/gifting/actions', () => ({
   enableShareAction: vi.fn(),
   disableShareAction: vi.fn(),
   regenerateShareAction: vi.fn(),
+  getSharePanelDataAction: vi.fn(async () => null),
 }))
 
 const useSessionMock = vi.mocked(useSession)
 const getServerWishlistIdsMock = vi.mocked(getServerWishlistIds)
+const getSharePanelDataActionMock = vi.mocked(getSharePanelDataAction)
 
 describe('WishlistView', () => {
   beforeEach(() => {
@@ -44,34 +49,23 @@ describe('WishlistView', () => {
     useServerWishlistStore.getState().reset()
     useSessionMock.mockReturnValue({ signedIn: false, role: 'CUSTOMER', loading: false })
     getServerWishlistIdsMock.mockResolvedValue([])
+    getSharePanelDataActionMock.mockResolvedValue(null)
   })
 
-  it('renders the SharePanel in its signed-out state by default (no shareState prop)', async () => {
+  it('renders the SharePanel in its signed-out state when the visitor is signed out', async () => {
     render(<WishlistView />)
 
     expect(await screen.findByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/login')
   })
 
-  it('passes shareState/addresses through to the SharePanel, independent of the product grid state', async () => {
-    render(
-      <WishlistView
-        shareState={{ enabled: false, token: null, addressId: null }}
-        addresses={[
-          {
-            id: 'addr-1',
-            isDefault: true,
-            fullName: 'Ada Lovelace',
-            phone: '0800 000 0000',
-            line1: '12 Marina Road',
-            line2: '',
-            city: 'Lagos',
-            state: 'Lagos',
-            country: 'Nigeria',
-            postalCode: '',
-          },
-        ]}
-      />,
-    )
+  it('renders the SharePanel from its own client-fetched data, independent of the product grid state', async () => {
+    useSessionMock.mockReturnValue({ signedIn: true, role: 'CUSTOMER', loading: false })
+    getSharePanelDataActionMock.mockResolvedValue({
+      shareState: { enabled: false, token: null, addressId: null },
+      addresses: [{ id: 'addr-1', fullName: 'Ada Lovelace', city: 'Lagos', state: 'Lagos' }],
+    })
+
+    render(<WishlistView />)
 
     expect(await screen.findByRole('button', { name: /create share link/i })).toBeInTheDocument()
     // The empty-wishlist state below still renders alongside the panel.

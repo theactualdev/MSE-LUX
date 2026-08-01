@@ -11,8 +11,6 @@ import { AddToCart } from '@/features/cart/components/add-to-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { useWishlist } from '@/features/wishlist/use-wishlist'
 import { SharePanel } from '@/features/gifting/components/share-panel'
-import type { ShareState } from '@/features/gifting/share'
-import type { SavedAddress } from '@/features/account/data'
 import { cn } from '@/lib/utils'
 import type { Product } from '@/types/catalog'
 
@@ -40,20 +38,12 @@ import type { Product } from '@/types/catalog'
  * "clear wishlist" is just toggling every currently-saved id off, so that's
  * implemented locally rather than reaching into the raw stores directly.
  *
- * `shareState`/`addresses` (Phase 10c) are read server-side by the `/wishlist`
- * page and passed straight to `SharePanel`, which renders unconditionally
- * (independent of the hydration/loading gate below — its data comes from
- * server-rendered props, not `localStorage`, so there is no guest/server
- * split and no hydration mismatch to gate against). `shareState === null`
- * is `SharePanel`'s "signed out" signal; both default to the signed-out,
- * addressless shape so existing callers that don't pass them still render.
+ * `<SharePanel>` (Phase 10c) renders unconditionally, independent of the
+ * hydration/loading gate below — it fetches its own data client-side after
+ * mount (see its own header for why), so there's no guest/server split and
+ * no hydration mismatch to gate against here; it takes no props.
  */
-interface WishlistViewProps {
-  shareState?: ShareState | null
-  addresses?: SavedAddress[]
-}
-
-export function WishlistView({ shareState = null, addresses = [] }: WishlistViewProps = {}) {
+export function WishlistView() {
   const hydrated = useHydrated()
   const { ids, isLoading, toggle } = useWishlist()
 
@@ -88,7 +78,7 @@ export function WishlistView({ shareState = null, addresses = [] }: WishlistView
   const productsResolved = idsKey === '' || resolvedKey === idsKey
   const resolving = isLoading || !productsResolved
 
-  const sharePanel = <SharePanel shareState={shareState} addresses={addresses} />
+  const sharePanel = <SharePanel />
 
   if (!hydrated || resolving) {
     return (
