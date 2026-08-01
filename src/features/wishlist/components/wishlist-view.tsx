@@ -10,6 +10,9 @@ import { resolveProductsByIds } from '@/features/catalog/server/resolve-products
 import { AddToCart } from '@/features/cart/components/add-to-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { useWishlist } from '@/features/wishlist/use-wishlist'
+import { SharePanel } from '@/features/gifting/components/share-panel'
+import type { ShareState } from '@/features/gifting/share'
+import type { SavedAddress } from '@/features/account/data'
 import { cn } from '@/lib/utils'
 import type { Product } from '@/types/catalog'
 
@@ -36,8 +39,21 @@ import type { Product } from '@/types/catalog'
  * The hook's surface intentionally has no `clear` (see its module doc) — a
  * "clear wishlist" is just toggling every currently-saved id off, so that's
  * implemented locally rather than reaching into the raw stores directly.
+ *
+ * `shareState`/`addresses` (Phase 10c) are read server-side by the `/wishlist`
+ * page and passed straight to `SharePanel`, which renders unconditionally
+ * (independent of the hydration/loading gate below — its data comes from
+ * server-rendered props, not `localStorage`, so there is no guest/server
+ * split and no hydration mismatch to gate against). `shareState === null`
+ * is `SharePanel`'s "signed out" signal; both default to the signed-out,
+ * addressless shape so existing callers that don't pass them still render.
  */
-export function WishlistView() {
+interface WishlistViewProps {
+  shareState?: ShareState | null
+  addresses?: SavedAddress[]
+}
+
+export function WishlistView({ shareState = null, addresses = [] }: WishlistViewProps = {}) {
   const hydrated = useHydrated()
   const { ids, isLoading, toggle } = useWishlist()
 
@@ -72,12 +88,17 @@ export function WishlistView() {
   const productsResolved = idsKey === '' || resolvedKey === idsKey
   const resolving = isLoading || !productsResolved
 
+  const sharePanel = <SharePanel shareState={shareState} addresses={addresses} />
+
   if (!hydrated || resolving) {
     return (
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" aria-hidden="true">
-        {Array.from({ length: 4 }).map((_, i) => (
-          <Skeleton key={i} className="aspect-[4/5] w-full rounded-xl" />
-        ))}
+      <div className="flex flex-col gap-10">
+        {sharePanel}
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" aria-hidden="true">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="aspect-[4/5] w-full rounded-xl" />
+          ))}
+        </div>
       </div>
     )
   }
@@ -93,15 +114,18 @@ export function WishlistView() {
 
   if (resolvedProducts.length === 0) {
     return (
-      <div className="flex flex-col items-center gap-3 py-16 text-center">
-        <Heart aria-hidden="true" className="size-10 text-muted-foreground" />
-        <h2 className="font-display text-xl font-medium text-foreground">Your wishlist is empty</h2>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          Save the pieces you love and find them here whenever you&rsquo;re ready.
-        </p>
-        <Link href="/collections" className={cn(buttonVariants(), 'mt-3')}>
-          Explore collections
-        </Link>
+      <div className="flex flex-col gap-10">
+        {sharePanel}
+        <div className="flex flex-col items-center gap-3 py-16 text-center">
+          <Heart aria-hidden="true" className="size-10 text-muted-foreground" />
+          <h2 className="font-display text-xl font-medium text-foreground">Your wishlist is empty</h2>
+          <p className="max-w-sm text-sm text-muted-foreground">
+            Save the pieces you love and find them here whenever you&rsquo;re ready.
+          </p>
+          <Link href="/collections" className={cn(buttonVariants(), 'mt-3')}>
+            Explore collections
+          </Link>
+        </div>
       </div>
     )
   }
@@ -111,28 +135,34 @@ export function WishlistView() {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">
-          {resolvedProducts.length} saved {resolvedProducts.length === 1 ? 'item' : 'items'}
-        </p>
-        <Button type="button" variant="outline" size="sm" onClick={handleClear}>
-          Clear wishlist
-        </Button>
-      </div>
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-        {resolvedProducts.map((product) => (
-          <div key={product.id} className="flex flex-col gap-3">
-            <ProductCard product={product} />
-            {product.variants.length === 0 ? (
-              <AddToCart product={product} qty={1} />
-            ) : (
-              <Link href={`/products/${product.slug}`} className={cn(buttonVariants({ variant: 'outline' }), 'w-full')}>
-                Select options
-              </Link>
-            )}
-          </div>
-        ))}
+    <div className="flex flex-col gap-10">
+      {sharePanel}
+      <div className="flex flex-col gap-6">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-sm text-muted-foreground">
+            {resolvedProducts.length} saved {resolvedProducts.length === 1 ? 'item' : 'items'}
+          </p>
+          <Button type="button" variant="outline" size="sm" onClick={handleClear}>
+            Clear wishlist
+          </Button>
+        </div>
+        <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          {resolvedProducts.map((product) => (
+            <div key={product.id} className="flex flex-col gap-3">
+              <ProductCard product={product} />
+              {product.variants.length === 0 ? (
+                <AddToCart product={product} qty={1} />
+              ) : (
+                <Link
+                  href={`/products/${product.slug}`}
+                  className={cn(buttonVariants({ variant: 'outline' }), 'w-full')}
+                >
+                  Select options
+                </Link>
+              )}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )

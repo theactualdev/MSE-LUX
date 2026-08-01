@@ -127,9 +127,13 @@ export async function regenerateShareToken(
 }
 
 /** The owner's current share state, for rendering the panel. */
-export async function getShareState(
-  profileId: string,
-): Promise<{ enabled: boolean; token: string | null; addressId: string | null }> {
+export interface ShareState {
+  enabled: boolean
+  token: string | null
+  addressId: string | null
+}
+
+export async function getShareState(profileId: string): Promise<ShareState> {
   const row = await db.wishlist.findUnique({
     where: { profileId },
     select: { shareEnabled: true, shareToken: true, giftAddressId: true },

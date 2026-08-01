@@ -24,6 +24,15 @@ vi.mock('@/features/wishlist/data', () => ({
   addWishlistItem: vi.fn(),
   removeWishlistItem: vi.fn(),
 }))
+// `SharePanel` (rendered unconditionally by `WishlistView`, Phase 10c) pulls
+// in the three share Server Actions — mocked the same way
+// `share-panel.test.tsx` mocks them, so this file needn't also drag in
+// `@/lib/db`/Supabase to render the default (signed-out) panel state.
+vi.mock('@/features/gifting/actions', () => ({
+  enableShareAction: vi.fn(),
+  disableShareAction: vi.fn(),
+  regenerateShareAction: vi.fn(),
+}))
 
 const useSessionMock = vi.mocked(useSession)
 const getServerWishlistIdsMock = vi.mocked(getServerWishlistIds)
@@ -37,11 +46,43 @@ describe('WishlistView', () => {
     getServerWishlistIdsMock.mockResolvedValue([])
   })
 
+  it('renders the SharePanel in its signed-out state by default (no shareState prop)', async () => {
+    render(<WishlistView />)
+
+    expect(await screen.findByRole('link', { name: /sign in/i })).toHaveAttribute('href', '/login')
+  })
+
+  it('passes shareState/addresses through to the SharePanel, independent of the product grid state', async () => {
+    render(
+      <WishlistView
+        shareState={{ enabled: false, token: null, addressId: null }}
+        addresses={[
+          {
+            id: 'addr-1',
+            isDefault: true,
+            fullName: 'Ada Lovelace',
+            phone: '0800 000 0000',
+            line1: '12 Marina Road',
+            line2: '',
+            city: 'Lagos',
+            state: 'Lagos',
+            country: 'Nigeria',
+            postalCode: '',
+          },
+        ]}
+      />,
+    )
+
+    expect(await screen.findByRole('button', { name: /create share link/i })).toBeInTheDocument()
+    // The empty-wishlist state below still renders alongside the panel.
+    expect(await screen.findByText(/your wishlist is empty/i)).toBeInTheDocument()
+  })
+
   it('renders the empty state with a link back to shopping when the wishlist has no items', async () => {
     render(<WishlistView />)
 
     expect(await screen.findByText(/your wishlist is empty/i)).toBeInTheDocument()
-    const link = screen.getByRole('link')
+    const link = screen.getByRole('link', { name: /explore collections/i })
     expect(link).toHaveAttribute('href', '/collections')
   })
 
