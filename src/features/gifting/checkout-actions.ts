@@ -5,8 +5,8 @@ import { checkRateLimit, RATE_LIMITED_MESSAGE } from '@/lib/rate-limit'
 import { resolveShare } from '@/features/gifting/share'
 import { createGiftOrder } from '@/features/gifting/gift-order'
 import type { CreateGiftOrderResult } from '@/features/gifting/gift-order'
-import { getShippingRates } from '@/features/checkout/shipping'
-import { verifyQuote } from '@/features/checkout/lib/shipping-quote'
+import { buildShippingRates } from '@/features/checkout/lib/shipping-rates'
+import { verifyQuote, shareRefFor } from '@/features/checkout/lib/shipping-quote'
 import type { Address } from '@/features/checkout/schema'
 import type { ShippingOption } from '@/features/checkout/shipping-types'
 import type { ResolvedShare } from '@/features/gifting/share'
@@ -34,6 +34,25 @@ import type { ResolvedShare } from '@/features/gifting/share'
  * any other address — including a genuine, correctly-signed one the buyer
  * obtained from the ordinary checkout for their own home — cannot be spent on
  * a gift order.
+ *
+ * WHY THE QUOTE IS ALSO BOUND TO THE SHARE (Phase 10c fix, round 3). Address
+ * binding plus `scope: 'gift'` still left one door open, because minting a
+ * gift-scoped quote for an address you control is a legitimate operation:
+ * `enableShare` lets any account pin ANY address it owns. An attacker could
+ * therefore save a GUESSED street as their own address, share their own
+ * wishlist, take a real gift quote against it, and then present that token
+ * HERE, against the victim's share — where a wrong guess fails `verifyQuote`
+ * and a right guess passes, turning the pair of outcomes back into an
+ * equality oracle for the recipient's hidden `line1`/`postalCode`. Every gift
+ * quote now carries `shareRef` (`ShippingQuotePayload.shareRef`), the HMAC of
+ * the share token it was quoted for, and `placeGiftOrder` requires it to
+ * match the share being spent against — so a token minted at one share is
+ * inert at every other.
+ *
+ * AND WHY EVERY REJECTION AFTER `verifyQuote` RETURNS THE SAME STRING: an
+ * oracle needs two distinguishable outcomes, so the quote checks below
+ * deliberately collapse into ONE message (`QUOTE_EXPIRED`). See the comments
+ * at those checks.
  *
  * EVERY EXPECTED FAILURE IS A TYPED RESULT, never a throw:
  * `getGiftShippingRates` degrades to `[]` (the gift checkout UI treats that as
@@ -135,21 +154,42 @@ export async function getGiftShippingRates(input: unknown): Promise<ShippingOpti
   const lines = giftLines(share, parsed.data.selections)
   if (lines.length === 0) return []
 
+  // Binds every token minted below to THIS share (see the module docblock).
+  // `shareRefFor` throws on a missing `SHIPBUBBLE_QUOTE_SECRET` — a server
+  // misconfiguration, not a bad input — and this action must never throw out,
+  // so it degrades to the same `[]` that `buildShippingRates` itself returns
+  // when it finds it cannot sign (the gift checkout UI reads `[]` as
+  // "shipping unavailable").
+  let shareRef: string
+  try {
+    shareRef = shareRefFor(parsed.data.shareToken)
+  } catch (error) {
+    console.error('[getGiftShippingRates] cannot derive shareRef (likely a missing SHIPBUBBLE_QUOTE_SECRET)', error)
+    return []
+  }
+
+  // `buildShippingRates` DIRECTLY, never the public `getShippingRates` action:
+  // the stamp below is a second argument of a server-only function, so no HTTP
+  // request can supply it. Routing through the action would put `scope` back
+  // on the wire and reopen the oracle (see `shipping.ts`'s docblock).
+  //
   // `lines` (not `guestLines`) — the explicit override added for this flow.
   // The buyer's own cart is irrelevant to a gift order, and a signed-in
   // buyer's cart would otherwise be the thing quoted.
-  return getShippingRates({
-    address: destinationOf(share),
-    email: parsed.data.email,
-    chargeCurrency: parsed.data.chargeCurrency,
-    lines,
-    // Stamps every returned option's token with `scope: 'gift'` — see
-    // `ShippingQuotePayload.scope`'s doc comment. This is what makes the
-    // token this action hands back unusable at `placeOrder`, so a buyer
-    // holding it can't use it, combined with a guessed address, as a free
-    // online oracle for the wishlist owner's hidden `line1`/`postalCode`.
-    scope: 'gift',
-  })
+  return buildShippingRates(
+    {
+      address: destinationOf(share),
+      email: parsed.data.email,
+      chargeCurrency: parsed.data.chargeCurrency,
+      lines,
+    },
+    // Stamps every returned option's token with `scope: 'gift'` AND this
+    // share's `shareRef` — see `ShippingQuotePayload`. Together they make the
+    // token unusable at `placeOrder` and unusable at any share but this one,
+    // so a buyer holding it cannot pair it with a guessed address anywhere and
+    // read the answer back.
+    { scope: 'gift', shareRef },
+  )
 }
 
 export async function placeGiftOrder(input: unknown): Promise<CreateGiftOrderResult> {
@@ -175,8 +215,13 @@ export async function placeGiftOrder(input: unknown): Promise<CreateGiftOrderRes
   // input, so the try/catch stays: this module's never-throws-out contract
   // holds even on a misconfigured server.
   let quote: ReturnType<typeof verifyQuote>
+  let expectedShareRef: string
   try {
     quote = verifyQuote(parsed.data.shippingToken, destinationOf(share))
+    // Same secret, same throw-on-misconfiguration contract, so it belongs in
+    // the same try. In practice it cannot throw here — `verifyQuote` already
+    // required the secret on the line above.
+    expectedShareRef = shareRefFor(parsed.data.shareToken)
   } catch (error) {
     console.error('[placeGiftOrder] verifyQuote threw (likely a missing SHIPBUBBLE_QUOTE_SECRET)', error)
     return GENERIC_ERROR
@@ -197,7 +242,32 @@ export async function placeGiftOrder(input: unknown): Promise<CreateGiftOrderRes
   // there is no pre-existing gift token this would need to keep working for.
   if (quote.scope !== 'gift') return QUOTE_EXPIRED
 
-  if (quote.currency !== parsed.data.chargeCurrency) return GENERIC_ERROR
+  // ...and it must have been minted for THIS share, not merely for some
+  // gift-scoped address that happens to match. Without this, an attacker can
+  // still mint a legitimately gift-scoped token bound to an address of their
+  // own choosing — `enableShare` pins any address the caller owns — and probe
+  // the victim's share with it: a wrong guess fails `verifyQuote` above, a
+  // right guess falls through, and the difference is the address oracle all
+  // over again (see the module docblock).
+  //
+  // Compared against the SAME `QUOTE_EXPIRED` constant every other quote
+  // rejection uses, never a distinct message: a distinguishable outcome here
+  // would simply be the oracle one level up.
+  if (quote.shareRef !== expectedShareRef) return QUOTE_EXPIRED
+
+  // A currency mismatch is ALSO `QUOTE_EXPIRED` rather than `GENERIC_ERROR`,
+  // and that is a security choice, not a copy choice. It used to be the one
+  // remaining pair of distinguishable outcomes downstream of a valid
+  // signature: an attacker holding a gift token could deliberately send the
+  // WRONG `chargeCurrency`, and then a wrong address/share guess returned
+  // "quote expired" while a right guess returned "something went wrong" —
+  // two distinct strings, no order written either way, i.e. exactly the
+  // free equality oracle for the recipient's `line1`/`postalCode` that the
+  // scope and share bindings above exist to close. Every rejection between a
+  // resolved share and a created order therefore speaks with ONE voice; the
+  // only remaining way to tell states apart is to actually hold a valid quote
+  // for this share, which is to say to be a legitimate buyer.
+  if (quote.currency !== parsed.data.chargeCurrency) return QUOTE_EXPIRED
 
   return createGiftOrder({
     share,

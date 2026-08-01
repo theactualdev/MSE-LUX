@@ -1,7 +1,7 @@
 import 'server-only'
 import crypto from 'node:crypto'
 import type { Address } from '@/features/checkout/schema'
-import type { ShippingQuotePayload } from '@/features/checkout/shipping-types'
+import type { ShippingQuotePayload, VerifiedQuotePayload } from '@/features/checkout/shipping-types'
 
 /**
  * Signs and verifies the tamper-proof, address-bound, expiring shipping-quote
@@ -87,7 +87,39 @@ export function newQuoteSalt(): string {
 }
 
 /**
+ * A stable, unforgeable REFERENCE to a wishlist share token, for
+ * `ShippingQuotePayload.shareRef` — HMAC-SHA256 under the same
+ * `SHIPBUBBLE_QUOTE_SECRET` every other function here uses, over a
+ * domain-separated message so a share reference can never collide with an
+ * `addressHash` computed over some crafted salt/address combination.
+ *
+ * WHY A REFERENCE RATHER THAN THE TOKEN: the quote payload is plain base64url
+ * and the buyer's browser can read it, so embedding the raw share token would
+ * hand out a capability — the share token IS the URL that resolves the
+ * recipient's wishlist. The HMAC commits to it without disclosing it.
+ *
+ * WHY IT LIVES HERE: this is the one module that owns the quote secret, and
+ * `shareRefFor` must produce the same value at mint time
+ * (`getGiftShippingRates`) and at spend time (`placeGiftOrder`). Hashing
+ * inline at either call site would risk the two drifting apart, which would
+ * silently break every legitimate gift purchase.
+ *
+ * Throws on a missing secret, exactly like `addressHash`/`signQuote`/
+ * `verifyQuote` — a server misconfiguration, not a bad input. Both call sites
+ * already catch that case and degrade to their own typed failure.
+ */
+export function shareRefFor(shareToken: string): string {
+  const secret = requireSecret()
+  return crypto.createHmac('sha256', secret).update(`share|${shareToken}`).digest('hex')
+}
+
+/**
  * `base64url(JSON(payload)) + '.' + HMAC-SHA256(that, SHIPBUBBLE_QUOTE_SECRET)`.
+ *
+ * Takes the FULL `ShippingQuotePayload`, `scope` included and required, so
+ * every mint site has to state which flow it is minting for. (`verifyQuote`
+ * returns the laxer `VerifiedQuotePayload` — see that type for why the two
+ * deliberately differ.)
  */
 export function signQuote(payload: ShippingQuotePayload): string {
   const secret = requireSecret()
@@ -106,8 +138,13 @@ export function signQuote(payload: ShippingQuotePayload): string {
  *
  * A missing `SHIPBUBBLE_QUOTE_SECRET` still throws — that's a server
  * misconfiguration, not a bad token.
+ *
+ * Returns `VerifiedQuotePayload`, NOT `ShippingQuotePayload`: the body below
+ * is a `JSON.parse` cast, so the compile-time shape is an assumption about
+ * bytes we did not necessarily mint under today's code. `scope` is optional
+ * there for exactly that reason — see that type's doc comment.
  */
-export function verifyQuote(token: string, address: Address): ShippingQuotePayload | null {
+export function verifyQuote(token: string, address: Address): VerifiedQuotePayload | null {
   const secret = requireSecret()
 
   const [body, sig] = token.split('.')
@@ -121,7 +158,7 @@ export function verifyQuote(token: string, address: Address): ShippingQuotePaylo
   if (!crypto.timingSafeEqual(expectedBuffer, sigBuffer)) return null
 
   try {
-    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as ShippingQuotePayload
+    const payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8')) as VerifiedQuotePayload
 
     if (payload.exp <= Date.now()) return null
     if (payload.addressHash !== addressHash(address, payload.salt)) return null

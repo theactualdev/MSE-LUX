@@ -287,6 +287,9 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   // by `getShippingRates` before this deploy has no `scope` at all.
   // `undefined` is treated as `'checkout'` so an in-flight pre-deploy token
   // (TTL 30 min) still works for ordinary checkout through the deploy window.
+  // `verifyQuote` returns `VerifiedQuotePayload`, whose `scope` is OPTIONAL
+  // precisely so this `??` reads as live code rather than a dead branch a
+  // later simplification pass might delete — see that type's doc comment.
   // This fallback is safe for exactly that reason (it's temporary and self-
   // healing) — it is NOT extended to the gift check below, because every gift
   // token is newly minted (this deploy ships the gift flow's `scope: 'gift'`

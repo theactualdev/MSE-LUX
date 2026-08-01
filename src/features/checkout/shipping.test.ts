@@ -68,7 +68,12 @@ function headerStore(entries: Record<string, string> = {}) {
 }
 
 const { getShippingRates } = await import('@/features/checkout/shipping')
-const { verifyQuote } = await import('@/features/checkout/lib/shipping-quote')
+// The non-action engine behind both quote flows. Imported REAL (nothing about
+// it is mocked) so the scope/shareRef block below can exercise the gift stamp
+// the way `getGiftShippingRates` does — through a plain function argument that
+// no HTTP request can reach — rather than through the public action.
+const { buildShippingRates } = await import('@/features/checkout/lib/shipping-rates')
+const { verifyQuote, shareRefFor } = await import('@/features/checkout/lib/shipping-quote')
 
 beforeEach(() => {
   process.env.SHIPBUBBLE_QUOTE_SECRET = 'test-secret'
@@ -401,10 +406,19 @@ describe('getShippingRates — quotes in the charge currency, not the address co
   })
 })
 
-describe('getShippingRates — token scope (closes the gift-token address oracle)', () => {
-  // Every option is stamped with `payload.scope`, so a token from ONE flow
-  // can never be spent on, or tested against, the other — see
-  // `ShippingQuotePayload.scope`'s doc comment.
+describe('getShippingRates — the PUBLIC action can never mint a gift-scoped token', () => {
+  // THE REGRESSION GUARD for the address-oracle fix, round 3. `scope` used to
+  // be a field of this action's input — but `shipping.ts` is a `'use server'`
+  // module, so every argument of every export comes off the wire: an attacker
+  // could POST `scope: 'gift'` with an address of their own choosing, get a
+  // validly-signed gift-scoped token back, and probe `placeGiftOrder` with it.
+  // The action now hardcodes `'checkout'`; a smuggled `scope` key is simply
+  // never read. Every branch is covered because a single unguarded branch
+  // would be enough to mint the token.
+  //
+  // The `as never` casts below are the point of the test, not a workaround:
+  // they simulate a raw HTTP caller, for whom the compile-time signature does
+  // not exist.
 
   it('defaults to scope "checkout" when the caller omits it', async () => {
     getCurrentUserId.mockResolvedValue(null)
@@ -415,7 +429,7 @@ describe('getShippingRates — token scope (closes the gift-token address oracle
     expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ scope: 'checkout' })
   })
 
-  it('stamps scope "gift" end-to-end when the caller passes it — including the flat international branch', async () => {
+  it('IGNORES a smuggled `scope: "gift"` on the flat international branch', async () => {
     getCurrentUserId.mockResolvedValue(null)
 
     const options = await getShippingRates({
@@ -424,66 +438,166 @@ describe('getShippingRates — token scope (closes the gift-token address oracle
       chargeCurrency: 'USD',
       guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
       scope: 'gift',
-    })
+    } as never)
 
     expect(options).toHaveLength(1)
-    expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ scope: 'gift' })
+    expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ scope: 'checkout' })
   })
 
-  it('stamps scope "gift" on a live ShipBubble-rate option', async () => {
+  it('IGNORES a smuggled `scope: "gift"` on a live ShipBubble-rate option', async () => {
     getCurrentUserId.mockResolvedValue(null)
     resolveProductsByIds.mockResolvedValue([PRODUCT])
     validateAddress.mockResolvedValue({ addressCode: 'recv-scope' })
     fetchRates.mockResolvedValue({ requestToken: 'req_tok_1', rates: [{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 350_000, currency: 'NGN', deliveryEta: '2-3 days' }] })
 
-    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }], scope: 'gift' })
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }], scope: 'gift' } as never)
 
     expect(options).toHaveLength(1)
-    expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ scope: 'gift' })
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ scope: 'checkout' })
   })
 
-  it('stamps scope "gift" on the flat NGN fallback option (ShipBubble outage path)', async () => {
+  it('IGNORES a smuggled `scope: "gift"` on the flat NGN fallback (ShipBubble outage path)', async () => {
     getCurrentUserId.mockResolvedValue(null)
     resolveProductsByIds.mockResolvedValue([PRODUCT])
     validateAddress.mockResolvedValue({ addressCode: 'recv-scope-2' })
     fetchRates.mockRejectedValue(new Error('ShipBubble is down'))
 
-    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }], scope: 'gift' })
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }], scope: 'gift' } as never)
 
     expect(options).toHaveLength(1)
     expect(options[0].id).toBe('fallback')
-    expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ scope: 'gift' })
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ scope: 'checkout' })
   })
 
-  it('stamps scope "gift" on the guardFallbackOption path (malformed address)', async () => {
+  it('IGNORES a smuggled `scope: "gift"` on the guardFallbackOption path (malformed address)', async () => {
     const malformedAddress = { ...NG_ADDRESS, country: undefined } as unknown as Address
 
-    const options = await getShippingRates({ address: malformedAddress, email: EMAIL, chargeCurrency: 'NGN', scope: 'gift' })
+    const options = await getShippingRates({ address: malformedAddress, email: EMAIL, chargeCurrency: 'NGN', scope: 'gift' } as never)
 
     expect(options).toHaveLength(1)
     expect(options[0].id).toBe('fallback')
-    expect(verifyQuote(options[0].token, malformedAddress)).toMatchObject({ scope: 'gift' })
+    expect(verifyQuote(options[0].token, malformedAddress)).toMatchObject({ scope: 'checkout' })
   })
 
-  it('stamps scope "gift" on the rate-limited international-branch option', async () => {
+  it('IGNORES a smuggled `scope: "gift"` on the rate-limited international branch', async () => {
     checkRateLimit.mockResolvedValue(false)
 
-    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD', scope: 'gift' })
+    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD', scope: 'gift' } as never)
 
     expect(options).toHaveLength(1)
     expect(options[0].id).toBe('international')
-    expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ scope: 'gift' })
+    expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ scope: 'checkout' })
   })
 
-  it('stamps scope "gift" on the rate-limited domestic-fallback option', async () => {
+  it('IGNORES a smuggled `scope: "gift"` on the rate-limited domestic fallback', async () => {
     checkRateLimit.mockResolvedValue(false)
     getCurrentUserId.mockResolvedValue(USER_ID)
 
-    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', scope: 'gift' })
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', scope: 'gift' } as never)
 
     expect(options).toHaveLength(1)
     expect(options[0].id).toBe('fallback')
-    expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ scope: 'gift' })
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ scope: 'checkout' })
+  })
+
+  it('never puts a shareRef on a checkout token — a checkout quote belongs to no share', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+
+    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD', shareRef: 'forged', scope: 'gift' } as never)
+
+    expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ scope: 'checkout' })
+    expect(verifyQuote(options[0].token, US_ADDRESS)!.shareRef).toBeUndefined()
+  })
+})
+
+describe('buildShippingRates — the gift stamp travels on every branch', () => {
+  // The gift stamp (`{ scope: 'gift', shareRef }`) is a SEPARATE ARGUMENT of
+  // this non-action function, which is why `getGiftShippingRates` calls it
+  // directly instead of going through the public action above. These are the
+  // tests the old "stamps scope gift" block used to run against the action,
+  // moved to the only surface that can still set the stamp — plus the
+  // `shareRef` assertion, since a branch that dropped it would silently make
+  // `placeGiftOrder`'s share binding unenforceable for that branch.
+
+  const GIFT_STAMP = { scope: 'gift' as const, shareRef: 'share-ref-abc' }
+
+  it('stamps a flat international option', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+
+    const options = await buildShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] }, GIFT_STAMP)
+
+    expect(options).toHaveLength(1)
+    expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ scope: 'gift', shareRef: 'share-ref-abc' })
+  })
+
+  it('stamps a live ShipBubble-rate option', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'recv-scope' })
+    fetchRates.mockResolvedValue({ requestToken: 'req_tok_1', rates: [{ courierId: 'courier_1', serviceCode: 'gig_standard', label: 'GIG Logistics', amountMinor: 350_000, currency: 'NGN', deliveryEta: '2-3 days' }] })
+
+    const options = await buildShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] }, GIFT_STAMP)
+
+    expect(options).toHaveLength(1)
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ scope: 'gift', shareRef: 'share-ref-abc' })
+  })
+
+  it('stamps the flat NGN fallback option (ShipBubble outage path)', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'recv-scope-2' })
+    fetchRates.mockRejectedValue(new Error('ShipBubble is down'))
+
+    const options = await buildShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] }, GIFT_STAMP)
+
+    expect(options).toHaveLength(1)
+    expect(options[0].id).toBe('fallback')
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ scope: 'gift', shareRef: 'share-ref-abc' })
+  })
+
+  it('stamps the guardFallbackOption path (malformed address)', async () => {
+    const malformedAddress = { ...NG_ADDRESS, country: undefined } as unknown as Address
+
+    const options = await buildShippingRates({ address: malformedAddress, email: EMAIL, chargeCurrency: 'NGN' }, GIFT_STAMP)
+
+    expect(options).toHaveLength(1)
+    expect(options[0].id).toBe('fallback')
+    expect(verifyQuote(options[0].token, malformedAddress)).toMatchObject({ scope: 'gift', shareRef: 'share-ref-abc' })
+  })
+
+  it('stamps the rate-limited international-branch option', async () => {
+    checkRateLimit.mockResolvedValue(false)
+
+    const options = await buildShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD' }, GIFT_STAMP)
+
+    expect(options).toHaveLength(1)
+    expect(options[0].id).toBe('international')
+    expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ scope: 'gift', shareRef: 'share-ref-abc' })
+  })
+
+  it('stamps the rate-limited domestic-fallback option', async () => {
+    checkRateLimit.mockResolvedValue(false)
+    getCurrentUserId.mockResolvedValue(USER_ID)
+
+    const options = await buildShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN' }, GIFT_STAMP)
+
+    expect(options).toHaveLength(1)
+    expect(options[0].id).toBe('fallback')
+    expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ scope: 'gift', shareRef: 'share-ref-abc' })
+  })
+
+  it('a real shareRef is unforgeable without the secret and differs per share token', () => {
+    const refA = shareRefFor('share-token-a')
+    const refB = shareRefFor('share-token-b')
+
+    expect(refA).not.toBe(refB)
+    expect(refA).toMatch(/^[0-9a-f]{64}$/)
+    // Stable for the same token under the same secret — mint time and spend
+    // time must agree or every legitimate gift purchase would fail.
+    expect(shareRefFor('share-token-a')).toBe(refA)
+    // ...and keyed: a different secret gives a different reference.
+    process.env.SHIPBUBBLE_QUOTE_SECRET = 'a-different-secret'
+    expect(shareRefFor('share-token-a')).not.toBe(refA)
   })
 })
 

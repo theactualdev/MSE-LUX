@@ -33,10 +33,56 @@ export interface ShippingQuotePayload {
    * that: `placeOrder` only accepts `'checkout'`, `placeGiftOrder` only
    * accepts `'gift'`, so a gift token has no endpoint left that will compare
    * it against a caller-supplied address. See `data.ts`/`checkout-actions.ts`
-   * for the enforcement and `shipping.ts` for where it's threaded in.
+   * for the enforcement and `lib/shipping-rates.ts` for where it's threaded in.
+   *
+   * SCOPE IS NOT SETTABLE BY A CALLER, and that is load-bearing rather than
+   * incidental. It was briefly a field of `getShippingRates`' input — but that
+   * is a `'use server'` export, i.e. a public HTTP endpoint whose arguments
+   * come off the wire, so an attacker could ask for a gift-scoped token bound
+   * to an address of their own choosing and probe `placeGiftOrder` with it,
+   * recreating the very oracle this field exists to close. The rate builder
+   * now lives in a non-action module (`lib/shipping-rates.ts`) that takes the
+   * scope as a separate argument no request can reach.
    */
   scope: 'checkout' | 'gift'
+  /**
+   * GIFT SCOPE ONLY: an HMAC reference (`shareRefFor`, `lib/shipping-quote.ts`)
+   * to the share token this quote was produced for. Absent on checkout quotes.
+   *
+   * `scope: 'gift'` alone is not enough to stop the address oracle, because
+   * minting a gift-scoped token for an address you control is a legitimate
+   * operation: `enableShare` lets any account pin ANY address it owns, so an
+   * attacker can save a GUESSED street as their own address, share their own
+   * wishlist, take a genuinely gift-scoped quote for it, and then spend that
+   * token against the VICTIM's share — where a wrong guess fails
+   * `verifyQuote` and a right guess passes, which is the oracle again.
+   * Binding the token to the share it was quoted for closes that: a quote
+   * minted against the attacker's own share can never be presented at
+   * someone else's, whatever address it happens to be bound to.
+   *
+   * A REFERENCE, NOT THE TOKEN ITSELF: the payload is plain base64url and the
+   * buyer's browser can read it, so putting the raw share token in there would
+   * leak a capability (anyone who saw the quote could resolve the share). The
+   * HMAC is computed under `SHIPBUBBLE_QUOTE_SECRET`, so it is unforgeable
+   * without the secret and reveals nothing about the token it commits to.
+   */
+  shareRef?: string
 }
+
+/**
+ * What `verifyQuote` actually hands back. Identical to `ShippingQuotePayload`
+ * except that `scope` is OPTIONAL — and that difference is deliberate rather
+ * than sloppy: `verifyQuote` casts decoded JSON, so a token minted before the
+ * field existed (TTL 30 min, so possible right through a deploy window) really
+ * does yield `undefined` at runtime. `placeOrder`'s
+ * `(quote.scope ?? 'checkout')` backwards-compat fallback exists precisely for
+ * that case; typing the verified payload as non-optional would make that `??`
+ * look dead to the compiler and invite a future lint/simplification pass to
+ * delete the thing keeping in-flight tokens working. `signQuote`'s INPUT stays
+ * `ShippingQuotePayload` (scope required), so every mint site must still
+ * supply one.
+ */
+export type VerifiedQuotePayload = Omit<ShippingQuotePayload, 'scope'> & { scope?: 'checkout' | 'gift' }
 
 /** A selectable shipping rate offered to the customer at checkout. */
 export interface ShippingOption {
