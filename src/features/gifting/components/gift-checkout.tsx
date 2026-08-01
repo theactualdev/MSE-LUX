@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Heart } from 'lucide-react'
+import { Heart, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { ContactStep } from '@/features/checkout/components/contact-step'
@@ -16,6 +16,7 @@ import type { GiftSelectionItem } from '@/features/gifting/components/gift-selec
 import { cn } from '@/lib/utils'
 
 type Step = 'email' | 'shipping' | 'confirmed'
+type PaymentStatus = 'paid' | 'processing'
 
 interface GiftCheckoutProps {
   /** The share token — spent against `getGiftShippingRates`/`placeGiftOrder`, never resolved to an address here. */
@@ -60,6 +61,16 @@ interface GiftCheckoutProps {
  * buyer's own cart has nothing to do with a gift order (see
  * `checkout-actions.ts`'s doc comment on why the gift rate/order builders
  * take explicit `lines`, never the buyer's cart).
+ *
+ * `verifyPayment`'s `status` (`'paid'` vs `'processing'`, same Phase 6
+ * finding B distinction the ordinary checkout carries into
+ * `OrderConfirmation` via its `?status=` query flag) is captured into
+ * `paymentStatus` state and threaded into the confirmed step below —
+ * `'processing'` means Paystack confirmed the charge but fulfilment hit an
+ * unexpected error and is relying on the webhook backstop, so it must NOT
+ * render the confident "your gift is on its way" copy; there is no order to
+ * navigate to here (unlike the ordinary flow), so the distinction is made
+ * entirely in this same confirmed-step render rather than via a query param.
  */
 export function GiftCheckout({ token, selections, recipientFirstName, city }: GiftCheckoutProps) {
   const displayCurrency = useDisplayCurrency()
@@ -72,6 +83,7 @@ export function GiftCheckout({ token, selections, recipientFirstName, city }: Gi
   const [loadingRates, setLoadingRates] = useState(false)
   const [placing, setPlacing] = useState(false)
   const [error, setError] = useState<string>()
+  const [paymentStatus, setPaymentStatus] = useState<PaymentStatus>('paid')
 
   async function handleEmailContinue(contact: Contact) {
     setEmail(contact.email)
@@ -141,6 +153,7 @@ export function GiftCheckout({ token, selections, recipientFirstName, city }: Gi
 
         if ('ok' in verified) {
           setPlacing(false)
+          setPaymentStatus(verified.status)
           setStep('confirmed')
         } else {
           setPlacing(false)
@@ -156,10 +169,22 @@ export function GiftCheckout({ token, selections, recipientFirstName, city }: Gi
   }
 
   if (step === 'confirmed') {
+    const isProcessing = paymentStatus === 'processing'
+
     return (
       <div className="flex flex-col items-center gap-3 py-16 text-center" role="status" aria-live="polite">
-        <Heart aria-hidden="true" className="size-10 text-accent" />
-        <h2 className="font-display text-xl font-medium text-foreground">Your gift is on its way</h2>
+        {isProcessing ? (
+          <Loader2 aria-hidden="true" className="size-10 animate-spin text-primary" />
+        ) : (
+          <Heart aria-hidden="true" className="size-10 text-accent" />
+        )}
+        {isProcessing ? (
+          <h2 className="font-display text-xl font-medium text-foreground">
+            Payment received — we&apos;re finalising your order
+          </h2>
+        ) : (
+          <h2 className="font-display text-xl font-medium text-foreground">Your gift is on its way</h2>
+        )}
         <p className="max-w-sm text-sm text-muted-foreground">
           Delivering to {recipientFirstName} in {city}. {recipientFirstName} will not be told who sent this.
         </p>

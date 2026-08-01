@@ -181,6 +181,28 @@ describe('GiftCheckout', () => {
     expect(screen.getByText(/will not be told/i)).toBeInTheDocument()
   })
 
+  it('renders a distinct "finalising" message, not the confident gift-arrived copy, when verifyPayment resolves processing', async () => {
+    const user = userEvent.setup({ delay: null })
+    placeGiftOrderMock.mockResolvedValue({ ok: true, orderNumber: 'MSE-777777' })
+    initializePaymentMock.mockResolvedValue({ ok: true, accessCode: 'code_1', publicKey: 'pk_test_1' })
+    verifyPaymentMock.mockResolvedValue({ ok: true, status: 'processing' })
+    resumeTransaction.mockImplementation((_accessCode: string, opts: { onSuccess: (t: { reference: string }) => void }) => {
+      opts.onSuccess({ reference: 'ref_1' })
+    })
+
+    renderGiftCheckout()
+    await fillEmailAndContinue(user)
+    await user.click(screen.getByRole('button', { name: /pay for this gift/i }))
+
+    expect(await screen.findByText(/payment received.*finalising your order/i)).toBeInTheDocument()
+    // NOT the confident "on its way" copy the paid case shows.
+    expect(screen.queryByText(/your gift is on its way/i)).not.toBeInTheDocument()
+    // Recipient first name + city, and the "won't be told" reassurance still hold in this state too.
+    expect(screen.getByText(/adaeze/i)).toBeInTheDocument()
+    expect(screen.getByText(/victoria island/i)).toBeInTheDocument()
+    expect(screen.getByText(/will not be told/i)).toBeInTheDocument()
+  })
+
   it('surfaces an expired-quote error from placeGiftOrder and stays on the shipping step', async () => {
     const user = userEvent.setup({ delay: null })
     placeGiftOrderMock.mockResolvedValue({ ok: false, error: 'Shipping quote expired. Please try again.' })
