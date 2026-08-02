@@ -29,7 +29,12 @@ const cartItem = {
   deleteMany: vi.fn(),
 }
 
-const tx = { order, product, productVariant, cartItem }
+const discountCode = {
+  findUnique: vi.fn(),
+  updateMany: vi.fn(),
+}
+
+const tx = { order, product, productVariant, cartItem, discountCode }
 
 // Asserts, immediately after the callback resolves (i.e. while still
 // "inside" the transaction from the caller's perspective), that the send has
@@ -55,6 +60,9 @@ vi.mock('@/lib/db', () => ({
     },
     get cartItem() {
       return cartItem
+    },
+    get discountCode() {
+      return discountCode
     },
     $transaction: (...args: [(client: typeof tx) => unknown]) => $transaction(...args),
   },
@@ -270,5 +278,79 @@ describe('markOrderPaid', () => {
 
     expect(result).toBe('paid')
     expect(sendOrderConfirmationMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('markOrderPaid — discount redemption', () => {
+  beforeEach(() => {
+    discountCode.findUnique.mockResolvedValue({ maxUses: 100 })
+    discountCode.updateMany.mockResolvedValue({ count: 1 })
+  })
+
+  it('increments the code inside the fulfilment transaction, guarded by the cap', async () => {
+    order.findUnique.mockResolvedValue(baseOrder({ discountCode: 'LAUNCH20' }))
+
+    const result = await markOrderPaid(charge())
+
+    expect(result).toBe('paid')
+    expect(discountCode.findUnique).toHaveBeenCalledWith({
+      where: { code: 'LAUNCH20' },
+      select: { maxUses: true },
+    })
+    expect(discountCode.updateMany).toHaveBeenCalledWith({
+      where: { code: 'LAUNCH20', timesUsed: { lt: 100 } },
+      data: { timesUsed: { increment: 1 } },
+    })
+  })
+
+  it('increments with no cap clause when the code has no maxUses', async () => {
+    discountCode.findUnique.mockResolvedValue({ maxUses: null })
+    order.findUnique.mockResolvedValue(baseOrder({ discountCode: 'LAUNCH20' }))
+
+    await markOrderPaid(charge())
+
+    expect(discountCode.updateMany).toHaveBeenCalledWith({
+      where: { code: 'LAUNCH20' },
+      data: { timesUsed: { increment: 1 } },
+    })
+  })
+
+  it('does not increment for an order with no code', async () => {
+    order.findUnique.mockResolvedValue(baseOrder())
+
+    const result = await markOrderPaid(charge())
+
+    expect(result).toBe('paid')
+    expect(discountCode.findUnique).not.toHaveBeenCalled()
+    expect(discountCode.updateMany).not.toHaveBeenCalled()
+  })
+
+  /** The customer has already been charged — a cap reached in the meantime must not fail the payment. */
+  it('still reports paid when the cap guard matches nothing', async () => {
+    order.findUnique.mockResolvedValue(baseOrder({ discountCode: 'LAUNCH20' }))
+    discountCode.updateMany.mockResolvedValue({ count: 0 })
+
+    await expect(markOrderPaid(charge())).resolves.toBe('paid')
+  })
+
+  it('does not increment on the already-paid short circuit (a duplicate webhook)', async () => {
+    order.findUnique.mockResolvedValue(
+      baseOrder({ discountCode: 'LAUNCH20', paidAt: new Date('2026-01-01T00:00:00Z') }),
+    )
+
+    await expect(markOrderPaid(charge())).resolves.toBe('paid')
+    expect(discountCode.updateMany).not.toHaveBeenCalled()
+  })
+
+  it('does not increment when the fulfilment guard is lost (a race loser)', async () => {
+    order.findUnique
+      .mockResolvedValueOnce(baseOrder({ discountCode: 'LAUNCH20' }))
+      // The post-loss lookup: another caller already won and flipped paidAt.
+      .mockResolvedValueOnce({ paidAt: new Date('2026-01-01T00:00:00Z'), status: 'PROCESSING' })
+    order.updateMany.mockResolvedValue({ count: 0 })
+
+    await markOrderPaid(charge())
+
+    expect(discountCode.updateMany).not.toHaveBeenCalled()
   })
 })

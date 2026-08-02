@@ -105,6 +105,35 @@ export async function markOrderPaid(charge: PaystackCharge): Promise<'paid' | 'i
         }
       }
 
+      // Redemption counting (Phase 10b). Inside the SAME transaction as the
+      // stock decrements, so a use and the inventory it moved commit together
+      // or not at all — and only on the branch that genuinely won the guard,
+      // so a duplicate webhook or a race loser can never double-count.
+      //
+      // Prisma cannot compare two columns (`timesUsed < maxUses`) in a
+      // `where`, so the cap is resolved to a concrete number first, then
+      // enforced via a guarded `updateMany` — the same check-and-write idiom
+      // used above for the fulfilment guard itself. A `count === 0` here
+      // means the cap filled between placement and payment: the customer has
+      // ALREADY been charged the discounted total, so the payment must still
+      // succeed — the discount is honoured and the counter stays at the cap.
+      // Never throw from this block.
+      if (order.discountCode) {
+        const code = await tx.discountCode.findUnique({
+          where: { code: order.discountCode },
+          select: { maxUses: true },
+        })
+        if (code) {
+          await tx.discountCode.updateMany({
+            where:
+              code.maxUses === null
+                ? { code: order.discountCode }
+                : { code: order.discountCode, timesUsed: { lt: code.maxUses } },
+            data: { timesUsed: { increment: 1 } },
+          })
+        }
+      }
+
       if (order.profileId) {
         await tx.cartItem.deleteMany({ where: { cart: { profileId: order.profileId } } })
       }
