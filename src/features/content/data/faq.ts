@@ -10,7 +10,7 @@ export const FAQ_GROUPS: FaqGroup[] = [
       },
       {
         q: 'What are your delivery times and rates?',
-        a: "If you're paying in Naira to a Nigerian address, we get you a live courier rate and delivery estimate at checkout, based on your address. Every other order — international, or any order paid in US dollars — ships at a flat rate with a 7–14 day estimate, shown at checkout before you pay. These windows run from dispatch, not the order date — because pieces are handmade, allow [TODO(owner): confirm order-processing time, e.g. '2–3 business days'] for us to prepare your order first.",
+        a: "If you're paying in Naira to a Nigerian address, we get you a live courier rate and delivery estimate at checkout, based on your address — as a guide, Lagos is usually 2–5 business days and elsewhere in Nigeria 5–10 days. International orders ship at a flat rate and typically take 2–3 weeks, shown at checkout before you pay. All of those windows run from dispatch, not the order date — because pieces are handmade, allow 5–8 days for us to prepare your order first, or 2–3 weeks for personalised and custom pieces.",
       },
       {
         q: 'What payment methods do you accept?',
@@ -52,11 +52,11 @@ export const FAQ_GROUPS: FaqGroup[] = [
     items: [
       {
         q: 'What is your return policy?',
-        a: "There's no self-service returns portal — contact us with your order number and our team will confirm eligibility and next steps. Unworn items in original packaging can be returned within [TODO(owner): confirm return window, e.g. '7 days'] of delivery for a refund or exchange; approved refunds are issued by our team through Paystack, not automatically. See our Shipping & Returns page for the full policy.",
+        a: "There's no self-service returns portal — contact us with your order number and our team will confirm eligibility and next steps. Unworn items in their original packaging can be returned within 2–3 days of receiving your order for a refund or exchange; approved refunds are issued by our team through Paystack, not automatically. Custom and personalised pieces are final sale. See our Shipping & Returns page for the full policy.",
       },
       {
         q: 'Can I exchange an item for a different size or color?',
-        a: "Yes, subject to stock availability — contact us within [TODO(owner): confirm return window, e.g. '7 days'] of delivery to arrange an exchange. Some items are excluded: pierced earrings once opened, and custom or made-to-order pieces, which are final sale. See our Shipping & Returns policy for the full details.",
+        a: "Yes, subject to stock availability — contact us within 2–3 days of receiving your order to arrange an exchange. Some items are excluded: pierced earrings once opened, and custom, personalised or made-to-order pieces, which are final sale. See our Shipping & Returns policy for the full details.",
       },
       {
         q: 'Are custom or made-to-order pieces returnable?',

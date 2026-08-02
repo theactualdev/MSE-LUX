@@ -19,14 +19,14 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
         heading: 'Shipping rates & timelines',
         body: [
           "If you're paying in Naira with a delivery address in Nigeria, we calculate your exact shipping cost with our courier partner right at checkout, based on your address and order weight — you'll always see the price before you pay, and a delivery estimate wherever the courier provides one. If live rates are unavailable when you check out, we fall back to a flat standard-delivery rate for Nigerian addresses instead.",
-          "For every other order — deliveries outside Nigeria, and any order paid in US dollars regardless of destination — shipping is a flat rate, shown at checkout before you pay.",
+          'For every other order — deliveries outside Nigeria, and any order paid in US dollars regardless of destination — shipping is a flat rate, shown at checkout before you pay. International deliveries typically take 2–3 weeks.',
           'Delivery windows are estimates from the courier, not a fixed promise from us — actual delivery time runs from the date an order ships (not the order date) and can vary with courier volume or, for international orders, customs processing.',
         ],
       },
       {
         heading: 'Order processing',
         body: [
-          "Because pieces are handmade in small batches, please allow [TODO(owner): confirm the standard order-processing time to publish here, e.g. '2–3 business days'] before your order ships. Custom or made-to-order pieces may take longer, and we'll confirm the expected timeline with you by email.",
+          'Because pieces are handmade in small batches, please allow 5–8 days for us to prepare your order before it ships. Personalised and custom pieces — anything made to measure or carrying a name — take 2–3 weeks. These times are in addition to delivery, and we’ll confirm the expected timeline with you by email for custom work.',
         ],
       },
       {
@@ -39,9 +39,10 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
         heading: 'Returns',
         body: [
           "There is no self-service returns portal. To start a return, contact us with your order number and we'll confirm eligibility and next steps by email.",
-          "Unworn items in their original packaging can be returned within [TODO(owner): confirm the return window to publish here, e.g. '7 days'] of delivery for a refund or exchange.",
+          'Unworn items in their original, unused packaging can be returned within 2–3 days of receiving your order for a refund or exchange. Please contact us within that window — we can’t accept a request that arrives after it.',
           'Every return request is reviewed by a person — nothing is approved or refunded automatically. Once a return is approved, your refund is issued by our team through Paystack to the payment method you used, so please allow a few business days for it to appear.',
           'Return shipping is the responsibility of the customer unless the item arrived damaged or faulty, in which case we cover the cost.',
+          'Returns are approved at our discretion. A piece that shows signs of wear, use or alteration is not eligible for a refund even once it has been returned to us, so please check an item over before wearing it if you think you may want to send it back.',
         ],
       },
       {
@@ -53,7 +54,7 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
       {
         heading: 'Damaged or faulty items',
         body: [
-          "If your order arrives damaged or faulty, contact us within [TODO(owner): confirm the reporting window to publish here, e.g. '48 hours'] of delivery with photos of the item and packaging so we can arrange a replacement or refund.",
+          'If your order arrives damaged or faulty, contact us within 48 hours of delivery with photos of the item and packaging so we can arrange a replacement or refund. This applies to custom and personalised pieces too — they are final sale in every other respect, but never when they arrive damaged.',
         ],
       },
     ],
