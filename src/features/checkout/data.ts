@@ -68,6 +68,16 @@ const GENERIC_ERROR: PlaceOrderResult = { error: 'Something went wrong. Please t
 const SHIPPING_EXPIRED: PlaceOrderResult = { error: 'Please re-select a shipping option.' }
 const RATE_LIMITED: PlaceOrderResult = { error: RATE_LIMITED_MESSAGE }
 
+/**
+ * Matches the write side's bound on `DiscountCode.code` (1..64 characters,
+ * enforced by the admin action that creates/edits codes). A caller can send
+ * an arbitrary string here — this is a public Server Action — so anything
+ * longer is rejected BEFORE the DB lookup rather than after: it can only
+ * fail to match a real code either way, so there's no reason to spend a
+ * Prisma round-trip (and a multi-megabyte string) proving that.
+ */
+const MAX_DISCOUNT_CODE_LENGTH = 64
+
 /** Prisma's unique-constraint violation. Matched structurally so this module needn't import the error class. */
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2002'
@@ -345,10 +355,35 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
   // call places the order at FULL price rather than failing it: the customer's
   // intent was to buy, and the returned order carries the real totals, so the
   // confirmation shows what was actually charged.
-  const usableCode =
-    typeof input.discountCode === 'string' && input.discountCode.trim()
-      ? await resolveUsableCode(input.discountCode)
-      : null
+  //
+  // The length guard below runs before that DB call: a trimmed code longer
+  // than `MAX_DISCOUNT_CODE_LENGTH` is treated as no code at all, the same
+  // outcome as an empty/whitespace-only one, rather than spending a Prisma
+  // lookup on a string that cannot possibly match a real (<=64-char) row.
+  //
+  // `resolveUsableCode` is wrapped in its own try/catch for the same reason
+  // `verifyQuote` is, above: everything needed to place this order at full
+  // price (verified quote, clamped lines, priced subtotal) is already in
+  // hand. A transient failure reaching the `DiscountCode` table (a pooler
+  // error, a lock) is functionally the same as a code that turned out to be
+  // unusable — this module's "never throws out" contract means it must
+  // degrade to no discount, not fail the whole order.
+  let usableCode: Awaited<ReturnType<typeof resolveUsableCode>> = null
+  if (
+    typeof input.discountCode === 'string' &&
+    input.discountCode.trim() &&
+    input.discountCode.trim().length <= MAX_DISCOUNT_CODE_LENGTH
+  ) {
+    try {
+      usableCode = await resolveUsableCode(input.discountCode)
+    } catch (error) {
+      // A discount is optional collateral, not load-bearing: every input needed
+      // to place this order at full price is already in hand. Failing the whole
+      // order because the DiscountCode table blinked would be the opposite of
+      // this function's rule that an unusable code places at full price.
+      console.error('[placeOrder] resolveUsableCode threw — placing at full price', { error })
+    }
+  }
 
   const discountMinor = usableCode ? computeDiscountMinor(subtotalMinor, usableCode.percentOff) : 0
 

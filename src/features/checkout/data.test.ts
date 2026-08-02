@@ -1102,4 +1102,57 @@ describe('placeOrder — discounts (Phase 10b Task 4, THE MONEY PATH)', () => {
     expect(data.discountCode).toBeNull()
     expect(resolveUsableCode).not.toHaveBeenCalled()
   })
+
+  // FIX 1: a transient DiscountCode-table failure (pooler error, lock) must
+  // degrade to full price, not escape placeOrder as a raw throw — the same
+  // rule this module already applies to a code that turned out to be
+  // unusable, and the same "never throws out" contract `verifyQuote` above
+  // is held to.
+  it('places at FULL price, without throwing, when resolveUsableCode rejects', async () => {
+    resolveUsableCode.mockRejectedValue(new Error('pooler timeout'))
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+      discountCode: 'LAUNCH20',
+    })
+
+    expect(result).toEqual({ ok: true, order: expect.objectContaining({ orderNumber: 'MSE-123456' }) })
+    const data = order.create.mock.calls[0][0].data
+    expect(data.discountMinor).toBe(0)
+    expect(data.discountCode).toBeNull()
+    expect(data.discountPercent).toBeNull()
+    // Tax computed on the FULL (undiscounted) subtotal.
+    expect(data.taxMinor).toBe(Math.round(data.subtotalMinor * 0.075))
+    expect(errorSpy).toHaveBeenCalled()
+
+    errorSpy.mockRestore()
+  })
+
+  // FIX 2: a caller can send an arbitrary-length string for `discountCode` —
+  // it's trimmed, uppercased, and used as a Prisma unique-index lookup key.
+  // Real codes are bounded to 1..64 characters on the write side, so a
+  // longer string can never match; this asserts it's rejected BEFORE the DB
+  // call rather than spent on a doomed lookup, and that the order still
+  // places at full price.
+  it('skips the DB lookup entirely for a code longer than 64 characters, placing at full price', async () => {
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+      discountCode: 'A'.repeat(200),
+    })
+
+    expect(result).toEqual({ ok: true, order: expect.objectContaining({ orderNumber: 'MSE-123456' }) })
+    expect(resolveUsableCode).not.toHaveBeenCalled()
+    const data = order.create.mock.calls[0][0].data
+    expect(data.discountMinor).toBe(0)
+    expect(data.discountCode).toBeNull()
+  })
 })
