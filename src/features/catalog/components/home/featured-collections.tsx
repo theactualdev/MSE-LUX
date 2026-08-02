@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { Container } from '@/components/brand/container'
 import { SectionHeading } from '@/components/brand/section-heading'
+import { Rail, RailItem } from '@/components/brand/rail'
 import { CollectionCard } from '@/features/catalog/components/collection-card'
 import { getAllCollections } from '@/features/catalog/server/selectors'
 
@@ -21,11 +22,13 @@ export async function FeaturedCollections() {
         </Link>
       </div>
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      <Rail label="Featured collections">
         {collections.map((collection) => (
-          <CollectionCard key={collection.slug} collection={collection} />
+          <RailItem key={collection.slug}>
+            <CollectionCard collection={collection} />
+          </RailItem>
         ))}
-      </div>
+      </Rail>
     </Container>
   )
 }

@@ -1,6 +1,7 @@
 import { Quote } from 'lucide-react'
 import { Container } from '@/components/brand/container'
 import { SectionHeading } from '@/components/brand/section-heading'
+import { Rail, RailItem } from '@/components/brand/rail'
 import { testimonials } from '@/features/catalog/data/home'
 
 /** Three-up grid of customer quotes — subtle, tokens only, no imagery. */
@@ -13,11 +14,11 @@ export function Testimonials() {
         className="items-center text-center"
       />
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+      <Rail label="Customer reviews">
         {testimonials.map((testimonial) => (
+          <RailItem key={testimonial.author}>
           <figure
-            key={testimonial.author}
-            className="flex flex-col gap-4 rounded-xl border border-border bg-surface p-6 sm:p-8"
+            className="flex h-full flex-col gap-4 rounded-xl border border-border bg-surface p-6 sm:p-8"
           >
             <Quote className="h-5 w-5 text-accent" aria-hidden="true" />
             <blockquote className="text-sm text-muted-foreground sm:text-base">
@@ -27,8 +28,9 @@ export function Testimonials() {
               {testimonial.author}
             </figcaption>
           </figure>
+          </RailItem>
         ))}
-      </div>
+      </Rail>
     </Container>
   )
 }

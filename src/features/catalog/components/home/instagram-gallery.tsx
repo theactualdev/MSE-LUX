@@ -1,6 +1,7 @@
 import Image from 'next/image'
 import { Container } from '@/components/brand/container'
 import { SectionHeading } from '@/components/brand/section-heading'
+import { Rail, RailItem } from '@/components/brand/rail'
 import { siteConfig } from '@/lib/config'
 import { instagramPosts } from '@/features/catalog/data/home'
 
@@ -31,14 +32,16 @@ export function InstagramGallery() {
         </a>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4 lg:grid-cols-6">
+      {/* Denser than the default rail: these are square thumbnails, not cards,
+          so ~2.5 fit on a phone and 5 on desktop while still leaving a peek. */}
+      <Rail label="From our Instagram" className="gap-3 sm:gap-4">
         {instagramPosts.map((post) => (
+          <RailItem key={post.src} className="w-[38%] sm:w-[28%] lg:w-[18%]">
           <a
-            key={post.src}
             href={post.href ?? siteConfig.social.instagram}
             target="_blank"
             rel="noopener noreferrer"
-            className="group relative aspect-square w-full overflow-hidden rounded-xl"
+            className="group relative block aspect-square w-full overflow-hidden rounded-xl"
           >
             <Image
               src={post.src}
@@ -48,8 +51,9 @@ export function InstagramGallery() {
               className="object-cover transition-transform duration-500 ease-out group-hover:scale-105"
             />
           </a>
+          </RailItem>
         ))}
-      </div>
+      </Rail>
     </Container>
   )
 }

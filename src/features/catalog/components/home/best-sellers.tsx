@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { Container } from '@/components/brand/container'
 import { SectionHeading } from '@/components/brand/section-heading'
-import { ProductGrid } from '@/features/catalog/components/product-grid'
+import { ProductRail } from '@/features/catalog/components/product-rail'
 import { getBestSellers } from '@/features/catalog/server/selectors'
 
 /** Tasteful cap on how many best-sellers ever render in this row, however many the catalog has. */
@@ -24,7 +24,7 @@ export async function BestSellers() {
         </Link>
       </div>
 
-      <ProductGrid products={products} />
+      <ProductRail products={products} label="Best sellers" />
     </Container>
   )
 }

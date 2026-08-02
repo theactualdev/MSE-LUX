@@ -2,6 +2,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import { Container } from '@/components/brand/container'
 import { SectionHeading } from '@/components/brand/section-heading'
+import { Rail, RailItem } from '@/components/brand/rail'
 import { getAllCategories } from '@/features/catalog/server/selectors'
 
 /**
@@ -18,10 +19,10 @@ export async function FeaturedCategories() {
         subtitle="Jewelry, beads, and accessories — each handcrafted in Lagos."
       />
 
-      <div className="grid grid-cols-1 gap-6 sm:grid-cols-3">
+      <Rail label="Shop by category">
         {categories.map((category) => (
+          <RailItem key={category.slug}>
           <Link
-            key={category.slug}
             href={`/${category.slug}`}
             className="group flex flex-col overflow-hidden rounded-xl bg-card ring-1 ring-border transition-shadow duration-300 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
@@ -44,8 +45,9 @@ export async function FeaturedCategories() {
               ) : null}
             </div>
           </Link>
+          </RailItem>
         ))}
-      </div>
+      </Rail>
     </Container>
   )
 }
