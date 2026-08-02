@@ -200,9 +200,14 @@ export function CheckoutFlow({
         <ShoppingBag aria-hidden="true" className="size-10 text-muted-foreground" />
         <h2 className="font-display text-xl font-medium text-foreground">Your total has changed</h2>
         <p className="max-w-sm text-sm text-muted-foreground">{changedTotal.message}</p>
-        <Button type="button" className="mt-3" onClick={handleConfirmChangedTotal}>
-          Continue to payment
-        </Button>
+        <div className="mt-3 flex gap-2">
+          <Button type="button" variant="outline" onClick={handleBackFromChangedTotal}>
+            Go back
+          </Button>
+          <Button type="button" onClick={handleConfirmChangedTotal}>
+            Continue to payment
+          </Button>
+        </div>
       </div>
     )
   }
@@ -344,6 +349,18 @@ export function CheckoutFlow({
             ? `The code ${discount.code} now gives ${returnedDiscount.percentOff}% off — your total is now ${formatMoney(placed.order.summary.total)}.`
             : `The code ${discount.code} is no longer available — your total is now ${formatMoney(placed.order.summary.total)}.`,
         })
+        // Sync `discount` state to what the server actually applied, NOT what
+        // was sent. A dropped discount (`returnedDiscount` absent) is cleared
+        // entirely — otherwise a stale, no-longer-charged discount would
+        // still be sitting in state, ready to render its misleading total
+        // again the moment the customer lands back on the review step
+        // (cancelling the Paystack popup, or the "Go back" control below).
+        // A changed-but-present discount is updated to the returned
+        // percentage, so the summary reflects what the server actually
+        // applied rather than either the stale figure or no discount at all.
+        setDiscount(
+          returnedDiscount ? { code: returnedDiscount.code, percentOff: returnedDiscount.percentOff } : null,
+        )
         return
       }
     }
@@ -364,6 +381,22 @@ export function CheckoutFlow({
     setChangedTotal(undefined)
     setPlacing(true)
     await proceedToPayment(order)
+  }
+
+  /**
+   * The customer's alternative to confirming: return to the review step
+   * without paying, rather than the changed-total screen being a one-way
+   * door whose only other option is abandoning the page (leaving the
+   * already-placed PENDING order behind with no way to complete OR reconsider
+   * it). This never calls `proceedToPayment`/`initializePayment` — the order
+   * `placeOrder` already wrote stays PENDING, exactly as it would on a
+   * Paystack cancel. Combined with the discount-state sync in
+   * `handlePlaceOrder`, `discount` (and therefore `summary`) is already the
+   * corrected, server-true value by the time this renders the review step
+   * again, so the customer sees the REAL total and can decide from there.
+   */
+  function handleBackFromChangedTotal() {
+    setChangedTotal(undefined)
   }
 
   return (

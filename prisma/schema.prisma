@@ -7,8 +7,8 @@
 //
 // --- Hand-maintained SQL constraints ---
 //
-// Three constraints below cannot be expressed in Prisma's schema language and only exist
-// as hand-edited SQL in the migrations named. Prisma is blind to all three, so a future
+// Six constraints below cannot be expressed in Prisma's schema language and only exist
+// as hand-edited SQL in the migrations named. Prisma is blind to all six, so a future
 // `prisma migrate dev` will diff them away and emit a `DROP` for each — that generated
 // migration must be inspected and stripped of the drop before being applied. See the
 // comments on the fields below for details:
@@ -20,6 +20,15 @@
 //   3. `Profile_id_fkey` — cross-schema cascade FK from `Profile.id` to `auth.users(id)`,
 //      above `Profile.id`, hand-added in
 //      `prisma/migrations/20260721215213_fix_profile_provisioning/migration.sql`.
+//   4. `DiscountCode_percentOff_check` — `CHECK ("percentOff" BETWEEN 1 AND 100)`, above
+//      `model DiscountCode`, hand-added in
+//      `prisma/migrations/20260802120000_discount_codes/migration.sql`.
+//   5. `DiscountCode_maxUses_check` — `CHECK ("maxUses" IS NULL OR "maxUses" > 0)`, above
+//      `model DiscountCode`, hand-added in
+//      `prisma/migrations/20260802120000_discount_codes/migration.sql`.
+//   6. `DiscountCode_timesUsed_check` — `CHECK ("timesUsed" >= 0)`, above
+//      `model DiscountCode`, hand-added in
+//      `prisma/migrations/20260802120000_discount_codes/migration.sql`.
 
 generator client {
   provider = "prisma-client"
@@ -211,6 +220,19 @@ model ProductCollection {
 //
 // `timesUsed` counts PAID orders only, incremented inside `markOrderPaid`'s
 // fulfilment transaction. An abandoned checkout therefore never consumes a use.
+//
+// HAND-ADDED CONSTRAINT — invisible to Prisma, lives only in SQL:
+// `prisma/migrations/20260802120000_discount_codes/migration.sql` hand-adds three CHECK
+// constraints on this table — `DiscountCode_percentOff_check` (`"percentOff" BETWEEN 1 AND
+// 100`), `DiscountCode_maxUses_check` (`"maxUses" IS NULL OR "maxUses" > 0`), and
+// `DiscountCode_timesUsed_check` (`"timesUsed" >= 0`) — defence in depth behind the engine's
+// own clamping/refusal (`resolveUsableCode`/`computeDiscountMinor` in
+// `@/features/discounts/discount.ts`), closing the direct-DB-edit / future-bulk-import hole.
+// Prisma's schema language cannot express CHECK constraints, so none of the three have any
+// representation here and will never appear in a Prisma-generated migration diff. Before
+// applying any future `prisma migrate dev` output, inspect it for a `DROP CONSTRAINT` of each
+// and remove those lines — Prisma will otherwise conclude the constraints are
+// unmanaged/extraneous and drop them.
 model DiscountCode {
   id         String    @id @default(cuid())
   code       String    @unique

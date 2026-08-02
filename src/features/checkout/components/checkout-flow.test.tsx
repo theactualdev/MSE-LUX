@@ -526,6 +526,74 @@ describe('CheckoutFlow', () => {
     expect(clear).toHaveBeenCalledTimes(1)
   })
 
+  it('clears the applied discount on a dropped-discount cancel, so the review step no longer shows the stale discounted total', async () => {
+    const user = userEvent.setup({ delay: null })
+    validateDiscountCodeMock.mockResolvedValue({ ok: true, code: 'LAUNCH20', percentOff: 20 })
+    const order = {
+      orderNumber: 'MSE-123456',
+      // No `discount` member at all — the code is gone. Total is the full,
+      // undiscounted price for the same cart the other tests use: subtotal
+      // ₦30,000, tax 7.5% of ₦30,000 = ₦2,250, + ₦2,500 shipping = ₦34,750.
+      summary: { total: { amountMinor: 3_475_000, currency: 'NGN' } },
+    } as never
+    placeOrderMock.mockResolvedValue({ ok: true, order })
+    initializePaymentMock.mockResolvedValue({ ok: true, accessCode: 'code_1', publicKey: 'pk_test_1' })
+    resumeTransaction.mockImplementation((_accessCode: string, opts: { onCancel: () => void }) => {
+      opts.onCancel()
+    })
+
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    await user.type(await screen.findByLabelText(/discount code/i), 'launch20')
+    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await screen.findByRole('button', { name: /remove/i })
+
+    await driveToReview(user)
+    await user.click(screen.getByRole('button', { name: /place order/i }))
+
+    // Confirm through the changed-total screen, then cancel the Paystack popup.
+    await screen.findByRole('alert')
+    await user.click(screen.getByRole('button', { name: /continue to payment/i }))
+    await waitFor(() => expect(resumeTransaction).toHaveBeenCalled())
+
+    // Back on the review step — the discount is gone entirely: no "Remove"
+    // control (DiscountField renders the empty input again) and no discount
+    // row, and the total is the true, undiscounted figure.
+    expect(await screen.findByRole('button', { name: /place order/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /remove/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/LAUNCH20/)).not.toBeInTheDocument()
+    const totals = screen.getAllByText('₦34,750.00')
+    expect(totals).toHaveLength(2)
+  })
+
+  it('shows the "Go back" control on the changed-total screen, returning to review without calling initializePayment', async () => {
+    const user = userEvent.setup({ delay: null })
+    validateDiscountCodeMock.mockResolvedValue({ ok: true, code: 'LAUNCH20', percentOff: 20 })
+    const order = {
+      orderNumber: 'MSE-123456',
+      summary: { total: { amountMinor: 430_000, currency: 'NGN' } },
+    } as never
+    placeOrderMock.mockResolvedValue({ ok: true, order })
+
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    await user.type(await screen.findByLabelText(/discount code/i), 'launch20')
+    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await screen.findByRole('button', { name: /remove/i })
+
+    await driveToReview(user)
+    await user.click(screen.getByRole('button', { name: /place order/i }))
+
+    await screen.findByRole('alert')
+    await user.click(screen.getByRole('button', { name: /go back/i }))
+
+    // Back on review — no payment was ever initialised.
+    expect(await screen.findByRole('button', { name: /place order/i })).toBeInTheDocument()
+    expect(initializePaymentMock).not.toHaveBeenCalled()
+    expect(resumeTransaction).not.toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
+  })
+
   it('shows the error and does not navigate when verifyPayment fails', async () => {
     const user = userEvent.setup({ delay: null })
     placeOrderMock.mockResolvedValue({ ok: true, order: { orderNumber: 'MSE-123456' } as never })
