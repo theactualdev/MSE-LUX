@@ -2,54 +2,28 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { CartLineItem } from '@/features/cart/components/cart-line-item'
 import { CartSummary } from '@/features/cart/components/cart-summary'
 import { DiscountField } from '@/features/checkout/components/discount-field'
-import { computeDiscountMinor, type AppliedDiscount, type DiscountSummary } from '@/features/discounts/discount-math'
-import { TAX_RATE } from '@/features/cart/lib/shipping'
+import type { AppliedDiscount, DiscountSummary } from '@/features/discounts/discount-math'
 import type { CartLine } from '@/features/cart/lib/lines'
 import type { CartSummary as CartSummaryModel } from '@/features/cart/lib/summary'
 import { cn } from '@/lib/utils'
 
 interface OrderSummaryPanelProps {
   lines: CartLine[]
-  summary: CartSummaryModel
+  /**
+   * Already the final, displayable summary — including the `discount` member
+   * when one applies. `checkout-flow.tsx` computes this ONCE (via its own
+   * `applyDiscount`, the same formula `placeOrder` charges) and hands the
+   * SAME object to this panel and to `ReviewStep`, so the two can never show
+   * different totals. This component does no discount arithmetic of its
+   * own — it only renders what it is given.
+   */
+  summary: CartSummaryModel & { discount?: DiscountSummary }
   /** Only the label is displayed here — the amount is already reflected in `summary`. */
   shippingMethod?: { label: string }
-  /** The currently applied code (or none) — reported upward by `DiscountField` via `onDiscountChange`. */
+  /** The currently applied code (or none) — reported upward by `DiscountField` via `onDiscountChange`. Controls only the field's own display; the totals below come entirely from `summary`. */
   discount?: AppliedDiscount | null
   onDiscountChange: (discount: AppliedDiscount | null) => void
   className?: string
-}
-
-/**
- * Applies `discount` to `summary` using the EXACT SAME formula `placeOrder`
- * charges: tax on the discounted subtotal, `total = subtotal - discount +
- * shipping + tax` (see `computeDiscountMinor`'s doc comment for why sharing
- * that one function — not re-implementing the arithmetic — is what keeps
- * this preview and the eventual server charge from drifting apart).
- *
- * Renders no `discount` member at all when the computed amount is zero — a
- * code string alone is never the render condition, only `discountMinor > 0`
- * is (mirrors the same rule `mapOrderRow` applies post-purchase).
- */
-function applyDiscount(
-  summary: CartSummaryModel,
-  discount: AppliedDiscount | null | undefined,
-): CartSummaryModel & { discount?: DiscountSummary } {
-  if (!discount) return summary
-
-  const currency = summary.subtotal.currency
-  const discountMinor = computeDiscountMinor(summary.subtotal.amountMinor, discount.percentOff)
-  if (discountMinor <= 0) return summary
-
-  const discountedSubtotalMinor = summary.subtotal.amountMinor - discountMinor
-  const taxMinor = Math.round(discountedSubtotalMinor * TAX_RATE)
-  const totalMinor = discountedSubtotalMinor + summary.shipping.amountMinor + taxMinor
-
-  return {
-    ...summary,
-    tax: { amountMinor: taxMinor, currency },
-    total: { amountMinor: totalMinor, currency },
-    discount: { code: discount.code, percentOff: discount.percentOff, amount: { amountMinor: discountMinor, currency } },
-  }
 }
 
 /**
@@ -66,8 +40,6 @@ export function OrderSummaryPanel({
   onDiscountChange,
   className,
 }: OrderSummaryPanelProps) {
-  const effectiveSummary = applyDiscount(summary, discount)
-
   return (
     <Card className={cn(className)}>
       <CardHeader>
@@ -95,7 +67,7 @@ export function OrderSummaryPanel({
           <DiscountField value={discount ?? null} onChange={onDiscountChange} />
         </div>
 
-        <CartSummary summary={effectiveSummary} className="border-t border-border pt-4" />
+        <CartSummary summary={summary} className="border-t border-border pt-4" />
       </CardContent>
     </Card>
   )

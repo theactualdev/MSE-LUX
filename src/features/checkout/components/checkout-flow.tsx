@@ -19,9 +19,12 @@ import { initializePayment, verifyPayment } from '@/features/checkout/payments'
 import { useCart } from '@/features/cart/use-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { computeCartSummary } from '@/features/cart/lib/summary'
+import { TAX_RATE } from '@/features/cart/lib/shipping'
+import { computeDiscountMinor } from '@/features/discounts/discount-math'
 import type { Contact, Address } from '@/features/checkout/schema'
 import type { ShippingOption } from '@/features/checkout/shipping-types'
-import type { AppliedDiscount } from '@/features/discounts/discount-math'
+import type { CartSummary as CartSummaryModel } from '@/features/cart/lib/summary'
+import type { AppliedDiscount, DiscountSummary } from '@/features/discounts/discount-math'
 import { cn } from '@/lib/utils'
 
 type Step = 'contact' | 'address' | 'shipping' | 'payment' | 'review'
@@ -73,12 +76,54 @@ const STEP_LABELS: Record<Step, string> = {
  * and it can never affect order placement (see that function's doc comment).
  *
  * `discount` (Phase 10b) is held here as `{ code, percentOff } | null`,
- * reported up by `DiscountField` (rendered inside `OrderSummaryPanel`, which
- * also derives the discounted preview total from it via
- * `computeDiscountMinor`). Only `discount?.code` — never the percentage or
- * any computed amount — rides along in the `placeOrder` call; the server
- * re-resolves the code and re-derives the charged discount itself.
+ * reported up by `DiscountField` (rendered inside `OrderSummaryPanel`). The
+ * discounted preview total is derived from it ONCE here, via `applyDiscount`
+ * below, into a single `summary` value that both `ReviewStep` and
+ * `OrderSummaryPanel` are handed — never re-derived per component — so the
+ * review step's main content and its sidebar can never disagree about the
+ * total at the moment the customer authorises payment. Only `discount?.code`
+ * — never the percentage or any computed amount — rides along in the
+ * `placeOrder` call; the server re-resolves the code and re-derives the
+ * charged discount itself.
  */
+
+/**
+ * Applies `discount` to `summary` using the EXACT SAME formula `placeOrder`
+ * charges: tax on the discounted subtotal, `total = subtotal - discount +
+ * shipping + tax` (see `computeDiscountMinor`'s doc comment for why sharing
+ * that one function — not re-implementing the arithmetic — is what keeps
+ * this preview and the eventual server charge from drifting apart).
+ *
+ * Called ONCE per render, here in `CheckoutFlow`, so there is exactly one
+ * computed summary at the review step and every panel renders that same
+ * object — no sibling component derives its own discounted total.
+ *
+ * Renders no `discount` member at all when the computed amount is zero — a
+ * code string alone is never the render condition, only `discountMinor > 0`
+ * is (mirrors the same rule `mapOrderRow` applies post-purchase).
+ */
+function applyDiscount(
+  summary: CartSummaryModel,
+  discount: AppliedDiscount | null | undefined,
+): CartSummaryModel & { discount?: DiscountSummary } {
+  if (!discount) return summary
+
+  const currency = summary.subtotal.currency
+  const discountMinor = computeDiscountMinor(summary.subtotal.amountMinor, discount.percentOff)
+  if (discountMinor <= 0) return summary
+
+  const discountedSubtotalMinor = summary.subtotal.amountMinor - discountMinor
+  const taxMinor = Math.round(discountedSubtotalMinor * TAX_RATE)
+  const totalMinor = discountedSubtotalMinor + summary.shipping.amountMinor + taxMinor
+
+  return {
+    ...summary,
+    tax: { amountMinor: taxMinor, currency },
+    total: { amountMinor: totalMinor, currency },
+    discount: { code: discount.code, percentOff: discount.percentOff, amount: { amountMinor: discountMinor, currency } },
+  }
+}
+
 export function CheckoutFlow({
   initialContact,
   initialAddress,
@@ -143,11 +188,15 @@ export function CheckoutFlow({
     )
   }
 
-  const summary = computeCartSummary(
+  const cartSummary = computeCartSummary(
     lines,
     { amountMinor: selectedShipping?.amountMinor ?? 0, currency: chargeCurrency },
     chargeCurrency,
   )
+  // Computed ONCE here — the review step's main content and its sidebar are
+  // both handed this exact object, so they can never show two different
+  // totals at the moment the customer authorises payment.
+  const summary = applyDiscount(cartSummary, discount)
 
   async function handlePlaceOrder() {
     if (!contact || !address || !selectedShipping) return

@@ -4,7 +4,7 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { OrderSummaryPanel } from './order-summary-panel'
 import { validateDiscountCode } from '@/features/discounts/actions'
-import type { AppliedDiscount } from '@/features/discounts/discount-math'
+import type { AppliedDiscount, DiscountSummary } from '@/features/discounts/discount-math'
 import type { CartLine } from '@/features/cart/lib/lines'
 import type { CartSummary as CartSummaryModel } from '@/features/cart/lib/summary'
 import type { Product } from '@/types/catalog'
@@ -34,9 +34,10 @@ const line: CartLine = {
   lineTotal: { amountMinor: 555_555, currency: 'NGN' },
 }
 
-// ₦10,000 subtotal, ₦2,500 shipping, ₦750 tax (7.5% of 10,000, no discount
-// applied yet — the panel itself is always handed the UNDISCOUNTED summary
-// and derives the discounted preview from `discount`).
+// ₦10,000 subtotal, ₦2,500 shipping, ₦750 tax (7.5% of 10,000). No
+// `discount` member — the panel no longer computes one itself; it only
+// renders what `checkout-flow.tsx` (the single source of truth for the
+// displayed summary) hands it.
 const SUMMARY: CartSummaryModel = {
   subtotal: { amountMinor: 1_000_000, currency: 'NGN' },
   shipping: { amountMinor: 250_000, currency: 'NGN' },
@@ -49,7 +50,7 @@ describe('OrderSummaryPanel', () => {
     validateDiscountCodeMock.mockReset()
   })
 
-  it('renders the undiscounted totals and no discount row when no discount is applied', () => {
+  it('renders the undiscounted totals and no discount row when the given summary has no discount member', () => {
     render(<OrderSummaryPanel lines={[line]} summary={SUMMARY} onDiscountChange={vi.fn()} />)
 
     expect(screen.getByText('₦10,000.00')).toBeInTheDocument()
@@ -58,13 +59,28 @@ describe('OrderSummaryPanel', () => {
     expect(screen.queryByText(/Discount \(/)).not.toBeInTheDocument()
   })
 
-  it('mirrors the server formula exactly: tax on the discounted subtotal, subtracted before total', () => {
-    // 20% off 10,000 = 2,000 discount. Tax = round(8,000 * 0.075) = 600.
-    // Total = 8,000 + 2,500 + 600 = 11,100 — matching the task brief's own example.
+  it('renders exactly the summary it is given, without recomputing a discount itself', () => {
+    // Deliberately NOT what `computeDiscountMinor` would derive from
+    // `SUMMARY` + a 20% discount (that would be ₦600 tax / ₦11,100 total) —
+    // proves the panel renders the passed-in summary as-is rather than
+    // deriving its own numbers. The discount is now computed exactly once,
+    // in `checkout-flow.tsx`, and handed down complete.
+    const discount: DiscountSummary = {
+      code: 'LAUNCH20',
+      percentOff: 20,
+      amount: { amountMinor: 200_000, currency: 'NGN' },
+    }
+    const givenSummary: CartSummaryModel & { discount?: DiscountSummary } = {
+      ...SUMMARY,
+      tax: { amountMinor: 12_345, currency: 'NGN' },
+      total: { amountMinor: 999_999, currency: 'NGN' },
+      discount,
+    }
+
     render(
       <OrderSummaryPanel
         lines={[line]}
-        summary={SUMMARY}
+        summary={givenSummary}
         discount={{ code: 'LAUNCH20', percentOff: 20 }}
         onDiscountChange={vi.fn()}
       />,
@@ -72,13 +88,11 @@ describe('OrderSummaryPanel', () => {
 
     expect(screen.getByText('Discount (LAUNCH20 −20%)')).toBeInTheDocument()
     expect(screen.getByText('−₦2,000.00')).toBeInTheDocument()
-    expect(screen.getByText('₦600.00')).toBeInTheDocument()
-    expect(screen.getByText('₦11,100.00')).toBeInTheDocument()
-    // The subtotal ROW itself stays the gross figure — only tax/total reflect the discount.
-    expect(screen.getByText('₦10,000.00')).toBeInTheDocument()
+    expect(screen.getByText('₦123.45')).toBeInTheDocument()
+    expect(screen.getByText('₦9,999.99')).toBeInTheDocument()
   })
 
-  it('renders no discount row for a 0% discount (defence in depth — discountMinor > 0 is the gate, not the code string)', () => {
+  it('renders no discount row when the given summary has no discount member, even if a code is currently applied in the field', () => {
     render(
       <OrderSummaryPanel
         lines={[line]}
@@ -92,15 +106,15 @@ describe('OrderSummaryPanel', () => {
     expect(screen.getByText('₦13,250.00')).toBeInTheDocument()
   })
 
-  it('applying a code through the embedded DiscountField reports it upward via onDiscountChange, and the panel re-renders the reduced total', async () => {
+  it('applying a code through the embedded DiscountField reports the parsed code and percentage upward via onDiscountChange', async () => {
     const user = userEvent.setup({ delay: null })
     validateDiscountCodeMock.mockResolvedValue({ ok: true, code: 'LAUNCH20', percentOff: 20 })
     const onDiscountChange = vi.fn()
 
     // A small controlled harness — `discount` is a prop OrderSummaryPanel
     // does not own, so the test must round-trip `onDiscountChange` back in
-    // as `discount` itself, exactly like `checkout-flow.tsx` does, to see
-    // the totals actually update.
+    // as `discount` itself (exactly like `checkout-flow.tsx` does) for the
+    // field to flip into its applied state.
     function Harness() {
       const [discount, setDiscount] = useState<AppliedDiscount | null>(null)
       return (
@@ -123,7 +137,10 @@ describe('OrderSummaryPanel', () => {
 
     await screen.findByRole('button', { name: /remove/i })
     expect(onDiscountChange).toHaveBeenCalledWith({ code: 'LAUNCH20', percentOff: 20 })
-    expect(screen.getByText('Discount (LAUNCH20 −20%)')).toBeInTheDocument()
-    expect(screen.getByText('₦11,100.00')).toBeInTheDocument()
+    // The panel itself does not react to this by recomputing totals — that
+    // is `checkout-flow.tsx`'s job (it owns `discount` state and recomputes
+    // `summary`), so the undiscounted total handed in is still what shows
+    // even after the code is applied.
+    expect(screen.getByText('₦13,250.00')).toBeInTheDocument()
   })
 })

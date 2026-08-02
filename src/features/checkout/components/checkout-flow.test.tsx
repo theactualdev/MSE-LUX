@@ -312,6 +312,31 @@ describe('CheckoutFlow', () => {
     expect(call).not.toHaveProperty('discountMinor')
   })
 
+  it('shows the SAME discounted total in the review step content and the sidebar order summary panel (one computed summary, not two)', async () => {
+    const user = userEvent.setup({ delay: null })
+    validateDiscountCodeMock.mockResolvedValue({ ok: true, code: 'LAUNCH20', percentOff: 20 })
+
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    // The discount field lives inside the persistent sidebar panel, present
+    // from the first step onward.
+    await user.type(await screen.findByLabelText(/discount code/i), 'launch20')
+    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await screen.findByRole('button', { name: /remove/i })
+
+    await driveToReview(user)
+
+    // Subtotal is ₦30,000 (2 × ₦15,000). 20% off = ₦6,000 discount, so tax
+    // is 7.5% of the discounted ₦24,000 = ₦1,800; total = 24,000 + 2,500
+    // (Lagos delivery, the default shipping selection) + 1,800 = ₦28,300.
+    // Both the review content's summary and the sidebar's summary must show
+    // this exact figure — if a future change reintroduces a per-component
+    // derivation (e.g. one panel forgetting to apply the discount), this
+    // assertion catches the resulting split total.
+    const totals = screen.getAllByText('₦28,300.00')
+    expect(totals).toHaveLength(2)
+  })
+
   it('omits discountCode (undefined) when no discount code was applied', async () => {
     const user = userEvent.setup({ delay: null })
     placeOrderMock.mockResolvedValue({ ok: true, order: { orderNumber: 'MSE-123456' } as never })

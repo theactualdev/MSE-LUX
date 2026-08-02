@@ -4,6 +4,7 @@ import { CartSummary } from '@/features/cart/components/cart-summary'
 import type { CartLine } from '@/features/cart/lib/lines'
 import type { CartSummary as CartSummaryModel } from '@/features/cart/lib/summary'
 import type { Contact, Address } from '@/features/checkout/schema'
+import type { DiscountSummary } from '@/features/discounts/discount-math'
 
 interface ReviewStepProps {
   contact: Contact
@@ -11,7 +12,14 @@ interface ReviewStepProps {
   /** Only the label is displayed here — the amount is already reflected in `summary`. */
   shippingMethod: { label: string }
   lines: CartLine[]
-  summary: CartSummaryModel
+  /**
+   * The SAME summary object `checkout-flow.tsx` hands to `OrderSummaryPanel`
+   * — already discounted (including the `discount` member) when a code
+   * applies. This component never derives its own totals, so the review
+   * content and the sidebar can never disagree at the moment the customer
+   * authorises payment.
+   */
+  summary: CartSummaryModel & { discount?: DiscountSummary }
   onPlaceOrder: () => void
 }
 
