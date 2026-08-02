@@ -21,6 +21,7 @@ import { useHydrated } from '@/features/cart/use-hydrated'
 import { computeCartSummary } from '@/features/cart/lib/summary'
 import type { Contact, Address } from '@/features/checkout/schema'
 import type { ShippingOption } from '@/features/checkout/shipping-types'
+import type { AppliedDiscount } from '@/features/discounts/discount-math'
 import { cn } from '@/lib/utils'
 
 type Step = 'contact' | 'address' | 'shipping' | 'payment' | 'review'
@@ -70,6 +71,13 @@ const STEP_LABELS: Record<Step, string> = {
  * alongside the address itself, and rides along in the `placeOrder` call.
  * It's opt-in UI sugar only: `placeOrder` treats the save-back as best-effort
  * and it can never affect order placement (see that function's doc comment).
+ *
+ * `discount` (Phase 10b) is held here as `{ code, percentOff } | null`,
+ * reported up by `DiscountField` (rendered inside `OrderSummaryPanel`, which
+ * also derives the discounted preview total from it via
+ * `computeDiscountMinor`). Only `discount?.code` — never the percentage or
+ * any computed amount — rides along in the `placeOrder` call; the server
+ * re-resolves the code and re-derives the charged discount itself.
  */
 export function CheckoutFlow({
   initialContact,
@@ -95,6 +103,7 @@ export function CheckoutFlow({
   const [shippingError, setShippingError] = useState<string>()
   const [placing, setPlacing] = useState(false)
   const [error, setError] = useState<string>()
+  const [discount, setDiscount] = useState<AppliedDiscount | null>(null)
 
   if (!hydrated || isLoading) {
     return (
@@ -157,6 +166,10 @@ export function CheckoutFlow({
         quantity: line.quantity,
       })),
       saveAddress,
+      // The code only — never a percentage or amount. `placeOrder`
+      // re-resolves it and re-derives the discount server-side; see
+      // `PlaceOrderInput.discountCode`'s doc comment.
+      discountCode: discount?.code,
     })
 
     if (!('ok' in placed)) {
@@ -318,6 +331,8 @@ export function CheckoutFlow({
         lines={lines}
         summary={summary}
         shippingMethod={selectedShipping}
+        discount={discount}
+        onDiscountChange={setDiscount}
         className="w-full lg:sticky lg:top-24 lg:w-80 lg:shrink-0"
       />
     </div>

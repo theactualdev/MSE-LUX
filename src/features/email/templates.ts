@@ -18,6 +18,14 @@ export interface OrderEmailData {
   shippingMinor: number
   taxMinor: number
   totalMinor: number
+  // Phase 10b discount codes. `totalsTable` renders the row on
+  // `discountMinor > 0` — NOT on the presence of `discountCode` — so a
+  // zero-value discount (or an order with no discount at all, where
+  // `discountMinor` is `undefined`) renders no row, keeping every
+  // pre-existing (no-discount) email byte-identical.
+  discountCode?: string
+  discountPercent?: number
+  discountMinor?: number
   shippingAddress: {
     line1: string
     line2?: string
@@ -110,9 +118,23 @@ function totalsTable(data: OrderEmailData, currency: Currency): string {
       <td style="padding: 4px 0; font-size: ${bold ? '15px' : '13px'}; color: ${bold ? INK : MUTED}; font-weight: ${bold ? 'bold' : 'normal'}; text-align: right;">${escapeHtml(money(amountMinor, currency))}</td>
     </tr>`
 
+  // Gated on `discountMinor > 0` — NOT the presence of `discountCode` — so a
+  // zero-value discount renders no row, mirroring the same rule
+  // `mapOrderRow`/`CartSummary` apply to the other two post-purchase
+  // surfaces. Between Subtotal and Shipping, matching `CartSummary`'s order.
+  const discountRow =
+    data.discountMinor && data.discountMinor > 0
+      ? `
+    <tr>
+      <td style="padding: 4px 0; font-size: 13px; color: ${MUTED};">Discount (${escapeHtml(data.discountCode ?? '')} −${data.discountPercent ?? 0}%)</td>
+      <td style="padding: 4px 0; font-size: 13px; color: ${MUTED}; text-align: right;">−${escapeHtml(money(data.discountMinor, currency))}</td>
+    </tr>`
+      : ''
+
   return `
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width: 100%; border-collapse: collapse; margin-top: 12px;">
       ${row('Subtotal', data.subtotalMinor)}
+      ${discountRow}
       ${row('Shipping', data.shippingMinor)}
       ${row('Tax', data.taxMinor)}
       ${row('Total', data.totalMinor, true)}

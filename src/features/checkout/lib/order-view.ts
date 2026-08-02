@@ -11,6 +11,7 @@
 import type { OrderStatus } from '@/generated/prisma/enums'
 import type { Currency } from '@/types/money'
 import type { Order, OrderLine } from '@/features/checkout/lib/place-order'
+import type { DiscountSummary } from '@/features/discounts/discount-math'
 
 export interface OrderLineRowForMapping {
   productName: string
@@ -46,9 +47,24 @@ export interface OrderRowForMapping {
   lines: OrderLineRowForMapping[]
   trackingCarrier?: string | null
   trackingNumber?: string | null
+  // Optional (not just nullable) for the same backward-compatibility reason
+  // as trackingCarrier/trackingNumber above — a row literal built before
+  // Phase 10b's discount columns existed still satisfies this type.
+  discountCode?: string | null
+  discountPercent?: number | null
+  discountMinor?: number
 }
 
-export type OrderView = Order & { status: OrderStatus; trackingCarrier?: string; trackingNumber?: string }
+export type OrderView = Omit<Order, 'summary'> & {
+  status: OrderStatus
+  trackingCarrier?: string
+  trackingNumber?: string
+  // `discountMinor > 0` gates this — see `mapOrderRow`'s discount block.
+  // A zero-value discount (no code used, or a code resolved to 0) renders
+  // no row on either post-purchase surface (`CartSummary`/the email
+  // templates), both of which key off `summary.discount`'s presence alone.
+  summary: Order['summary'] & { discount?: DiscountSummary }
+}
 
 function toOrderLine(row: OrderLineRowForMapping, currency: Currency): OrderLine {
   return {
@@ -68,6 +84,16 @@ function toOrderLine(row: OrderLineRowForMapping, currency: Currency): OrderLine
  */
 export function mapOrderRow(row: OrderRowForMapping): OrderView {
   const currency = row.currency as Currency
+
+  // `discountMinor > 0` is the gate — NOT the presence of `discountCode` —
+  // so a code that resolved to a zero-value discount (or a row from before
+  // these columns existed, where `discountMinor` is `undefined`) renders no
+  // discount row at all downstream, rather than one showing ₦0.
+  const discountMinor = row.discountMinor ?? 0
+  const discount =
+    discountMinor > 0 && row.discountCode != null && row.discountPercent != null
+      ? { code: row.discountCode, percentOff: row.discountPercent, amount: { amountMinor: discountMinor, currency } }
+      : undefined
 
   return {
     orderNumber: row.orderNumber,
@@ -89,6 +115,7 @@ export function mapOrderRow(row: OrderRowForMapping): OrderView {
       shipping: { amountMinor: row.shippingMinor, currency },
       tax: { amountMinor: row.taxMinor, currency },
       total: { amountMinor: row.totalMinor, currency },
+      ...(discount ? { discount } : {}),
     },
     placedAt: row.placedAt.toISOString(),
     status: row.status,

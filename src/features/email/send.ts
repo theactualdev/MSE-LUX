@@ -34,6 +34,11 @@ interface OrderRowForEmail {
   shippingMinor: number
   taxMinor: number
   totalMinor: number
+  // Phase 10b discount columns — `discountCode`/`discountPercent` are
+  // nullable (no code used), `discountMinor` defaults to 0 and is never null.
+  discountCode: string | null
+  discountPercent: number | null
+  discountMinor: number
   shipFullName: string
   shipLine1: string
   shipLine2: string | null
@@ -63,6 +68,9 @@ function toEmailData(order: OrderRowForEmail): OrderEmailData {
     shippingMinor: order.shippingMinor,
     taxMinor: order.taxMinor,
     totalMinor: order.totalMinor,
+    discountCode: order.discountCode ?? undefined,
+    discountPercent: order.discountPercent ?? undefined,
+    discountMinor: order.discountMinor,
     shippingAddress: {
       line1: order.shipLine1,
       line2: order.shipLine2 ?? undefined,

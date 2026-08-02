@@ -57,6 +57,24 @@ const UNESCAPED_ORDER: OrderEmailData = {
   },
 }
 
+/**
+ * Mirrors the task brief's own regression example: ₦10,000 subtotal, a
+ * 20%-off code (₦2,000 discount), tax on the DISCOUNTED ₦8,000 (₦600),
+ * ₦2,500 shipping, total ₦11,100 — subtotal − discount + shipping + tax ===
+ * total, exactly, with the discount row present to explain the arithmetic.
+ */
+const DISCOUNT_ORDER: OrderEmailData = {
+  ...NGN_ORDER,
+  orderNumber: 'ORD-4004',
+  subtotalMinor: 1_000_000,
+  discountCode: 'LAUNCH20',
+  discountPercent: 20,
+  discountMinor: 200_000,
+  shippingMinor: 250_000,
+  taxMinor: 60_000,
+  totalMinor: 1_110_000,
+}
+
 const GIFT_ORDER: OrderEmailData = {
   ...NGN_ORDER,
   orderNumber: 'ORD-3003',
@@ -232,6 +250,55 @@ describe('orderShippedEmail', () => {
     expect(html).toContain('Hi Ada,')
     expect(html).toContain(absoluteUrl(`/order/${SHIPPED.orderNumber}`))
     expect(html).toContain('View your order')
+  })
+})
+
+describe('discounts (Phase 10b)', () => {
+  it('orderConfirmationEmail renders the discount row (between Subtotal and Shipping) and its numbers sum correctly', () => {
+    const { html } = orderConfirmationEmail(DISCOUNT_ORDER)
+
+    expect(html).toContain('Discount (LAUNCH20 −20%)')
+    expect(html).toContain('−₦2,000.00')
+
+    const subtotalIndex = html.indexOf('Subtotal')
+    const discountIndex = html.indexOf('Discount (LAUNCH20')
+    const shippingIndex = html.indexOf('Shipping')
+    expect(subtotalIndex).toBeGreaterThan(-1)
+    expect(subtotalIndex).toBeLessThan(discountIndex)
+    expect(discountIndex).toBeLessThan(shippingIndex)
+
+    expect(
+      DISCOUNT_ORDER.subtotalMinor -
+        (DISCOUNT_ORDER.discountMinor ?? 0) +
+        DISCOUNT_ORDER.shippingMinor +
+        DISCOUNT_ORDER.taxMinor,
+    ).toBe(DISCOUNT_ORDER.totalMinor)
+  })
+
+  it('orderShippedEmail renders the discount row and its numbers sum correctly', () => {
+    const shipped = { ...DISCOUNT_ORDER, carrier: 'DHL Express', trackingNumber: 'DHL123456789' }
+    const { html } = orderShippedEmail(shipped)
+
+    expect(html).toContain('Discount (LAUNCH20 −20%)')
+    expect(html).toContain('−₦2,000.00')
+    expect(
+      shipped.subtotalMinor - (shipped.discountMinor ?? 0) + shipped.shippingMinor + shipped.taxMinor,
+    ).toBe(shipped.totalMinor)
+  })
+
+  it('an order WITHOUT a discount renders byte-identical output to before (no discount markup at all)', () => {
+    const withDiscount = orderConfirmationEmail(DISCOUNT_ORDER).html
+    const without = orderConfirmationEmail(NGN_ORDER).html
+
+    expect(without).not.toContain('Discount (')
+    expect(withDiscount).not.toBe(without)
+  })
+
+  it('renders no discount row for a zero-value discount, even with a stored code/percent (discountMinor > 0 is the gate)', () => {
+    const zeroDiscount = { ...NGN_ORDER, discountCode: 'LAUNCH20', discountPercent: 20, discountMinor: 0 }
+    const { html } = orderConfirmationEmail(zeroDiscount)
+
+    expect(html).not.toContain('Discount (')
   })
 })
 

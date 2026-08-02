@@ -5,6 +5,7 @@ import { CheckoutFlow } from '@/features/checkout/components/checkout-flow'
 import { placeOrder } from '@/features/checkout/data'
 import { getShippingRates } from '@/features/checkout/shipping'
 import { initializePayment, verifyPayment } from '@/features/checkout/payments'
+import { validateDiscountCode } from '@/features/discounts/actions'
 import { useCart } from '@/features/cart/use-cart'
 import type { Product } from '@/types/catalog'
 import type { CartLine } from '@/features/cart/lib/lines'
@@ -28,6 +29,10 @@ vi.mock('@/features/checkout/shipping', () => ({
 vi.mock('@/features/checkout/payments', () => ({
   initializePayment: vi.fn(),
   verifyPayment: vi.fn(),
+}))
+
+vi.mock('@/features/discounts/actions', () => ({
+  validateDiscountCode: vi.fn(),
 }))
 
 vi.mock('@/features/cart/use-cart', () => ({
@@ -61,6 +66,7 @@ const placeOrderMock = vi.mocked(placeOrder)
 const getShippingRatesMock = vi.mocked(getShippingRates)
 const initializePaymentMock = vi.mocked(initializePayment)
 const verifyPaymentMock = vi.mocked(verifyPayment)
+const validateDiscountCodeMock = vi.mocked(validateDiscountCode)
 const useCartMock = vi.mocked(useCart)
 
 const SHIPPING_OPTIONS: ShippingOption[] = [
@@ -131,6 +137,7 @@ describe('CheckoutFlow', () => {
     getShippingRatesMock.mockResolvedValue(SHIPPING_OPTIONS)
     initializePaymentMock.mockReset()
     verifyPaymentMock.mockReset()
+    validateDiscountCodeMock.mockReset()
     resumeTransaction.mockReset()
     mockCart()
   })
@@ -276,6 +283,52 @@ describe('CheckoutFlow', () => {
 
     await waitFor(() => expect(placeOrderMock).toHaveBeenCalledTimes(1))
     expect(placeOrderMock).toHaveBeenCalledWith(expect.objectContaining({ saveAddress: true }))
+  })
+
+  it('threads the applied discount CODE ONLY (never a percentage or amount) into placeOrder', async () => {
+    const user = userEvent.setup({ delay: null })
+    validateDiscountCodeMock.mockResolvedValue({ ok: true, code: 'LAUNCH20', percentOff: 20 })
+    placeOrderMock.mockResolvedValue({ ok: true, order: { orderNumber: 'MSE-123456' } as never })
+    initializePaymentMock.mockResolvedValue({ ok: true, accessCode: 'code_1', publicKey: 'pk_test_1' })
+    verifyPaymentMock.mockResolvedValue({ ok: true, status: 'paid' })
+    resumeTransaction.mockImplementation((_accessCode: string, opts: { onSuccess: (t: { reference: string }) => void }) => {
+      opts.onSuccess({ reference: 'ref_1' })
+    })
+
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    await user.type(await screen.findByLabelText(/discount code/i), 'launch20')
+    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await screen.findByRole('button', { name: /remove/i })
+
+    await driveToReview(user)
+    await user.click(screen.getByRole('button', { name: /place order/i }))
+
+    await waitFor(() => expect(placeOrderMock).toHaveBeenCalledTimes(1))
+    expect(placeOrderMock).toHaveBeenCalledWith(expect.objectContaining({ discountCode: 'LAUNCH20' }))
+    // Never a percentage or amount — see `PlaceOrderInput.discountCode`'s doc comment.
+    const call = placeOrderMock.mock.calls[0][0] as unknown as Record<string, unknown>
+    expect(call).not.toHaveProperty('discountPercent')
+    expect(call).not.toHaveProperty('discountMinor')
+  })
+
+  it('omits discountCode (undefined) when no discount code was applied', async () => {
+    const user = userEvent.setup({ delay: null })
+    placeOrderMock.mockResolvedValue({ ok: true, order: { orderNumber: 'MSE-123456' } as never })
+    initializePaymentMock.mockResolvedValue({ ok: true, accessCode: 'code_1', publicKey: 'pk_test_1' })
+    verifyPaymentMock.mockResolvedValue({ ok: true, status: 'paid' })
+    resumeTransaction.mockImplementation((_accessCode: string, opts: { onSuccess: (t: { reference: string }) => void }) => {
+      opts.onSuccess({ reference: 'ref_1' })
+    })
+
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    await driveToReview(user)
+    await user.click(screen.getByRole('button', { name: /place order/i }))
+
+    await waitFor(() => expect(placeOrderMock).toHaveBeenCalledTimes(1))
+    expect(placeOrderMock.mock.calls[0][0]).toEqual(expect.objectContaining({ discountCode: undefined }))
+    expect(validateDiscountCodeMock).not.toHaveBeenCalled()
   })
 
   it('shows the error and does not navigate or clear the cart when placeOrder fails', async () => {

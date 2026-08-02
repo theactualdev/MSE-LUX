@@ -1,6 +1,7 @@
 import 'server-only'
 
 import { db } from '@/lib/db'
+import { computeDiscountMinor } from '@/features/discounts/discount-math'
 
 /**
  * Discount engine (Phase 10b). Directive-free so both the public
@@ -23,27 +24,20 @@ import { db } from '@/lib/db'
  * admin action is written, it should validate 1..100 too — as a UX
  * affordance that surfaces the error early, not as the source of the
  * guarantee, which lives here.
+ *
+ * `computeDiscountMinor` itself now lives in the directive-free
+ * `discount-math.ts` sibling and is only re-exported here for this module's
+ * existing importers (`checkout/data.ts`, this file's own test) — the
+ * checkout UI's live preview needs the SAME function but cannot import this
+ * module (it carries `server-only`), so the pure arithmetic moved out to
+ * where both a server module and a client component can reach it. See that
+ * module's doc comment for the full rationale.
  */
+export { computeDiscountMinor }
 
 /** One code has one identity: `launch20`, `Launch20` and ` LAUNCH20 ` are the same row. */
 export function normaliseCode(raw: string): string {
   return raw.trim().toUpperCase()
-}
-
-/**
- * The discount in minor units. `Math.round` matches every other money
- * calculation in this codebase. Neither the Prisma schema (`percentOff Int`,
- * no CHECK constraint) nor any caller enforces a 1..100 range on `percentOff`,
- * so this function clamps it defensively: below 0 is treated as 0, above 100
- * is treated as 100. That keeps the returned discount within
- * `0..subtotalMinor` and a negative total unreachable, regardless of what a
- * caller passes in. The admin action (a later task) should still validate
- * 1..100 at its own boundary, but that is a UX affordance, not the guarantee
- * — the guarantee lives here.
- */
-export function computeDiscountMinor(subtotalMinor: number, percentOff: number): number {
-  const clamped = Math.min(100, Math.max(0, percentOff))
-  return Math.round((subtotalMinor * clamped) / 100)
 }
 
 /** A code that can be used right now, or null. See the module note on why null is undifferentiated. */

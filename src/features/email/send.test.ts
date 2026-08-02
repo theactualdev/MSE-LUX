@@ -54,6 +54,9 @@ function baseOrder(overrides: Record<string, unknown> = {}) {
     shippingMinor: 5_000,
     taxMinor: 3_000,
     totalMinor: 48_000,
+    discountCode: null,
+    discountPercent: null,
+    discountMinor: 0,
     shipFullName: 'Ada Lovelace',
     shipLine1: '1 Analytical Engine Way',
     shipLine2: 'Suite 2',
@@ -84,6 +87,9 @@ const EXPECTED_EMAIL_DATA = {
   shippingMinor: 5_000,
   taxMinor: 3_000,
   totalMinor: 48_000,
+  discountCode: undefined,
+  discountPercent: undefined,
+  discountMinor: 0,
   shippingAddress: {
     line1: '1 Analytical Engine Way',
     line2: 'Suite 2',
@@ -132,6 +138,21 @@ describe('sendOrderConfirmation', () => {
       ...EXPECTED_EMAIL_DATA,
       isGift: true,
       giftRecipientName: 'Adaeze',
+    })
+  })
+
+  it('maps the three discount columns from the order row exactly (Phase 10b)', async () => {
+    order.findUnique.mockResolvedValue(
+      baseOrder({ discountCode: 'LAUNCH20', discountPercent: 20, discountMinor: 8_000 }),
+    )
+
+    await sendOrderConfirmation(ORDER_NUMBER)
+
+    expect(orderConfirmationEmailMock).toHaveBeenCalledWith({
+      ...EXPECTED_EMAIL_DATA,
+      discountCode: 'LAUNCH20',
+      discountPercent: 20,
+      discountMinor: 8_000,
     })
   })
 

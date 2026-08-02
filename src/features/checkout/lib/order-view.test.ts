@@ -94,6 +94,52 @@ describe('mapOrderRow', () => {
     expect(view.trackingNumber).toBe('GIG-123')
   })
 
+  describe('discount (Phase 10b)', () => {
+    it('populates summary.discount when discountMinor > 0', () => {
+      const row = buildRow()
+      row.discountCode = 'LAUNCH20'
+      row.discountPercent = 20
+      row.discountMinor = 580 // 20% of the 2900 subtotal fixture
+      row.subtotalMinor = 2900
+      row.taxMinor = Math.round((2900 - 580) * 0.075)
+      row.totalMinor = 2900 - 580 + 500 + row.taxMinor
+
+      const view = mapOrderRow(row)
+
+      expect(view.summary.discount).toEqual({
+        code: 'LAUNCH20',
+        percentOff: 20,
+        amount: { amountMinor: 580, currency: 'USD' },
+      })
+      // The arithmetic itself must sum correctly — a receipt whose own
+      // numbers don't add up is worse than no receipt.
+      expect(
+        view.summary.subtotal.amountMinor -
+          view.summary.discount!.amount.amountMinor +
+          view.summary.shipping.amountMinor +
+          view.summary.tax.amountMinor,
+      ).toBe(view.summary.total.amountMinor)
+    })
+
+    it('omits summary.discount entirely when discountMinor is 0, even with a stored code/percent (defence in depth)', () => {
+      const row = buildRow()
+      row.discountCode = 'LAUNCH20'
+      row.discountPercent = 20
+      row.discountMinor = 0
+
+      const view = mapOrderRow(row)
+
+      expect(view.summary.discount).toBeUndefined()
+      expect(view.summary).not.toHaveProperty('discount')
+    })
+
+    it('omits summary.discount when the row predates the discount columns (all three fields absent)', () => {
+      const view = mapOrderRow(buildRow())
+
+      expect(view.summary.discount).toBeUndefined()
+    })
+  })
+
   it('allows omitting tracking fields from a row literal (backward compatibility)', () => {
     // Verify that a row without the new keys still compiles and maps (with undefined fields)
     const view = mapOrderRow({
