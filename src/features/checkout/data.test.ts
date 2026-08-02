@@ -100,6 +100,21 @@ vi.mock('@/features/catalog/server/resolve-products', () => ({
   resolveProductsByIds: (...args: [string[]]) => resolveProductsByIds(...args),
 }))
 
+// `resolveUsableCode` is the only export mocked — `computeDiscountMinor`
+// stays real (imported actual) since it's a pure arithmetic helper, exactly
+// like `buildCartLines`/`mapOrderRow`/the real `shipping-quote` lib above:
+// these tests assert on the ACTUAL discount arithmetic `placeOrder` produces,
+// not a stubbed number.
+const resolveUsableCode = vi.fn()
+
+vi.mock('@/features/discounts/discount', async () => {
+  const actual = await vi.importActual<typeof import('@/features/discounts/discount')>('@/features/discounts/discount')
+  return {
+    ...actual,
+    resolveUsableCode: (...args: [string]) => resolveUsableCode(...args),
+  }
+})
+
 const checkRateLimit = vi.fn()
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
@@ -961,5 +976,130 @@ describe('placeOrder — charge-currency divergence is logged, not overridden (P
     expect(consoleWarnSpy).not.toHaveBeenCalled()
 
     consoleWarnSpy.mockRestore()
+  })
+})
+
+describe('placeOrder — discounts (Phase 10b Task 4, THE MONEY PATH)', () => {
+  // 2x PRODUCT_ID @ 500_000 = 1_000_000 subtotal, so a 20%-off code produces a
+  // round discount (200_000) distinct from the shipping/tax amounts, making a
+  // mixed-up total impossible to miss.
+  const DISCOUNT_LINES = [{ productId: PRODUCT_ID, quantity: 2 }]
+
+  it('applies the percentage and computes tax on the DISCOUNTED subtotal', async () => {
+    resolveUsableCode.mockResolvedValue({ id: 'd1', code: 'LAUNCH20', percentOff: 20 })
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      guestLines: DISCOUNT_LINES,
+      discountCode: 'launch20',
+    })
+
+    expect(result).toEqual({ ok: true, order: expect.objectContaining({ orderNumber: 'MSE-123456' }) })
+    expect(resolveUsableCode).toHaveBeenCalledWith('launch20')
+
+    const data = order.create.mock.calls[0][0].data
+    expect(data.subtotalMinor).toBe(1_000_000)
+    expect(data.discountCode).toBe('LAUNCH20')
+    expect(data.discountPercent).toBe(20)
+    expect(data.discountMinor).toBe(200_000)
+    expect(data.taxMinor).toBe(Math.round((data.subtotalMinor - 200_000) * 0.075))
+    expect(data.totalMinor).toBe(data.subtotalMinor - 200_000 + data.shippingMinor + data.taxMinor)
+  })
+
+  it('leaves shipping untouched — the discount never reaches the verified quote amount', async () => {
+    resolveUsableCode.mockResolvedValue({ id: 'd1', code: 'LAUNCH20', percentOff: 20 })
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      guestLines: DISCOUNT_LINES,
+      discountCode: 'LAUNCH20',
+    })
+
+    expect('ok' in result && result.ok).toBe(true)
+    const data = order.create.mock.calls[0][0].data
+    // The signed quote token's amountMinor (validShippingToken's default) —
+    // the discount block never touches `shippingMinor`.
+    expect(data.shippingMinor).toBe(250_000)
+  })
+
+  /** THE SECURITY PROPERTY: a smuggled amount or percentage cannot move the price. */
+  it('IGNORES a discountMinor or discountPercent smuggled onto the input', async () => {
+    resolveUsableCode.mockResolvedValue({ id: 'd1', code: 'LAUNCH20', percentOff: 20 })
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      guestLines: DISCOUNT_LINES,
+      discountCode: 'LAUNCH20',
+      discountMinor: 999_999,
+      discountPercent: 90,
+    } as never)
+
+    expect('ok' in result && result.ok).toBe(true)
+    const data = order.create.mock.calls[0][0].data
+    expect(data.discountMinor).toBe(200_000)
+    expect(data.discountPercent).toBe(20)
+  })
+
+  it('places at FULL price when the code is no longer usable, rather than failing the order', async () => {
+    resolveUsableCode.mockResolvedValue(null)
+
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+      discountCode: 'EXPIRED',
+    })
+
+    expect('ok' in result && result.ok).toBe(true)
+    const data = order.create.mock.calls[0][0].data
+    expect(data.discountMinor).toBe(0)
+    expect(data.discountCode).toBeNull()
+    expect(data.discountPercent).toBeNull()
+    expect(data.taxMinor).toBe(Math.round(data.subtotalMinor * 0.075))
+  })
+
+  it('places at full price when no code is supplied, with discountMinor 0', async () => {
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+    })
+
+    expect('ok' in result && result.ok).toBe(true)
+    const data = order.create.mock.calls[0][0].data
+    expect(data.discountMinor).toBe(0)
+    expect(data.discountCode).toBeNull()
+    expect(data.discountPercent).toBeNull()
+    expect(resolveUsableCode).not.toHaveBeenCalled()
+  })
+
+  it('ignores a discount code that is only whitespace, without calling resolveUsableCode', async () => {
+    const result = await placeOrder({
+      contact: CONTACT,
+      address: ADDRESS,
+      shippingToken: validShippingToken(),
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
+      discountCode: '   ',
+    })
+
+    expect('ok' in result && result.ok).toBe(true)
+    const data = order.create.mock.calls[0][0].data
+    expect(data.discountMinor).toBe(0)
+    expect(data.discountCode).toBeNull()
+    expect(resolveUsableCode).not.toHaveBeenCalled()
   })
 })

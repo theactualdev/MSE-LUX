@@ -16,6 +16,7 @@ import { mapOrderRow } from '@/features/checkout/lib/order-view'
 import { generateOrderNumber, MAX_ORDER_NUMBER_ATTEMPTS } from '@/features/checkout/lib/order-number'
 import { serverChargeCurrency } from '@/features/currency/lib/charge-currency-server'
 import { checkRateLimit, RATE_LIMITED_MESSAGE } from '@/lib/rate-limit'
+import { resolveUsableCode, computeDiscountMinor } from '@/features/discounts/discount'
 import type { PlaceOrderInput, PlaceOrderResult, GuestOrderLine } from '@/features/checkout/types'
 // `account/data.ts` carries `import 'server-only'`, not `'use server'` — it's
 // an ordinary server module (not a Server Actions module restricted to async
@@ -337,8 +338,24 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
 
   const subtotalMinor = lines.reduce((sum, line) => sum + line.lineTotal.amountMinor, 0)
   const shippingMinor = quote.amountMinor
-  const taxMinor = Math.round(subtotalMinor * TAX_RATE)
-  const totalMinor = subtotalMinor + shippingMinor + taxMinor
+
+  // The code is re-resolved HERE, server-side, and the amount re-derived from
+  // the authored percentage — the client sends a string and nothing else. A
+  // code that expired or was disabled between the checkout preview and this
+  // call places the order at FULL price rather than failing it: the customer's
+  // intent was to buy, and the returned order carries the real totals, so the
+  // confirmation shows what was actually charged.
+  const usableCode =
+    typeof input.discountCode === 'string' && input.discountCode.trim()
+      ? await resolveUsableCode(input.discountCode)
+      : null
+
+  const discountMinor = usableCode ? computeDiscountMinor(subtotalMinor, usableCode.percentOff) : 0
+
+  // Tax on the DISCOUNTED subtotal — charging VAT on money the customer never
+  // paid would be wrong, and the policy pages now formally commit to the rate.
+  const taxMinor = Math.round((subtotalMinor - discountMinor) * TAX_RATE)
+  const totalMinor = subtotalMinor - discountMinor + shippingMinor + taxMinor
 
   const orderLineInputs = lines.map((line) => ({
     productName: line.product.name,
@@ -367,6 +384,9 @@ export async function placeOrder(input: PlaceOrderInput): Promise<PlaceOrderResu
     shippingLabel: quote.label,
     currency: chargeCurrency,
     subtotalMinor,
+    discountCode: usableCode?.code ?? null,
+    discountPercent: usableCode?.percentOff ?? null,
+    discountMinor,
     shippingMinor,
     taxMinor,
     totalMinor,

@@ -28,6 +28,13 @@ export interface PlaceOrderInput {
    * `placeOrder`'s doc comment for the full contract.
    */
   saveAddress?: boolean
+  /**
+   * A discount CODE, never an amount or a percentage. `placeOrder` re-resolves
+   * it and re-derives the discount server-side, exactly as it re-prices every
+   * line against the authored catalog — so a client-supplied discount value is
+   * not distrusted, it is unsendable. Same shape as `shippingToken`.
+   */
+  discountCode?: string
 }
 
 export type PlaceOrderResult = { ok: true; order: OrderView } | { error: string }
