@@ -17,11 +17,21 @@ function toDateInputValue(date: Date | null): string {
   return date.toISOString().slice(0, 10)
 }
 
-/** The inverse of `toDateInputValue` — `''` means "never expires", so it maps back to `null`, not epoch. */
+/**
+ * The inverse of `toDateInputValue` — `''` means "never expires", so it maps
+ * back to `null`, not epoch. Anchors on the END of the chosen day
+ * (`T23:59:59.999Z`), not its start: the engine (`resolveUsableCode`)
+ * rejects on `expiresAt <= now`, so an admin who picks "5 Aug" as the expiry
+ * — and whose admin list row reads "expires 5 Aug" — means the code should
+ * stay usable through all of 5 August. Anchoring on `T00:00:00.000Z` instead
+ * would make the code dead for the entire stated day (from 01:00 WAT in the
+ * primary market, an hour after midnight), directly contradicting what the
+ * form and the list both told the admin.
+ */
 function parseDateInput(value: string): Date | null {
   const trimmed = value.trim()
   if (!trimmed) return null
-  const parsed = new Date(`${trimmed}T00:00:00.000Z`)
+  const parsed = new Date(`${trimmed}T23:59:59.999Z`)
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
@@ -83,7 +93,12 @@ export function DiscountFormDialog({ discount }: DiscountFormDialogProps) {
         : await createDiscountAction({ code, percentOff, maxUses, expiresAt })
 
       if (result.ok) {
-        setOpen(false)
+        // Routed through `handleOpenChange`, not a bare `setOpen(false)` —
+        // that's what runs `resetFields()`. Without it, a successful create
+        // left the just-submitted values sitting in state, so reopening
+        // "New discount" came back prefilled with the code just created and
+        // re-submitting hit the duplicate-code error.
+        handleOpenChange(false)
         router.refresh()
         return
       }
@@ -157,7 +172,7 @@ export function DiscountFormDialog({ discount }: DiscountFormDialogProps) {
             </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" disabled={pending} onClick={() => setOpen(false)}>
+              <Button type="button" variant="outline" disabled={pending} onClick={() => handleOpenChange(false)}>
                 Cancel
               </Button>
               <Button type="submit" disabled={pending}>

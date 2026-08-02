@@ -5,6 +5,7 @@ import { z } from 'zod'
 import { Role } from '@/generated/prisma/client'
 import { getCurrentRole, roleSatisfies } from '@/features/auth/claims'
 import { db } from '@/lib/db'
+import { normaliseCode } from '@/features/discounts/discount-math'
 
 /**
  * The admin-discounts Server Actions (Phase 10b, Task 7). SECURITY: actions
@@ -41,11 +42,6 @@ const INVALID_REQUEST_ERROR = 'Invalid request.'
 /** Prisma's unique-constraint violation. Matched structurally so this module needn't import the error class — same idiom as `cart/data.ts`. */
 function isUniqueViolation(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'P2002'
-}
-
-/** One code has one identity: `launch20`, `Launch20` and ` LAUNCH20 ` are the same row — same normalisation as the public engine's `normaliseCode` in `@/features/discounts/discount.ts`. */
-function normaliseCode(raw: string): string {
-  return raw.trim().toUpperCase()
 }
 
 const discountFieldsSchema = z.object({
@@ -91,8 +87,25 @@ export async function updateDiscountAction(input: unknown): Promise<DiscountActi
 
   const { id, maxUses } = parsed.data
 
-  const current = await db.discountCode.findUnique({ where: { id }, select: { timesUsed: true } })
+  const current = await db.discountCode.findUnique({ where: { id }, select: { timesUsed: true, code: true } })
   if (!current) return { ok: false, error: NOT_FOUND_ERROR }
+
+  // Renaming a redeemed code mis-attributes future redemptions:
+  // `markOrderPaid` (`checkout/lib/fulfil-order.ts`) counts a payment against
+  // whatever code STRING an order snapshotted, looked up by that string at
+  // payment time — never by this row's id. Rename LAUNCH20 -> LAUNCH25, then
+  // create a fresh LAUNCH20, and a PENDING order placed under the original
+  // name increments the NEW row's `timesUsed` when it pays. Analytics only,
+  // never money (the order's own charged total is unaffected either way),
+  // but still wrong — so a code that has already been used at least once may
+  // not change its `code` at all, alongside the existing maxUses-below-usage
+  // guard just below.
+  if (normaliseCode(parsed.data.code) !== current.code && current.timesUsed > 0) {
+    return {
+      ok: false,
+      error: `This code has already been used ${current.timesUsed} time${current.timesUsed === 1 ? '' : 's'} — it can no longer be renamed.`,
+    }
+  }
 
   // A cap set below usage-to-date would make an otherwise-live code
   // instantly unusable — almost always a typo, never a deliberate write a

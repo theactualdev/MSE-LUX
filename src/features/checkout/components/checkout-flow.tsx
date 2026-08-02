@@ -4,7 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { ShoppingBag } from 'lucide-react'
-import { buttonVariants } from '@/components/ui/button'
+import { Button, buttonVariants } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ContactStep } from '@/features/checkout/components/contact-step'
 import { AddressStep } from '@/features/checkout/components/address-step'
@@ -21,10 +21,12 @@ import { useHydrated } from '@/features/cart/use-hydrated'
 import { computeCartSummary } from '@/features/cart/lib/summary'
 import { TAX_RATE } from '@/features/cart/lib/shipping'
 import { computeDiscountMinor } from '@/features/discounts/discount-math'
+import { formatMoney } from '@/lib/money'
 import type { Contact, Address } from '@/features/checkout/schema'
 import type { ShippingOption } from '@/features/checkout/shipping-types'
 import type { CartSummary as CartSummaryModel } from '@/features/cart/lib/summary'
 import type { AppliedDiscount, DiscountSummary } from '@/features/discounts/discount-math'
+import type { OrderView } from '@/features/checkout/lib/order-view'
 import { cn } from '@/lib/utils'
 
 type Step = 'contact' | 'address' | 'shipping' | 'payment' | 'review'
@@ -62,12 +64,23 @@ const STEP_LABELS: Record<Step, string> = {
  * state linking back to `/` instead of the flow.
  *
  * On `Place order`, `handlePlaceOrder` places a PENDING order via the
- * `placeOrder` server action, initializes a Paystack transaction for it
- * (`initializePayment`, which derives the amount from the stored order —
- * never a client value), and opens the Paystack inline popup with the
- * returned access code. The popup's `onSuccess` is only a fast-path hint —
- * the order isn't trusted paid until the server `verifyPayment` call
- * confirms it (the webhook is the backstop if that call never lands).
+ * `placeOrder` server action. If a discount code rode along and what came
+ * back (`placed.order.summary.discount`) is absent or carries a different
+ * `percentOff` than what was sent, the code changed underneath the customer
+ * between the checkout preview and this call — `handlePlaceOrder` does NOT
+ * proceed straight to payment in that case. It shows a `changedTotal` state
+ * with the real total and requires an explicit confirm
+ * (`handleConfirmChangedTotal`) before payment starts. Either way, payment
+ * itself is `proceedToPayment`: it initializes a Paystack transaction for
+ * the ALREADY-PLACED order (`initializePayment`, which derives the amount
+ * from the stored order — never a client value) and opens the Paystack
+ * inline popup with the returned access code. The popup's `onSuccess` is
+ * only a fast-path hint — the order isn't trusted paid until the server
+ * `verifyPayment` call confirms it (the webhook is the backstop if that call
+ * never lands). Critically, `proceedToPayment` takes the already-placed
+ * `OrderView`, never calling `placeOrder` a second time — from either the
+ * happy path or the changed-total confirm — so a second PENDING row is
+ * never created for the same checkout attempt.
  *
  * `saveAddress` — whether the address step's "save this address to my
  * account" checkbox was checked — is captured from `AddressStep`'s `onSubmit`
@@ -149,6 +162,11 @@ export function CheckoutFlow({
   const [placing, setPlacing] = useState(false)
   const [error, setError] = useState<string>()
   const [discount, setDiscount] = useState<AppliedDiscount | null>(null)
+  // Set ONLY when `placeOrder` succeeded but the discount that was sent came
+  // back missing or changed (see `handlePlaceOrder`'s doc comment) — the
+  // order is ALREADY placed at this point, so this state's `order` is what
+  // `handleConfirmChangedTotal` resumes payment for, never a fresh `placeOrder`.
+  const [changedTotal, setChangedTotal] = useState<{ order: OrderView; message: string } | undefined>()
 
   if (!hydrated || isLoading) {
     return (
@@ -169,6 +187,22 @@ export function CheckoutFlow({
         <ShoppingBag aria-hidden="true" className="size-10 animate-pulse text-muted-foreground" />
         <h2 className="font-display text-xl font-medium text-foreground">Placing your order…</h2>
         <p className="max-w-sm text-sm text-muted-foreground">Hang tight while we confirm your order.</p>
+      </div>
+    )
+  }
+
+  // The order is ALREADY placed at this point (see `handlePlaceOrder`) — this
+  // is a required confirm before payment, never a step the customer can
+  // silently skip past into the Paystack popup.
+  if (changedTotal) {
+    return (
+      <div className="flex flex-col items-center gap-3 py-16 text-center" role="alert" aria-live="assertive">
+        <ShoppingBag aria-hidden="true" className="size-10 text-muted-foreground" />
+        <h2 className="font-display text-xl font-medium text-foreground">Your total has changed</h2>
+        <p className="max-w-sm text-sm text-muted-foreground">{changedTotal.message}</p>
+        <Button type="button" className="mt-3" onClick={handleConfirmChangedTotal}>
+          Continue to payment
+        </Button>
       </div>
     )
   }
@@ -198,10 +232,67 @@ export function CheckoutFlow({
   // totals at the moment the customer authorises payment.
   const summary = applyDiscount(cartSummary, discount)
 
+  /**
+   * Initializes payment for an ALREADY-PLACED order and opens the Paystack
+   * popup. Split out from `handlePlaceOrder` so the changed-total confirm
+   * path (`handleConfirmChangedTotal`) can resume payment for the order
+   * `placeOrder` already returned, rather than placing a second one — a
+   * second `placeOrder` call here would leave the first PENDING row orphaned.
+   */
+  async function proceedToPayment(order: OrderView) {
+    const init = await initializePayment(order.orderNumber)
+
+    if (!('ok' in init)) {
+      setPlacing(false)
+      setError(init.error)
+      return
+    }
+
+    // Dynamically imported so the Paystack SDK never reaches the initial
+    // bundle and SSR never touches it.
+    const { default: Paystack } = await import('@paystack/inline-js')
+    const popup = new Paystack()
+
+    popup.resumeTransaction(init.accessCode, {
+      onSuccess: async (transaction: { reference: string }) => {
+        const verified = await verifyPayment(transaction.reference)
+
+        if ('ok' in verified) {
+          // Flip to the placing state BEFORE clearing the cart, so the
+          // empty-bag state can't render in the gap before the navigation
+          // completes.
+          useLastOrderStore.getState().setOrder(order)
+          clear()
+
+          // `verified.status === 'processing'` (Phase 6 finding B) means
+          // fulfilment hit an unexpected error on this fast path — the order
+          // IS placed and paid (Paystack confirmed the charge), so it still
+          // navigates and clears the cart exactly like 'paid', but the
+          // webhook, not this call, is what will actually fulfil it. The
+          // confirmation page must not claim the order is confirmed yet; the
+          // `status` query flag is how that distinction survives the
+          // navigation (never inferred from the order snapshot itself, which
+          // has no `paidAt`/status field to gate on).
+          const statusQuery = verified.status === 'processing' ? '?status=processing' : ''
+          router.push(`/order/${order.orderNumber}${statusQuery}`)
+        } else {
+          setPlacing(false)
+          setError(verified.error)
+        }
+      },
+      onCancel: () => setPlacing(false),
+      onError: () => {
+        setPlacing(false)
+        setError('Payment could not be completed. Please try again.')
+      },
+    })
+  }
+
   async function handlePlaceOrder() {
     if (!contact || !address || !selectedShipping) return
 
     setError(undefined)
+    setChangedTotal(undefined)
     setPlacing(true)
 
     const placed = await placeOrder({
@@ -227,52 +318,52 @@ export function CheckoutFlow({
       return
     }
 
-    const init = await initializePayment(placed.order.orderNumber)
+    // `placeOrder` places at full price (never fails the order) when a code
+    // sent along with it turns out to be invalid, disabled, or changed
+    // between the checkout preview and this call — see that function's own
+    // doc comment. The order is ALREADY written at this point (a fact, not a
+    // draft), so silently opening the Paystack popup on a higher total than
+    // what the review step just showed would charge the customer without
+    // ever telling them why. Compare what was SENT (`discount`, this
+    // component's own state) against what came BACK
+    // (`placed.order.summary.discount`, the server's re-derived truth): a
+    // discount sent with no returned discount, or a returned `percentOff`
+    // that differs from what was sent, means the total the customer is about
+    // to be charged is NOT the one they reviewed — stop short of the popup
+    // and require an explicit confirm before proceeding. When nothing
+    // changed (including when no discount was ever sent), fall straight
+    // through to payment exactly as before.
+    if (discount) {
+      const returnedDiscount = placed.order.summary.discount
 
-    if (!('ok' in init)) {
-      setPlacing(false)
-      setError(init.error)
-      return
+      if (!returnedDiscount || returnedDiscount.percentOff !== discount.percentOff) {
+        setPlacing(false)
+        setChangedTotal({
+          order: placed.order,
+          message: returnedDiscount
+            ? `The code ${discount.code} now gives ${returnedDiscount.percentOff}% off — your total is now ${formatMoney(placed.order.summary.total)}.`
+            : `The code ${discount.code} is no longer available — your total is now ${formatMoney(placed.order.summary.total)}.`,
+        })
+        return
+      }
     }
 
-    // Dynamically imported so the Paystack SDK never reaches the initial
-    // bundle and SSR never touches it.
-    const { default: Paystack } = await import('@paystack/inline-js')
-    const popup = new Paystack()
+    await proceedToPayment(placed.order)
+  }
 
-    popup.resumeTransaction(init.accessCode, {
-      onSuccess: async (transaction: { reference: string }) => {
-        const verified = await verifyPayment(transaction.reference)
+  /**
+   * The customer's explicit confirm from the changed-total state. Resumes
+   * payment for `changedTotal.order` — the order `placeOrder` already
+   * returned — rather than calling `placeOrder` again, which would create a
+   * second PENDING order and orphan the first.
+   */
+  async function handleConfirmChangedTotal() {
+    if (!changedTotal) return
 
-        if ('ok' in verified) {
-          // Flip to the placing state BEFORE clearing the cart, so the
-          // empty-bag state can't render in the gap before the navigation
-          // completes.
-          useLastOrderStore.getState().setOrder(placed.order)
-          clear()
-
-          // `verified.status === 'processing'` (Phase 6 finding B) means
-          // fulfilment hit an unexpected error on this fast path — the order
-          // IS placed and paid (Paystack confirmed the charge), so it still
-          // navigates and clears the cart exactly like 'paid', but the
-          // webhook, not this call, is what will actually fulfil it. The
-          // confirmation page must not claim the order is confirmed yet; the
-          // `status` query flag is how that distinction survives the
-          // navigation (never inferred from the order snapshot itself, which
-          // has no `paidAt`/status field to gate on).
-          const statusQuery = verified.status === 'processing' ? '?status=processing' : ''
-          router.push(`/order/${placed.order.orderNumber}${statusQuery}`)
-        } else {
-          setPlacing(false)
-          setError(verified.error)
-        }
-      },
-      onCancel: () => setPlacing(false),
-      onError: () => {
-        setPlacing(false)
-        setError('Payment could not be completed. Please try again.')
-      },
-    })
+    const order = changedTotal.order
+    setChangedTotal(undefined)
+    setPlacing(true)
+    await proceedToPayment(order)
   }
 
   return (

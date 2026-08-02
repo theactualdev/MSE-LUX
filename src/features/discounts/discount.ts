@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { db } from '@/lib/db'
-import { computeDiscountMinor } from '@/features/discounts/discount-math'
+import { computeDiscountMinor, normaliseCode } from '@/features/discounts/discount-math'
 
 /**
  * Discount engine (Phase 10b). Directive-free so both the public
@@ -32,13 +32,13 @@ import { computeDiscountMinor } from '@/features/discounts/discount-math'
  * module (it carries `server-only`), so the pure arithmetic moved out to
  * where both a server module and a client component can reach it. See that
  * module's doc comment for the full rationale.
+ *
+ * `normaliseCode` lives there too, for the same reason and re-exported here
+ * the same way — the admin write path (`@/features/admin/discounts/actions.ts`)
+ * imports it directly from `discount-math.ts` rather than keeping its own
+ * copy, so a code's normalised identity has exactly one implementation.
  */
-export { computeDiscountMinor }
-
-/** One code has one identity: `launch20`, `Launch20` and ` LAUNCH20 ` are the same row. */
-export function normaliseCode(raw: string): string {
-  return raw.trim().toUpperCase()
-}
+export { computeDiscountMinor, normaliseCode }
 
 /** A code that can be used right now, or null. See the module note on why null is undifferentiated. */
 export async function resolveUsableCode(

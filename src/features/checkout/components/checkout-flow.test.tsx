@@ -288,7 +288,19 @@ describe('CheckoutFlow', () => {
   it('threads the applied discount CODE ONLY (never a percentage or amount) into placeOrder', async () => {
     const user = userEvent.setup({ delay: null })
     validateDiscountCodeMock.mockResolvedValue({ ok: true, code: 'LAUNCH20', percentOff: 20 })
-    placeOrderMock.mockResolvedValue({ ok: true, order: { orderNumber: 'MSE-123456' } as never })
+    placeOrderMock.mockResolvedValue({
+      ok: true,
+      // `summary.discount` echoes back the SAME percentOff that was sent —
+      // the returned-discount-unchanged happy path — so this stub doesn't
+      // trip the changed-total confirm this test isn't exercising.
+      order: {
+        orderNumber: 'MSE-123456',
+        summary: {
+          total: { amountMinor: 2_830_000, currency: 'NGN' },
+          discount: { code: 'LAUNCH20', percentOff: 20, amount: { amountMinor: 600_000, currency: 'NGN' } },
+        },
+      } as never,
+    })
     initializePaymentMock.mockResolvedValue({ ok: true, accessCode: 'code_1', publicKey: 'pk_test_1' })
     verifyPaymentMock.mockResolvedValue({ ok: true, status: 'paid' })
     resumeTransaction.mockImplementation((_accessCode: string, opts: { onSuccess: (t: { reference: string }) => void }) => {
@@ -412,6 +424,106 @@ describe('CheckoutFlow', () => {
     expect(push).not.toHaveBeenCalled()
     expect(clear).not.toHaveBeenCalled()
     expect(setOrder).not.toHaveBeenCalled()
+  })
+
+  it('does not open the popup and shows the changed-total state when a discount was sent but none came back', async () => {
+    const user = userEvent.setup({ delay: null })
+    validateDiscountCodeMock.mockResolvedValue({ ok: true, code: 'LAUNCH20', percentOff: 20 })
+    const order = {
+      orderNumber: 'MSE-123456',
+      summary: { total: { amountMinor: 430_000, currency: 'NGN' } },
+    } as never
+    placeOrderMock.mockResolvedValue({ ok: true, order })
+
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    await user.type(await screen.findByLabelText(/discount code/i), 'launch20')
+    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await screen.findByRole('button', { name: /remove/i })
+
+    await driveToReview(user)
+    await user.click(screen.getByRole('button', { name: /place order/i }))
+
+    await waitFor(() => expect(placeOrderMock).toHaveBeenCalledTimes(1))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent(/LAUNCH20 is no longer available/i)
+    expect(alert).toHaveTextContent('₦4,300.00')
+
+    expect(initializePaymentMock).not.toHaveBeenCalled()
+    expect(resumeTransaction).not.toHaveBeenCalled()
+    expect(push).not.toHaveBeenCalled()
+  })
+
+  it('confirming the changed-total state resumes payment for the ALREADY-PLACED order and does not call placeOrder again', async () => {
+    const user = userEvent.setup({ delay: null })
+    validateDiscountCodeMock.mockResolvedValue({ ok: true, code: 'LAUNCH20', percentOff: 20 })
+    const order = {
+      orderNumber: 'MSE-999999',
+      summary: { total: { amountMinor: 430_000, currency: 'NGN' } },
+    } as never
+    placeOrderMock.mockResolvedValue({ ok: true, order })
+    initializePaymentMock.mockResolvedValue({ ok: true, accessCode: 'code_1', publicKey: 'pk_test_1' })
+    verifyPaymentMock.mockResolvedValue({ ok: true, status: 'paid' })
+    resumeTransaction.mockImplementation((_accessCode: string, opts: { onSuccess: (t: { reference: string }) => void }) => {
+      opts.onSuccess({ reference: 'ref_1' })
+    })
+
+    const { clear } = useCartMock()
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    await user.type(await screen.findByLabelText(/discount code/i), 'launch20')
+    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await screen.findByRole('button', { name: /remove/i })
+
+    await driveToReview(user)
+    await user.click(screen.getByRole('button', { name: /place order/i }))
+
+    await screen.findByRole('alert')
+    await user.click(screen.getByRole('button', { name: /continue to payment/i }))
+
+    await waitFor(() => expect(initializePaymentMock).toHaveBeenCalledWith('MSE-999999'))
+    expect(placeOrderMock).toHaveBeenCalledTimes(1) // never a second placeOrder call
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/order/MSE-999999'))
+    expect(setOrder).toHaveBeenCalledWith(order)
+    expect(clear).toHaveBeenCalledTimes(1)
+  })
+
+  it('proceeds straight to payment with no interruption when the returned discount matches what was sent (pins the happy path)', async () => {
+    const user = userEvent.setup({ delay: null })
+    validateDiscountCodeMock.mockResolvedValue({ ok: true, code: 'LAUNCH20', percentOff: 20 })
+    const order = {
+      orderNumber: 'MSE-555555',
+      summary: {
+        total: { amountMinor: 2_830_000, currency: 'NGN' },
+        discount: { code: 'LAUNCH20', percentOff: 20, amount: { amountMinor: 600_000, currency: 'NGN' } },
+      },
+    } as never
+    placeOrderMock.mockResolvedValue({ ok: true, order })
+    initializePaymentMock.mockResolvedValue({ ok: true, accessCode: 'code_1', publicKey: 'pk_test_1' })
+    verifyPaymentMock.mockResolvedValue({ ok: true, status: 'paid' })
+    resumeTransaction.mockImplementation((_accessCode: string, opts: { onSuccess: (t: { reference: string }) => void }) => {
+      opts.onSuccess({ reference: 'ref_1' })
+    })
+
+    const { clear } = useCartMock()
+    render(<CheckoutFlow initialContact={contact} initialAddress={address} />)
+
+    await user.type(await screen.findByLabelText(/discount code/i), 'launch20')
+    await user.click(screen.getByRole('button', { name: /apply/i }))
+    await screen.findByRole('button', { name: /remove/i })
+
+    await driveToReview(user)
+    await user.click(screen.getByRole('button', { name: /place order/i }))
+
+    // Straight through to payment — no changed-total interruption at all.
+    await waitFor(() => expect(initializePaymentMock).toHaveBeenCalledWith('MSE-555555'))
+    expect(placeOrderMock).toHaveBeenCalledTimes(1)
+
+    await waitFor(() => expect(push).toHaveBeenCalledWith('/order/MSE-555555'))
+    expect(setOrder).toHaveBeenCalledWith(order)
+    expect(clear).toHaveBeenCalledTimes(1)
   })
 
   it('shows the error and does not navigate when verifyPayment fails', async () => {

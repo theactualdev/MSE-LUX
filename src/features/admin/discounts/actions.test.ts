@@ -133,7 +133,7 @@ describe('updateDiscountAction', () => {
   })
 
   it('rejects a maxUses below the current timesUsed with a friendly explanation', async () => {
-    discountCode.findUnique.mockResolvedValue({ timesUsed: 42 })
+    discountCode.findUnique.mockResolvedValue({ timesUsed: 42, code: 'LAUNCH20' })
 
     const result = await updateDiscountAction({ ...VALID_UPDATE_INPUT, maxUses: 10 })
 
@@ -143,7 +143,7 @@ describe('updateDiscountAction', () => {
   })
 
   it('allows a maxUses equal to the current timesUsed', async () => {
-    discountCode.findUnique.mockResolvedValue({ timesUsed: 42 })
+    discountCode.findUnique.mockResolvedValue({ timesUsed: 42, code: 'LAUNCH20' })
     discountCode.update.mockResolvedValue({})
 
     const result = await updateDiscountAction({ ...VALID_UPDATE_INPUT, maxUses: 42 })
@@ -153,12 +153,42 @@ describe('updateDiscountAction', () => {
   })
 
   it('allows a null maxUses regardless of timesUsed', async () => {
-    discountCode.findUnique.mockResolvedValue({ timesUsed: 999 })
+    discountCode.findUnique.mockResolvedValue({ timesUsed: 999, code: 'LAUNCH20' })
     discountCode.update.mockResolvedValue({})
 
     const result = await updateDiscountAction({ ...VALID_UPDATE_INPUT, maxUses: null })
 
     expect(result).toEqual({ ok: true })
+  })
+
+  it('rejects a code change once the code has been used, with a friendly explanation', async () => {
+    discountCode.findUnique.mockResolvedValue({ timesUsed: 5, code: 'LAUNCH20' })
+
+    const result = await updateDiscountAction({ ...VALID_UPDATE_INPUT, code: 'LAUNCH25' })
+
+    expect(result.ok).toBe(false)
+    if (!result.ok) expect(result.error).toMatch(/5/)
+    expect(discountCode.update).not.toHaveBeenCalled()
+  })
+
+  it('allows a code change (even case/whitespace-only) when the code has never been used', async () => {
+    discountCode.findUnique.mockResolvedValue({ timesUsed: 0, code: 'LAUNCH20' })
+    discountCode.update.mockResolvedValue({})
+
+    const result = await updateDiscountAction({ ...VALID_UPDATE_INPUT, code: 'LAUNCH25' })
+
+    expect(result).toEqual({ ok: true })
+    expect(discountCode.update).toHaveBeenCalledTimes(1)
+  })
+
+  it('allows re-submitting the SAME code unchanged even when the code has been used', async () => {
+    discountCode.findUnique.mockResolvedValue({ timesUsed: 5, code: 'LAUNCH20' })
+    discountCode.update.mockResolvedValue({})
+
+    const result = await updateDiscountAction({ ...VALID_UPDATE_INPUT, code: '  launch20  ' })
+
+    expect(result).toEqual({ ok: true })
+    expect(discountCode.update).toHaveBeenCalledTimes(1)
   })
 
   it('stores the code normalised to uppercase, trimmed', async () => {

@@ -29,6 +29,19 @@ export function computeDiscountMinor(subtotalMinor: number, percentOff: number):
 }
 
 /**
+ * One code has one identity: `launch20`, `Launch20` and ` LAUNCH20 ` are the
+ * same row. Lives here (rather than in `@/features/discounts/discount.ts`,
+ * which re-exports it) so BOTH the server engine and the admin write path
+ * (`@/features/admin/discounts/actions.ts`) import the SAME implementation —
+ * a drifted local copy in the admin action once meant an admin could store
+ * `launch20` while the engine looked up `LAUNCH20`, silently dead-lettering
+ * every customer's code.
+ */
+export function normaliseCode(raw: string): string {
+  return raw.trim().toUpperCase()
+}
+
+/**
  * A resolved discount as reported by `DiscountField`/`validateDiscountCode`
  * — a code and a percentage, NEVER a computed amount. `placeOrder` re-derives
  * the amount server-side from the code alone, so this shape is deliberately
