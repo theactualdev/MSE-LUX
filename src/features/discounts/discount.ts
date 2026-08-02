@@ -13,17 +13,17 @@ import { computeDiscountMinor } from '@/features/discounts/discount-math'
  * renders one generic message from that null — a message distinguishing the
  * cases would confirm which codes exist.
  *
- * Neither the Prisma schema (`percentOff Int`, no CHECK constraint) nor any
- * caller enforces the 1..100 bound on `percentOff` — the admin action that
- * would validate it at write time is a future task and does not exist yet.
- * So this module enforces the bound itself, in both directions:
- * `resolveUsableCode` refuses to hand out a code whose `percentOff` is out of
- * range, and `computeDiscountMinor` clamps whatever it is given. That keeps
- * `total = subtotal - discountMinor + shipping + tax` from ever going
- * negative, even if a bad row reaches this code some other way. When the
- * admin action is written, it should validate 1..100 too — as a UX
- * affordance that surfaces the error early, not as the source of the
- * guarantee, which lives here.
+ * Neither the Prisma schema (`percentOff Int`, no CHECK constraint) nor
+ * Postgres itself enforces the 1..100 bound on `percentOff`. The admin
+ * action (`@/features/admin/discounts/actions.ts`) validates 1..100 at
+ * write time, but that is a UX affordance, not the guarantee — a bad row
+ * could still reach this table some other way (a direct DB edit, a future
+ * bulk-import path). So this module enforces the bound itself, in both
+ * directions: `resolveUsableCode` refuses to hand out a code whose
+ * `percentOff` is out of range, and `computeDiscountMinor` clamps whatever
+ * it is given. That keeps `total = subtotal - discountMinor + shipping +
+ * tax` from ever going negative, regardless of what the admin layer let
+ * through.
  *
  * `computeDiscountMinor` itself now lives in the directive-free
  * `discount-math.ts` sibling and is only re-exported here for this module's
