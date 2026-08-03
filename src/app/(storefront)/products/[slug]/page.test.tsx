@@ -86,19 +86,21 @@ describe('generateMetadata', () => {
     })
   })
 
-  // Pins the fix: a product with no images must NOT fall back to a
-  // '/og-default.png' that doesn't exist — Facebook/LinkedIn cache a 404
-  // image per-URL, so a pre-launch share would stay broken after the real
-  // asset lands. The `images` key must be absent entirely, not [undefined].
-  it('omits the images key on both openGraph and twitter when the product has no images', async () => {
+  // This test previously pinned the OPPOSITE: that no fallback was emitted,
+  // because '/og-default.png' did not exist and a 404 is cached per-URL by
+  // Facebook/LinkedIn. The asset now exists and is committed, so the correct
+  // behaviour inverts — and it matters here more than anywhere, because a
+  // product's `images` relation is 0..n. Setting `openGraph` replaces the
+  // layout's object wholesale, so without this fallback an image-less product
+  // would unfurl as a blank card.
+  it('falls back to the default OG image on both cards when the product has no images', async () => {
     const product = makeProduct({ id: '2', slug: 'bare-band', images: [] })
     getProductBySlug.mockResolvedValue(product)
 
     const result = await generateMetadata({ params: Promise.resolve({ slug: 'bare-band' }) })
 
-    expect(result.openGraph).not.toHaveProperty('images')
-    expect(result.twitter).not.toHaveProperty('images')
-    expect(JSON.stringify(result)).not.toContain('og-default.png')
+    expect(result.openGraph).toHaveProperty('images', [`${SITE_URL}/og-default.png`])
+    expect(result.twitter).toHaveProperty('images', [`${SITE_URL}/og-default.png`])
   })
 })
 

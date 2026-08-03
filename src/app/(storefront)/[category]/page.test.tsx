@@ -55,18 +55,18 @@ describe('generateMetadata', () => {
     })
   })
 
-  // Pins the fix: a category with no image must NOT fall back to a
-  // '/og-default.png' that doesn't exist — Facebook/LinkedIn cache a 404
-  // image per-URL, so a pre-launch share would stay broken after the real
-  // asset lands. The `images` key must be absent entirely, not [undefined].
-  it('omits the images key on both openGraph and twitter when the category has no image', async () => {
+  // Previously pinned the opposite — that no fallback was emitted, because
+  // '/og-default.png' did not exist and a 404 is cached per-URL by
+  // Facebook/LinkedIn. The asset is now committed, so an image-less category
+  // takes the brand card rather than replacing the layout's openGraph object
+  // with one carrying no image at all.
+  it('falls back to the default OG image on both cards when the category has no image', async () => {
     const category = makeCategory({ slug: 'necklaces', name: 'Necklaces', image: undefined })
     getCategoryBySlug.mockResolvedValue(category)
 
     const result = await generateMetadata({ params: Promise.resolve({ category: 'necklaces' }), searchParams })
 
-    expect(result.openGraph).not.toHaveProperty('images')
-    expect(result.twitter).not.toHaveProperty('images')
-    expect(JSON.stringify(result)).not.toContain('og-default.png')
+    expect(result.openGraph).toHaveProperty('images', [`${SITE_URL}/og-default.png`])
+    expect(result.twitter).toHaveProperty('images', [`${SITE_URL}/og-default.png`])
   })
 })

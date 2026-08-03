@@ -67,10 +67,11 @@ describe('generateMetadata', () => {
   })
 
   // Subcategory has no `image` field on the type (unlike Category/Collection),
-  // so there's never a hero to include — and per the storefront layout's
-  // comment there's no '/og-default.png' to fall back to either. Pins that
-  // the `images` key never sneaks back in.
-  it('never sets the images key on openGraph or twitter (subcategory has no image field)', async () => {
+  // so there is never a hero of its own — which makes this the route that
+  // ALWAYS takes the fallback. It previously pinned the absence of one,
+  // because '/og-default.png' did not exist; now that the asset is committed,
+  // every subcategory share carries the brand card instead of a blank one.
+  it('always uses the default OG image (subcategory has no image field)', async () => {
     getSubcategory.mockResolvedValue(makeSubcategory({ slug: 'signet', categorySlug: 'rings', name: 'Signet Rings' }))
     getCategoryBySlug.mockResolvedValue(makeCategory({ slug: 'rings', name: 'Rings' }))
 
@@ -79,8 +80,7 @@ describe('generateMetadata', () => {
       searchParams,
     })
 
-    expect(result.openGraph).not.toHaveProperty('images')
-    expect(result.twitter).not.toHaveProperty('images')
-    expect(JSON.stringify(result)).not.toContain('og-default.png')
+    expect(result.openGraph).toHaveProperty('images', [`${SITE_URL}/og-default.png`])
+    expect(result.twitter).toHaveProperty('images', [`${SITE_URL}/og-default.png`])
   })
 })

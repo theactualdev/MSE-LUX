@@ -3,7 +3,7 @@ import { Playfair_Display, Inter } from 'next/font/google'
 import { AppShell } from '@/components/layout/app-shell'
 import { JsonLd } from '@/components/seo/json-ld'
 import { siteConfig } from '@/lib/config'
-import { organizationJsonLd, SITE_URL } from '@/lib/seo'
+import { absoluteUrl, DEFAULT_OG_IMAGE, organizationJsonLd, SITE_URL, webSiteJsonLd } from '@/lib/seo'
 import '../globals.css'
 
 const playfair = Playfair_Display({ subsets: ['latin'], variable: '--font-display', display: 'swap' })
@@ -22,12 +22,14 @@ export const metadata: Metadata = {
   // off that, so shares of /about would be attributed to /. Pages that care
   // set their own openGraph.url (the PDP and listings do).
   //
-  // `images` is likewise absent until the asset exists: referencing a missing
-  // /og-default.png would hand scrapers a 404 that Facebook/LinkedIn cache
-  // per-URL, so a pre-launch share would keep showing a broken image well
-  // after the real file lands. TODO(seo/pre-launch): produce a 1200x630
-  // on-palette ivory/gold wordmark at public/og-default.png and add it here
-  // (Phase 9d runbook item).
+  // `images` IS set, unlike `url`: the asset now exists (1200x630, generated
+  // by `scripts/generate-brand-assets.ts`), and this is the only thing that
+  // gives the home page and the static content pages — about, faq, contact,
+  // the three policies — a picture in a WhatsApp, Instagram or LinkedIn
+  // unfurl. Pages with a subject of their own (product, category, collection)
+  // set `openGraph` themselves and replace this wholesale, so their own
+  // photography still wins; see `pageCards`.
+  //
   // `title`/`description` are deliberately absent here (unlike the top-level
   // `title`/`description` above, which stay sitewide defaults). Two Next
   // behaviours make that necessary:
@@ -45,9 +47,11 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     siteName: siteConfig.name,
+    images: [absoluteUrl(DEFAULT_OG_IMAGE)],
   },
   twitter: {
     card: 'summary_large_image',
+    images: [absoluteUrl(DEFAULT_OG_IMAGE)],
   },
 }
 
@@ -55,8 +59,11 @@ export default function StorefrontLayout({ children }: { children: React.ReactNo
   return (
     <html lang="en" className={`${playfair.variable} ${inter.variable}`}>
       <body>
-        {/* Sitewide Organization JSON-LD, emitted once here rather than per-page. */}
+        {/* Sitewide Organization + WebSite JSON-LD, emitted once here rather
+            than per-page. WebSite carries the SearchAction that makes the
+            domain eligible for a sitelinks searchbox. */}
         <JsonLd data={organizationJsonLd()} />
+        <JsonLd data={webSiteJsonLd()} />
         <AppShell>{children}</AppShell>
       </body>
     </html>

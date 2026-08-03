@@ -1,14 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Product } from '@/types/catalog'
 import { siteConfig } from '@/lib/config'
+import { CONTACT_INFO } from '@/features/content/data/contact'
+import { FAQ_GROUPS } from '@/features/content/data/faq'
 import {
+  DEFAULT_OG_IMAGE,
+  LOGO_IMAGE,
   SITE_URL,
   absoluteUrl,
   breadcrumbJsonLd,
+  faqJsonLd,
   organizationJsonLd,
   pageCards,
   priceString,
   productJsonLd,
+  webSiteJsonLd,
 } from '@/lib/seo'
 
 const PRODUCT: Product = {
@@ -84,7 +90,11 @@ describe('absoluteUrl', () => {
 })
 
 describe('pageCards', () => {
-  it('builds openGraph/twitter with site_name, absolute url, and no images key when image is omitted', () => {
+  // A caller with no image REPLACES the layout's openGraph object wholesale
+  // (Next does not merge per-field), so omitting `images` here would unfurl a
+  // blank card — strictly worse than setting nothing at all. The default is
+  // what keeps an image-less product shareable.
+  it('falls back to the default OG image on both cards when image is omitted', () => {
     const result = pageCards({ title: 'Rings', description: 'Shop rings.', path: '/rings' })
 
     expect(result).toEqual({
@@ -94,15 +104,15 @@ describe('pageCards', () => {
         title: 'Rings',
         description: 'Shop rings.',
         url: `${SITE_URL}/rings`,
+        images: [`${SITE_URL}${DEFAULT_OG_IMAGE}`],
       },
       twitter: {
         card: 'summary_large_image',
         title: 'Rings',
         description: 'Shop rings.',
+        images: [`${SITE_URL}${DEFAULT_OG_IMAGE}`],
       },
     })
-    expect(result.openGraph).not.toHaveProperty('images')
-    expect(result.twitter).not.toHaveProperty('images')
   })
 
   it('includes an absolute images array on both openGraph and twitter when image is provided', () => {
@@ -146,9 +156,100 @@ describe('organizationJsonLd', () => {
       '@context': 'https://schema.org',
       '@type': 'Organization',
       name: siteConfig.name,
+      description: siteConfig.description,
       url: SITE_URL,
+      logo: `${SITE_URL}${LOGO_IMAGE}`,
+      image: `${SITE_URL}${DEFAULT_OG_IMAGE}`,
+      address: {
+        '@type': 'PostalAddress',
+        addressLocality: 'Lagos',
+        addressCountry: 'NG',
+      },
+      contactPoint: {
+        '@type': 'ContactPoint',
+        contactType: 'customer support',
+        email: CONTACT_INFO.email,
+        areaServed: 'Worldwide',
+        availableLanguage: 'English',
+      },
       sameAs: [siteConfig.social.instagram],
     })
+  })
+
+  // Google reads `logo` for the SERP/knowledge-panel mark and does not accept
+  // SVG for it. Pinning the extension stops a future "just use the SVG"
+  // simplification from silently dropping the site out of that treatment.
+  it('points logo at an absolute raster URL', () => {
+    const { logo } = organizationJsonLd() as { logo: string }
+
+    expect(logo).toBe(`${SITE_URL}/logo.png`)
+    expect(logo.endsWith('.svg')).toBe(false)
+  })
+})
+
+describe('webSiteJsonLd', () => {
+  it('builds a WebSite node with a SearchAction', () => {
+    expect(webSiteJsonLd()).toEqual({
+      '@context': 'https://schema.org',
+      '@type': 'WebSite',
+      name: siteConfig.name,
+      url: SITE_URL,
+      potentialAction: {
+        '@type': 'SearchAction',
+        target: {
+          '@type': 'EntryPoint',
+          urlTemplate: `${SITE_URL}/search?q={search_term_string}`,
+        },
+        'query-input': 'required name=search_term_string',
+      },
+    })
+  })
+
+  // The searchbox is only useful if the parameter matches what /search
+  // actually parses. `parseSearchCriteria` reads `q`; a mismatch would render
+  // a searchbox that quietly returns the unfiltered catalog.
+  it('targets the q parameter that parseSearchCriteria reads', () => {
+    const { potentialAction } = webSiteJsonLd() as {
+      potentialAction: { target: { urlTemplate: string } }
+    }
+
+    expect(potentialAction.target.urlTemplate).toContain('/search?q={search_term_string}')
+  })
+})
+
+describe('faqJsonLd', () => {
+  it('flattens grouped questions into a single mainEntity list', () => {
+    const result = faqJsonLd([
+      { heading: 'Orders', items: [{ q: 'Where from?', a: 'Lagos.' }] },
+      {
+        heading: 'Care',
+        items: [
+          { q: 'How to clean?', a: 'Soft cloth.' },
+          { q: 'Water safe?', a: 'No.' },
+        ],
+      },
+    ])
+
+    expect(result).toEqual({
+      '@context': 'https://schema.org',
+      '@type': 'FAQPage',
+      mainEntity: [
+        { '@type': 'Question', name: 'Where from?', acceptedAnswer: { '@type': 'Answer', text: 'Lagos.' } },
+        { '@type': 'Question', name: 'How to clean?', acceptedAnswer: { '@type': 'Answer', text: 'Soft cloth.' } },
+        { '@type': 'Question', name: 'Water safe?', acceptedAnswer: { '@type': 'Answer', text: 'No.' } },
+      ],
+    })
+  })
+
+  // Guards the rule that makes this markup legitimate: every question in the
+  // structured data must be one the page actually renders. Building from the
+  // real FAQ_GROUPS is what enforces that, so the counts must agree.
+  it('emits exactly as many questions as the rendered FAQ contains', () => {
+    const { mainEntity } = faqJsonLd(FAQ_GROUPS) as { mainEntity: unknown[] }
+    const rendered = FAQ_GROUPS.reduce((total, group) => total + group.items.length, 0)
+
+    expect(mainEntity).toHaveLength(rendered)
+    expect(rendered).toBeGreaterThan(0)
   })
 })
 
@@ -172,6 +273,63 @@ describe('productJsonLd', () => {
         url: `${SITE_URL}/products/gold-signet-ring`,
       },
     })
+  })
+
+  it('derives priceValidUntil from the injected clock, as a plain ISO date', () => {
+    const result = productJsonLd(PRODUCT, 'NGN', new Date('2026-01-15T09:30:00.000Z')) as {
+      offers: { priceValidUntil: string }
+    }
+
+    expect(result.offers.priceValidUntil).toBe('2027-01-15')
+  })
+
+  it('marks the offer new, sold by the store, with the published return policy', () => {
+    const result = productJsonLd(PRODUCT, 'NGN') as { offers: Record<string, unknown> }
+
+    expect(result.offers).toMatchObject({
+      itemCondition: 'https://schema.org/NewCondition',
+      seller: { '@type': 'Organization', name: siteConfig.name },
+      hasMerchantReturnPolicy: {
+        '@type': 'MerchantReturnPolicy',
+        applicableCountry: 'NG',
+        returnPolicyCategory: 'https://schema.org/MerchantReturnFiniteReturnWindow',
+        // The policy prose grants "2–3 days"; the schema field is a single
+        // number, so it must take the outer bound or it would deny a return
+        // the published policy allows.
+        merchantReturnDays: 3,
+        returnMethod: 'https://schema.org/ReturnByMail',
+        returnFees: 'https://schema.org/ReturnShippingFees',
+      },
+    })
+  })
+
+  // Nigerian shipping is quoted live per address and weight at checkout, so
+  // no single rate is true. Delivery TIME is published and safe to state;
+  // a rate would be a price claim the checkout then contradicts.
+  it('states delivery time but never a shipping rate', () => {
+    const result = productJsonLd(PRODUCT, 'NGN') as {
+      offers: { shippingDetails: Record<string, unknown> }
+    }
+
+    expect(result.offers.shippingDetails).toMatchObject({
+      '@type': 'OfferShippingDetails',
+      shippingDestination: { '@type': 'DefinedRegion', addressCountry: 'NG' },
+      deliveryTime: {
+        handlingTime: { minValue: 5, maxValue: 8, unitCode: 'DAY' },
+        transitTime: { minValue: 2, maxValue: 10, unitCode: 'DAY' },
+      },
+    })
+    expect(result.offers.shippingDetails).not.toHaveProperty('shippingRate')
+  })
+
+  // Review markup with no review system behind it is grounds for a manual
+  // action. The home page testimonials are brand-level and do not map to
+  // individual products, so nothing here may claim a rating.
+  it('never claims a rating or reviews', () => {
+    const result = productJsonLd(PRODUCT, 'NGN')
+
+    expect(result).not.toHaveProperty('aggregateRating')
+    expect(result).not.toHaveProperty('review')
   })
 
   // Pins the fix: an image-less product must not emit `image: []` — Google's
