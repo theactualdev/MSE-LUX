@@ -1,75 +1,135 @@
 /**
- * Generates the brand raster assets that metadata references:
+ * Derives every brand raster the site references from the single master logo
+ * at `assets/brand/logo-source.jpeg`:
  *
  *   public/og-default.png   1200x630  social unfurl card (og:image / twitter:image)
  *   public/logo.png          512x512  schema.org Organization.logo
  *   src/app/apple-icon.png   180x180  iOS add-to-home-screen
  *   src/app/favicon.ico     16/32/48  browser tab, bookmarks, Google SERP
  *
- * These are committed binaries — this script exists so they are reproducible
- * and on-palette rather than mystery files nobody can regenerate. Run it after
- * changing the palette in `globals.css`:
+ * The outputs are committed binaries; this script exists so they are
+ * reproducible from the master rather than being mystery files nobody can
+ * regenerate. Re-run after replacing the source:
  *
- *   npx tsx scripts/generate-brand-assets.ts
+ *   npm run brand:assets
  *
- * Colours are duplicated from `globals.css` as literals on purpose: sharp
- * rasterises SVG and cannot resolve CSS custom properties, and a build step
- * that parsed the stylesheet would be far more machinery than four hex codes
- * justify. If the palette changes, change it here too — the constants below
- * are the only place that needs editing.
+ * The source lives OUTSIDE `public/` deliberately. It is a generation input,
+ * not a served asset — shipping it would publish a second, uncropped copy of
+ * the logo at a URL nothing links to.
  *
- * Text is rendered with a generic serif stack rather than Playfair Display:
- * sharp's SVG rasteriser resolves fonts through the host's fontconfig, so
- * naming a webfont Next loads at runtime would silently fall back to a default
- * on any machine that doesn't have it installed. Georgia is the closest
- * always-present match to the display face and keeps output deterministic.
+ * Two different crops are used, because one framing cannot serve both jobs.
+ * The master is a square composition: wordmark centred, pearl strand entering
+ * from the left, silk falling away above and below. A social card wants that
+ * negative space (it is what makes the card look composed); an icon cannot
+ * afford any of it, because at 16px every pixel spent on background is a pixel
+ * not spent making "MSE" legible.
  */
 import { Buffer } from 'node:buffer'
 import { writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import sharp from 'sharp'
 
-const IVORY = '#faf7f2'
-const CHAMPAGNE = '#c9a86a'
-const CHAMPAGNE_DEEP = '#b08d4f'
-const CHARCOAL = '#2b2724'
-const STONE = '#6b6258'
-
-const SERIF = "Georgia, 'Times New Roman', 'Nimbus Roman', serif"
 // `process.cwd()`, not `import.meta.dirname`: the package is CommonJS, so tsx
 // transpiles this to CJS where `import.meta` is unavailable. Run from the
 // repository root (the npm script does).
 const ROOT = process.cwd()
+const SOURCE = path.join(ROOT, 'assets/brand/logo-source.jpeg')
 
-/** 1200x630 unfurl card: wordmark, rule, tagline, domain. */
-function ogSvg(): string {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
-  <rect width="1200" height="630" fill="${IVORY}"/>
-  <rect x="28" y="28" width="1144" height="574" fill="none" stroke="${CHAMPAGNE}" stroke-width="1.5" opacity="0.55"/>
-  <text x="600" y="292" text-anchor="middle" font-family="${SERIF}" font-size="108" letter-spacing="14" fill="${CHARCOAL}">MSE LUX</text>
-  <rect x="530" y="338" width="140" height="2" fill="${CHAMPAGNE}"/>
-  <text x="600" y="404" text-anchor="middle" font-family="${SERIF}" font-size="31" letter-spacing="1.5" fill="${STONE}">Handmade beads, jewelry &amp; accessories</text>
-  <text x="600" y="452" text-anchor="middle" font-family="${SERIF}" font-size="25" letter-spacing="5" fill="${CHAMPAGNE_DEEP}">CRAFTED IN LAGOS</text>
-  <text x="600" y="556" text-anchor="middle" font-family="${SERIF}" font-size="22" letter-spacing="4" fill="${CHAMPAGNE_DEEP}">mselux.co</text>
+/** Master dimensions. Asserted at runtime — every crop below is expressed in these pixels. */
+const SOURCE_SIZE = 1080
+
+interface Crop {
+  left: number
+  top: number
+  width: number
+  height: number
+}
+
+/**
+ * The full square outputs are NOT cropped.
+ *
+ * A tightened crop was tried first, to make the wordmark fill more of the
+ * frame, and it clipped the E — a luminance threshold measures where the mark
+ * is *bright*, not where it ends, and the rose-gold falloff on its right edge
+ * reads as background. Rather than tune a threshold until it stops cutting the
+ * logo, take the composition as drawn: the master is already square, already
+ * centred, with margins the designer chose. Scaling it whole cannot clip
+ * anything.
+ */
+const FULL_MARK_CROP = null
+
+/**
+ * Favicon colours, sampled from the master rather than picked by eye:
+ * the silk ground reads #160219 in shadow and #380940 where it catches light,
+ * and the letterforms average #ad949e with white speculars. PLUM sits between
+ * the two silk values — at 16px the true shadow tone is indistinguishable
+ * from black, which would lose the purple the brand is recognised by.
+ */
+const PLUM = '#2c0733'
+const ROSE_SILVER = '#f3e7ec'
+
+/**
+ * The favicon is DRAWN, not cropped from the master — the one place this
+ * pipeline departs from the real logo, and deliberately.
+ *
+ * Cropping to the M was tried first. At 48px it is passable; at 32px the pearl
+ * strand crossing the stem makes the glyph ambiguous, and at 16px the whole
+ * thing is an unreadable smudge. That is not a tuning problem: a photographic
+ * metallic letterform over dark silk has no legible silhouette once it is
+ * sixteen pixels wide, because the very gradients that make it look expensive
+ * at full size average out to mud.
+ *
+ * So the favicon takes the logo's COLOURS and reproduces its letter as flat
+ * shapes, which is the only thing that survives at tab size. It reads as the
+ * same brand while remaining a recognisable M — where a faithful crop would
+ * read as neither.
+ *
+ * Every larger asset still comes from the master untouched.
+ */
+function monogramSvg(size: number): string {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 100 100">
+  <rect width="100" height="100" fill="${PLUM}"/>
+  <text x="50" y="52" text-anchor="middle" dominant-baseline="central" font-family="Georgia, 'Times New Roman', serif" font-size="76" fill="${ROSE_SILVER}">M</text>
 </svg>`
 }
 
 /**
- * Square monogram used for the logo and every icon size. Charcoal ground with
- * a champagne "M" — the inverse of the site's ivory pages, because a light
- * icon disappears against the light chrome of a browser tab.
+ * 1.905:1 slice for the social card, centred on the wordmark rather than on
+ * the image: the wordmark sits above the vertical centre of the master, so a
+ * naive centre crop would cut the top of the letterforms.
  */
-function markSvg(size: number): string {
-  const inset = size * 0.06
-  const stroke = Math.max(1, size * 0.016)
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
-  <rect width="${size}" height="${size}" fill="${CHARCOAL}"/>
-  <rect x="${inset}" y="${inset}" width="${size - inset * 2}" height="${size - inset * 2}" fill="none" stroke="${CHAMPAGNE}" stroke-width="${stroke}" opacity="0.8"/>
-  <text x="50%" y="50%" text-anchor="middle" dominant-baseline="central" font-family="${SERIF}" font-size="${size * 0.54}" fill="${CHAMPAGNE}">M</text>
-</svg>`
+const CARD_CROP = { left: 0, top: 185, width: SOURCE_SIZE, height: 567 }
+
+const source = () => sharp(SOURCE)
+
+/**
+ * Square PNG at `size` from the given crop.
+ *
+ * `quality`/`effort` matter more than they look: the master is a photographic
+ * render — metallic gradients over silk — and lossless PNG of that is enormous
+ * (the 512px logo lands near 400 kB untuned). Palette quantisation gets it to
+ * a fraction of that; at these sizes the banding it introduces is invisible,
+ * and an og:image that takes a second to fetch is a card that renders late.
+ */
+async function square(crop: Crop | null, size: number): Promise<Buffer> {
+  const pipeline = source()
+  if (crop) pipeline.extract(crop)
+  return pipeline.resize(size, size, { fit: 'cover' }).png({ palette: true, quality: 90, effort: 10 }).toBuffer()
 }
 
-const png = (svg: string): Promise<Buffer> => sharp(Buffer.from(svg)).png().toBuffer()
+/** Drawn monogram at `size`, square. */
+async function monogram(size: number): Promise<Buffer> {
+  return sharp(Buffer.from(monogramSvg(size))).png().toBuffer()
+}
+
+/** The 1200x630 unfurl card. */
+async function card(): Promise<Buffer> {
+  return source()
+    .extract(CARD_CROP)
+    .resize(1200, 630, { fit: 'cover' })
+    .png({ palette: true, quality: 90, effort: 10 })
+    .toBuffer()
+}
 
 /**
  * Packs PNGs into an ICO container. Windows has accepted PNG-compressed ICO
@@ -107,13 +167,26 @@ function ico(images: { size: number; data: Buffer }[]): Buffer {
 }
 
 async function main() {
+  const { width, height } = await source().metadata()
+  if (width !== SOURCE_SIZE || height !== SOURCE_SIZE) {
+    // The crops are absolute pixel rectangles, so a resized or reshot master
+    // would silently frame everything wrong — a cropped-off wordmark in the
+    // favicon is exactly the kind of defect nobody notices for months.
+    throw new Error(
+      `Expected a ${SOURCE_SIZE}x${SOURCE_SIZE} master at assets/brand/logo-source.jpeg, got ${width}x${height}. ` +
+        `Re-check ICON_CROP and CARD_CROP against the new dimensions before regenerating.`,
+    )
+  }
+
   const [og, logo, appleIcon, ico16, ico32, ico48] = await Promise.all([
-    png(ogSvg()),
-    png(markSvg(512)),
-    png(markSvg(180)),
-    png(markSvg(16)),
-    png(markSvg(32)),
-    png(markSvg(48)),
+    card(),
+    // The master, whole, wherever there is resolution to read it...
+    square(FULL_MARK_CROP, 512),
+    square(FULL_MARK_CROP, 180),
+    // ...and a drawn monogram where there is not. See monogramSvg.
+    monogram(16),
+    monogram(32),
+    monogram(48),
   ])
 
   const written: [string, Buffer][] = [
