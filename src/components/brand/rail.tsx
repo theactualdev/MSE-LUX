@@ -46,6 +46,13 @@ export function Rail({
         // half off-screen (the peek), while the negative margin + padding keep
         // the first tile aligned to the Container's content column.
         '-mx-4 px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8',
+        // scroll-padding MUST mirror that padding. A snapport defaults to the
+        // padding box, so on load the browser snapped the first `snap-start`
+        // item flush to the track edge — scrolling the row by exactly the
+        // padding and destroying the left gutter. It only showed on rails that
+        // actually overflow; the short ones have nothing to scroll and looked
+        // fine, which is what made it a half-page bug rather than an obvious one.
+        'scroll-pl-4 sm:scroll-pl-6 lg:scroll-pl-8',
         'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
         '[scrollbar-width:none] [&::-webkit-scrollbar]:hidden',
         className,
