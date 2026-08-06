@@ -26,7 +26,8 @@ describe('AddressStep', () => {
     await user.type(screen.getByLabelText(/phone/i), '08012345678')
     await user.type(screen.getByLabelText(/address line 1/i), '1 Marina Street')
     await user.type(screen.getByLabelText(/^city/i), 'Lagos')
-    await user.type(screen.getByLabelText(/^state/i), 'Lagos')
+    // State is a select now, driven by the chosen country.
+    await user.selectOptions(screen.getByLabelText(/^state$/i), 'Lagos')
 
     await user.click(screen.getByRole('button', { name: /continue/i }))
 
@@ -79,7 +80,8 @@ describe('AddressStep', () => {
     await user.type(screen.getByLabelText(/phone/i), '08012345678')
     await user.type(screen.getByLabelText(/address line 1/i), '1 Marina Street')
     await user.type(screen.getByLabelText(/^city/i), 'Lagos')
-    await user.type(screen.getByLabelText(/^state/i), 'Lagos')
+    // State is a select now, driven by the chosen country.
+    await user.selectOptions(screen.getByLabelText(/^state$/i), 'Lagos')
     await user.click(screen.getByLabelText(/save this address to my account/i))
 
     await user.click(screen.getByRole('button', { name: /continue/i }))

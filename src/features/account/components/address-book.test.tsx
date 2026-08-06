@@ -81,7 +81,8 @@ describe('AddressBook', () => {
     await user.type(within(dialog).getByLabelText(/phone number/i), '0801 234 5678')
     await user.type(within(dialog).getByLabelText(/address line 1/i), '4 Admiralty Way')
     await user.type(within(dialog).getByLabelText(/^city$/i), 'Lekki')
-    await user.type(within(dialog).getByLabelText(/^state$/i), 'Lagos')
+    // State is a select now, driven by the chosen country.
+    await user.selectOptions(within(dialog).getByLabelText(/^state$/i), 'Lagos')
     await user.click(within(dialog).getByRole('button', { name: /add address/i }))
 
     await vi.waitFor(() => {

@@ -1,12 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import { Controller, useForm } from 'react-hook-form'
+import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { PhoneField } from '@/components/ui/phone-field'
+import { CountrySelect, RegionField } from '@/components/ui/country-region-fields'
 import { addressSchema, type Address } from '@/features/checkout/schema'
 
 interface AddressStepProps {
@@ -34,6 +35,7 @@ export function AddressStep({ defaultValues, isSignedIn, onSubmit }: AddressStep
     register,
     control,
     handleSubmit,
+    setValue,
     formState: { errors },
   } = useForm<Address>({
     resolver: zodResolver(addressSchema),
@@ -43,6 +45,9 @@ export function AddressStep({ defaultValues, isSignedIn, onSubmit }: AddressStep
   // Unchecked by default — saving to the account is opt-in, never implied by
   // filling out the form.
   const [saveAddress, setSaveAddress] = useState(false)
+  // `useWatch`, not `watch()`: the latter returns a fresh function each
+  // render that the React Compiler cannot memoize safely.
+  const selectedCountry = useWatch({ control, name: 'country' }) ?? ''
 
   return (
     <form
@@ -130,39 +135,40 @@ export function AddressStep({ defaultValues, isSignedIn, onSubmit }: AddressStep
           ) : null}
         </div>
 
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="address-state">State</Label>
-          <Input
-            id="address-state"
-            autoComplete="address-level1"
-            aria-invalid={!!errors.state}
-            aria-describedby={errors.state ? 'address-state-error' : undefined}
-            {...register('state')}
-          />
-          {errors.state ? (
-            <p id="address-state-error" className="text-sm text-destructive">
-              {errors.state.message}
-            </p>
-          ) : null}
-        </div>
+        <Controller
+          control={control}
+          name="state"
+          render={({ field }) => (
+            <RegionField
+              id="address-state"
+              country={selectedCountry}
+              value={field.value ?? ''}
+              onChange={field.onChange}
+              error={errors.state?.message}
+            />
+          )}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <div className="flex flex-col gap-1.5">
-          <Label htmlFor="address-country">Country</Label>
-          <Input
-            id="address-country"
-            autoComplete="country-name"
-            aria-invalid={!!errors.country}
-            aria-describedby={errors.country ? 'address-country-error' : undefined}
-            {...register('country')}
-          />
-          {errors.country ? (
-            <p id="address-country-error" className="text-sm text-destructive">
-              {errors.country.message}
-            </p>
-          ) : null}
-        </div>
+        <Controller
+          control={control}
+          name="country"
+          render={({ field }) => (
+            <CountrySelect
+              id="address-country"
+              value={field.value ?? ''}
+              onChange={(next) => {
+                field.onChange(next)
+                // Clear the region: the previous one belongs to the previous
+                // country, and carrying "Lagos" into Canada would send a
+                // nonsense address line to the courier.
+                setValue('state', '', { shouldValidate: false })
+              }}
+              error={errors.country?.message}
+            />
+          )}
+        />
 
         <div className="flex flex-col gap-1.5">
           <Label htmlFor="address-postal-code">Postal code (optional)</Label>
