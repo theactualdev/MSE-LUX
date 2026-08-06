@@ -4,6 +4,7 @@ import { Logo } from '@/components/brand/logo'
 import { NewsletterForm } from '@/components/layout/newsletter-form'
 import { Separator } from '@/components/ui/separator'
 import { siteConfig } from '@/lib/config'
+import type { NavItem } from '@/types/nav'
 
 const LEGAL_LINKS = [
   { label: 'Shipping & Returns', href: '/policies/shipping-returns' },
@@ -14,12 +15,12 @@ const LEGAL_LINKS = [
 ]
 
 /** Site footer: nav columns, legal links, newsletter signup, and social. */
-export function Footer() {
+export function Footer({ nav }: { nav: NavItem[] }) {
   return (
     <footer className="border-t border-border bg-background">
       <Container className="flex flex-col gap-10 py-12 sm:py-16">
         <div className="grid grid-cols-2 gap-8 sm:grid-cols-4">
-          {siteConfig.nav.map((item) =>
+          {nav.map((item) =>
             item.children && item.children.length > 0 ? (
               <div key={item.href} className="flex flex-col gap-3">
                 <span className="font-display text-sm font-medium text-foreground">{item.label}</span>

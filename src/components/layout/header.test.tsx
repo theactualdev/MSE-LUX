@@ -2,6 +2,16 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { Header } from '@/components/layout/header'
 import { siteConfig } from '@/lib/config'
+import type { NavItem } from '@/types/nav'
+
+// Nav is a prop now, not a module constant: `AppShell` reads categories from
+// the database and passes them down. Passing an explicit fixture here keeps
+// this test about the header's chrome rather than about catalog data.
+const NAV: NavItem[] = [
+  { label: 'Jewelry', href: '/jewelry', children: [{ label: 'Necklaces', href: '/jewelry/necklaces' }] },
+  { label: 'Collections', href: '/collections' },
+  { label: 'About', href: '/about' },
+]
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
@@ -26,9 +36,9 @@ vi.mock('@/lib/supabase/client', () => ({
 
 describe('Header', () => {
   it('renders the brand name and top-level nav labels', () => {
-    render(<Header />)
+    render(<Header nav={NAV} />)
     expect(screen.getByText(siteConfig.name)).toBeInTheDocument()
-    for (const item of siteConfig.nav) {
+    for (const item of NAV) {
       expect(screen.getAllByText(item.label).length).toBeGreaterThan(0)
     }
   })

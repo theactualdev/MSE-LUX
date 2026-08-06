@@ -1,6 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { MobileDrawer } from '@/components/layout/mobile-drawer'
+import type { NavItem } from '@/types/nav'
+
+// Nav arrives as a prop from `AppShell` (database-driven) rather than from
+// `siteConfig`, so these tests supply their own taxonomy.
+const NAV: NavItem[] = [
+  { label: 'Jewelry', href: '/jewelry', children: [{ label: 'Necklaces', href: '/jewelry/necklaces' }] },
+  { label: 'Collections', href: '/collections' },
+]
 import { useUiStore } from '@/stores/ui'
 import type { ClientSessionState } from '@/features/auth/use-session'
 
@@ -22,10 +30,10 @@ beforeEach(() => {
 
 describe('MobileDrawer', () => {
   it('is hidden by default and shown when the store opens it', () => {
-    const { rerender } = render(<MobileDrawer />)
+    const { rerender } = render(<MobileDrawer nav={NAV} />)
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     useUiStore.getState().openMobileNav()
-    rerender(<MobileDrawer />)
+    rerender(<MobileDrawer nav={NAV} />)
     expect(screen.getByRole('dialog')).toBeInTheDocument()
   })
 
@@ -38,7 +46,7 @@ describe('MobileDrawer', () => {
   it('shows the Admin link to an ADMIN', () => {
     useSessionMock.mockReturnValue({ signedIn: true, role: 'ADMIN', loading: false })
     useUiStore.getState().openMobileNav()
-    render(<MobileDrawer />)
+    render(<MobileDrawer nav={NAV} />)
 
     expect(screen.getByRole('link', { name: 'Admin' })).toHaveAttribute('href', '/admin')
   })
@@ -46,14 +54,14 @@ describe('MobileDrawer', () => {
   it('shows the Admin link to a SUPER_ADMIN', () => {
     useSessionMock.mockReturnValue({ signedIn: true, role: 'SUPER_ADMIN', loading: false })
     useUiStore.getState().openMobileNav()
-    render(<MobileDrawer />)
+    render(<MobileDrawer nav={NAV} />)
 
     expect(screen.getByRole('link', { name: 'Admin' })).toBeInTheDocument()
   })
 
   it('hides the Admin link from a customer, who still sees Account', () => {
     useUiStore.getState().openMobileNav()
-    render(<MobileDrawer />)
+    render(<MobileDrawer nav={NAV} />)
 
     expect(screen.getByRole('link', { name: 'Account' })).toBeInTheDocument()
     expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument()
@@ -62,7 +70,7 @@ describe('MobileDrawer', () => {
   it('hides the Admin link from a signed-out visitor, whatever the role claims', () => {
     useSessionMock.mockReturnValue({ signedIn: false, role: 'ADMIN', loading: false })
     useUiStore.getState().openMobileNav()
-    render(<MobileDrawer />)
+    render(<MobileDrawer nav={NAV} />)
 
     expect(screen.queryByRole('link', { name: 'Admin' })).not.toBeInTheDocument()
   })

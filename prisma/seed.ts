@@ -259,11 +259,53 @@ async function seedProducts(
   }
 }
 
+/**
+ * Guard against resurrecting the demo catalog on a live store.
+ *
+ * The taxonomy (categories/subcategories/collections) has no admin UI, so
+ * editing the fixture and re-running this script is the ONLY way to add a
+ * category. That made re-seeding a routine act — while `seedProducts` upserts
+ * all ~30 demo products by SKU, which on a store whose owner has started
+ * uploading real stock silently republishes a catalog someone deliberately
+ * deleted.
+ *
+ * So: if the database holds any product that is NOT in the fixture, the owner
+ * has real catalog and product seeding is skipped. Taxonomy still seeds, which
+ * is the reason to run this at all. `SEED_PRODUCTS=force` overrides, for the
+ * genuine "rebuild a scratch database" case.
+ *
+ * Deliberately keyed on "a product the fixture doesn't know about" rather than
+ * on an environment name: a `.env` pointed at production is exactly the
+ * situation where an env check is most likely to be wrong, and the data itself
+ * cannot be misconfigured.
+ */
+async function shouldSeedProducts(): Promise<boolean> {
+  if (process.env.SEED_PRODUCTS === 'force') {
+    console.warn('SEED_PRODUCTS=force — seeding demo products regardless of existing catalog.')
+    return true
+  }
+
+  const fixtureSkus = products.map((product) => product.sku)
+  const foreign = await db.product.count({ where: { sku: { notIn: fixtureSkus } } })
+  if (foreign === 0) return true
+
+  console.warn(
+    `\nSkipping product seed: found ${foreign} product(s) in the database that are not in the fixture, ` +
+      `which means this store has real catalog.\n` +
+      `Categories, subcategories and collections were still seeded.\n` +
+      `To seed demo products anyway (e.g. a scratch database), re-run with SEED_PRODUCTS=force.\n`,
+  )
+  return false
+}
+
 async function main(): Promise<void> {
   const categoryIdBySlug = await seedCategories()
   const subcategoryIdByKey = await seedSubcategories(categoryIdBySlug)
   const collectionIdBySlug = await seedCollections()
-  await seedProducts(categoryIdBySlug, subcategoryIdByKey, collectionIdBySlug)
+
+  if (await shouldSeedProducts()) {
+    await seedProducts(categoryIdBySlug, subcategoryIdByKey, collectionIdBySlug)
+  }
 }
 
 main()

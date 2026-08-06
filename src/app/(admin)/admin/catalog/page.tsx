@@ -93,6 +93,12 @@ export default async function AdminCatalogPage({
               the heading, and giving it the same weight as "New product" would
               leave the page with two competing primary actions. */}
           <Link
+            href="/admin/catalog/categories"
+            className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
+          >
+            Categories
+          </Link>
+          <Link
             href="/admin/catalog/collections"
             className={cn(buttonVariants({ variant: 'outline', size: 'sm' }))}
           >

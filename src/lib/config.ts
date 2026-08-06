@@ -1,16 +1,14 @@
-import { categories } from '@/features/catalog/data/categories'
-import type { NavItem } from '@/types/nav'
-
-/** Category/subcategory taxonomy, mapped into the nav shape Header/MegaMenu/MobileDrawer consume. */
-const taxonomyNav: NavItem[] = categories.map((category) => ({
-  label: category.name,
-  href: `/${category.slug}`,
-  children: category.subcategories.map((sub) => ({
-    label: sub.name,
-    href: `/${category.slug}/${sub.slug}`,
-  })),
-}))
-
+/**
+ * Site-wide identity and links.
+ *
+ * `nav` deliberately does NOT live here any more. It used to be derived from
+ * the `categories` CODE FIXTURE, which meant the header, mega menu, mobile
+ * drawer and footer showed hardcoded taxonomy while category pages, the home
+ * page rail and the sitemap all read the database — so a category created in
+ * the admin was published everywhere except the navigation. Nav is now built
+ * from the database by `buildNav` (`@/lib/nav`) and passed down from
+ * `AppShell`.
+ */
 export const siteConfig = {
   name: 'MSE Lux',
   description:
@@ -19,9 +17,4 @@ export const siteConfig = {
   social: {
     instagram: 'https://www.instagram.com/mse_beadsandaccessories',
   },
-  nav: [
-    ...taxonomyNav,
-    { label: 'Collections', href: '/collections' },
-    { label: 'About', href: '/about' },
-  ] satisfies NavItem[],
 } as const

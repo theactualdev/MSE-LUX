@@ -38,6 +38,10 @@ export type CatalogWriteError =
   | 'invalid-taxonomy'
   | 'has-orders'
   | 'variant-has-orders'
+  // A category/subcategory still has products filed under it. Products carry a
+  // REQUIRED categoryId, so Postgres would refuse the delete anyway; this is
+  // the checked, explainable form of that refusal.
+  | 'has-products'
   | 'conflict'
   | 'error'
 

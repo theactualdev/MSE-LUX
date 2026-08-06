@@ -13,7 +13,6 @@ import { useCart } from '@/features/cart/use-cart'
 import { useHydrated } from '@/features/cart/use-hydrated'
 import { CurrencySwitcher } from '@/features/currency/components/currency-switcher'
 import { useWishlist } from '@/features/wishlist/use-wishlist'
-import { siteConfig } from '@/lib/config'
 import { useUiStore } from '@/stores/ui'
 import { cn } from '@/lib/utils'
 import type { NavItem } from '@/types/nav'
@@ -23,7 +22,7 @@ function hasChildren(item: NavItem): item is NavItem & { children: NavItem[] } {
 }
 
 /** Sticky top bar: brand mark, desktop primary nav, and account/search/cart actions. */
-export function Header() {
+export function Header({ nav }: { nav: NavItem[] }) {
   const openMobileNav = useUiStore((s) => s.openMobileNav)
   const toggleSearch = useUiStore((s) => s.toggleSearch)
   const openCartDrawer = useUiStore((s) => s.openCartDrawer)
@@ -51,7 +50,7 @@ export function Header() {
 
         <NavigationMenu className="hidden md:flex">
           <NavigationMenuList>
-            {siteConfig.nav.map((item) =>
+            {nav.map((item) =>
               hasChildren(item) ? (
                 <MegaMenu key={item.href} item={item} />
               ) : (

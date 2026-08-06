@@ -15,6 +15,14 @@ import {
   updateCollection,
   deleteCollection,
 } from '@/features/admin/catalog/collections'
+import {
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  createSubcategory,
+  updateSubcategory,
+  deleteSubcategory,
+} from '@/features/admin/catalog/categories'
 import { uploadProductImage } from '@/features/admin/catalog/images'
 import { createProduct } from '@/features/admin/catalog/create'
 import { updateProductImages, updateProductVariants } from '@/features/admin/catalog/structure'
@@ -86,6 +94,66 @@ export async function deleteCollectionAction(id: string) {
   if (!(await isAdmin())) return FORBIDDEN
   const result = await deleteCollection(id)
   revalidateCatalogTargets(result)
+  return result
+}
+
+/**
+ * Taxonomy writes revalidate the ROOT LAYOUT, not just a path list.
+ *
+ * Navigation is database-driven and rendered by `AppShell` in the root layout,
+ * so it appears on every page. Revalidating only the category's own paths
+ * would leave a renamed or newly created category missing from the header of
+ * every other route until its own ISR window expired — the storefront would
+ * disagree with itself for up to an hour. `revalidatePath('/', 'layout')`
+ * invalidates everything nested under that layout, which is the actual blast
+ * radius of a taxonomy change.
+ */
+function revalidateTaxonomyTargets(result: CatalogWriteResult): void {
+  if (!result.ok) return
+  revalidatePath('/', 'layout')
+  revalidatePath('/admin/catalog')
+  revalidatePath('/admin/catalog/categories')
+}
+
+export async function createCategoryAction(input: unknown) {
+  if (!(await isAdmin())) return FORBIDDEN
+  const result = await createCategory(input)
+  revalidateTaxonomyTargets(result)
+  return result
+}
+
+export async function updateCategoryAction(id: string, input: unknown) {
+  if (!(await isAdmin())) return FORBIDDEN
+  const result = await updateCategory(id, input)
+  revalidateTaxonomyTargets(result)
+  return result
+}
+
+export async function deleteCategoryAction(id: string) {
+  if (!(await isAdmin())) return FORBIDDEN
+  const result = await deleteCategory(id)
+  revalidateTaxonomyTargets(result)
+  return result
+}
+
+export async function createSubcategoryAction(input: unknown) {
+  if (!(await isAdmin())) return FORBIDDEN
+  const result = await createSubcategory(input)
+  revalidateTaxonomyTargets(result)
+  return result
+}
+
+export async function updateSubcategoryAction(id: string, input: unknown) {
+  if (!(await isAdmin())) return FORBIDDEN
+  const result = await updateSubcategory(id, input)
+  revalidateTaxonomyTargets(result)
+  return result
+}
+
+export async function deleteSubcategoryAction(id: string) {
+  if (!(await isAdmin())) return FORBIDDEN
+  const result = await deleteSubcategory(id)
+  revalidateTaxonomyTargets(result)
   return result
 }
 

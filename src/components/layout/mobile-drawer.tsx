@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { ChevronDown, LayoutDashboard, LogIn, Search } from 'lucide-react'
 import { Separator } from '@/components/ui/separator'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
-import { siteConfig } from '@/lib/config'
+import type { NavItem } from '@/types/nav'
 import { useUiStore } from '@/stores/ui'
 import { useSession } from '@/features/auth/use-session'
 import { roleSatisfies } from '@/features/auth/role'
@@ -15,7 +15,7 @@ import { Role } from '@/generated/prisma/enums'
  * `useUiStore`'s `mobileNavOpen`, so the hamburger button (in `Header`) and
  * any programmatic close both drive the same source of truth.
  */
-export function MobileDrawer() {
+export function MobileDrawer({ nav }: { nav: NavItem[] }) {
   const open = useUiStore((s) => s.mobileNavOpen)
   const closeMobileNav = useUiStore((s) => s.closeMobileNav)
   // `AccountMenu` — which carries the desktop Admin link — is `hidden sm:*`, so
@@ -43,7 +43,7 @@ export function MobileDrawer() {
         </SheetHeader>
 
         <nav aria-label="Mobile" className="flex flex-col px-4">
-          {siteConfig.nav.map((item) =>
+          {nav.map((item) =>
             item.children && item.children.length > 0 ? (
               <details key={item.href} className="group border-b border-border py-1">
                 <summary className="flex cursor-pointer list-none items-center justify-between py-2 text-base font-medium text-foreground">

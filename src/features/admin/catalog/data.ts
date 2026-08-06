@@ -284,3 +284,59 @@ export async function listCollectionsWithCounts(): Promise<AdminCollectionListIt
     productCount: row._count.products,
   }))
 }
+
+export interface AdminSubcategoryListItem {
+  id: string
+  name: string
+  slug: string
+  productCount: number
+}
+
+export interface AdminCategoryListItem {
+  id: string
+  name: string
+  slug: string
+  description: string | null
+  image: string | null
+  productCount: number
+  subcategories: AdminSubcategoryListItem[]
+}
+
+/**
+ * Categories with their subcategories and product counts, for the admin
+ * taxonomy manager.
+ *
+ * The counts are not decoration — they are what the delete controls key off.
+ * A category with products cannot be deleted (`Product.categoryId` is
+ * required, so Postgres restricts it), and a subcategory with products must
+ * not be, because its FK is nullable and deleting would quietly unfile every
+ * product beneath it. Sending the counts to the client lets the UI disable
+ * those buttons and say why, instead of offering an action that will fail.
+ */
+export async function listCategoriesWithCounts(): Promise<AdminCategoryListItem[]> {
+  const rows = await db.category.findMany({
+    orderBy: { name: 'asc' },
+    include: {
+      _count: { select: { products: true } },
+      subcategories: {
+        orderBy: { name: 'asc' },
+        include: { _count: { select: { products: true } } },
+      },
+    },
+  })
+
+  return rows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    slug: row.slug,
+    description: row.description,
+    image: row.image,
+    productCount: row._count.products,
+    subcategories: row.subcategories.map((sub) => ({
+      id: sub.id,
+      name: sub.name,
+      slug: sub.slug,
+      productCount: sub._count.products,
+    })),
+  }))
+}
