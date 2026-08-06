@@ -1,11 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PhoneField } from '@/components/ui/phone-field'
 import { addressSchema, type Address } from '@/features/checkout/schema'
 
 interface AddressStepProps {
@@ -31,6 +32,7 @@ const DEFAULT_VALUES: Address = {
 export function AddressStep({ defaultValues, isSignedIn, onSubmit }: AddressStepProps) {
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors },
   } = useForm<Address>({
@@ -66,13 +68,22 @@ export function AddressStep({ defaultValues, isSignedIn, onSubmit }: AddressStep
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="address-phone">Phone number</Label>
-        <Input
-          id="address-phone"
-          type="tel"
-          autoComplete="tel"
-          aria-invalid={!!errors.phone}
-          aria-describedby={errors.phone ? 'address-phone-error' : undefined}
-          {...register('phone')}
+        {/* `Controller`, not `register`: the country selector and the national
+            number are two controls composing one `phone` value, so the field
+            is controlled rather than uncontrolled-by-ref. */}
+        <Controller
+          control={control}
+          name="phone"
+          render={({ field }) => (
+            <PhoneField
+              id="address-phone"
+              value={field.value ?? ''}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              aria-invalid={!!errors.phone}
+              aria-describedby={errors.phone ? 'address-phone-error' : undefined}
+            />
+          )}
         />
         {errors.phone ? (
           <p id="address-phone-error" className="text-sm text-destructive">

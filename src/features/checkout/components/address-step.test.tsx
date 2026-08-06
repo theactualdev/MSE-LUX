@@ -34,7 +34,11 @@ describe('AddressStep', () => {
     expect(onSubmit).toHaveBeenCalledWith(
       expect.objectContaining({
         fullName: 'Ada Lovelace',
-        phone: '08012345678',
+        // Typed as the local `08012345678`; submitted as E.164. `PhoneField`
+        // drops Nigeria's trunk-prefix 0 — `+2348012345678`, not
+        // `+23408012345678` — which is the form ShipBubble's address validator
+        // accepts for rate quoting and label booking.
+        phone: '+2348012345678',
         line1: '1 Marina Street',
         city: 'Lagos',
         state: 'Lagos',

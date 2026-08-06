@@ -27,7 +27,22 @@ const POSTAL_MAX = 20
 
 export const addressSchema = z.object({
   fullName: z.string().min(1, 'Required').max(NAME_MAX, `${NAME_MAX} characters or fewer`),
-  phone: z.string().min(1, 'Required').max(PHONE_MAX, `${PHONE_MAX} characters or fewer`),
+  // The UI now emits E.164 (`+2348012345678`) via `PhoneField`, but this
+  // schema stays FORMAT-AGNOSTIC on purpose: it also validates addresses saved
+  // before that control existed, which hold local-format numbers like
+  // `08012345678`. Requiring E.164 here would make a customer's own stored
+  // address un-editable — a validation rule breaking data the app itself
+  // wrote.
+  //
+  // The digit floor is the part that matters: `PhoneField` returns '' rather
+  // than a bare dial code, but a half-typed "+2341" would otherwise satisfy
+  // `min(1)` and reach ShipBubble as an unusable number. Seven digits clears
+  // every national number in real use while rejecting a stray keystroke.
+  phone: z
+    .string()
+    .min(1, 'Required')
+    .max(PHONE_MAX, `${PHONE_MAX} characters or fewer`)
+    .refine((value) => value.replace(/\D/g, '').length >= 7, 'Enter a valid phone number'),
   line1: z.string().min(1, 'Required').max(LINE_MAX, `${LINE_MAX} characters or fewer`),
   line2: z.string().max(LINE_MAX, `${LINE_MAX} characters or fewer`).optional(),
   city: z.string().min(1, 'Required').max(REGION_MAX, `${REGION_MAX} characters or fewer`),

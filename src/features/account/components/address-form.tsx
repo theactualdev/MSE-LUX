@@ -1,10 +1,11 @@
 'use client'
 
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { PhoneField } from '@/components/ui/phone-field'
 import { addressSchema, type Address } from '@/features/checkout/schema'
 
 interface AddressFormProps {
@@ -33,6 +34,7 @@ const DEFAULT_VALUES: Address = {
 export function AddressForm({ defaultValues, submitLabel, onSubmit }: AddressFormProps) {
   const {
     register,
+    control,
     handleSubmit,
     formState: { errors },
   } = useForm<Address>({
@@ -64,13 +66,23 @@ export function AddressForm({ defaultValues, submitLabel, onSubmit }: AddressFor
 
       <div className="flex flex-col gap-1.5">
         <Label htmlFor="addr-form-phone">Phone number</Label>
-        <Input
-          id="addr-form-phone"
-          type="tel"
-          autoComplete="tel"
-          aria-invalid={!!errors.phone}
-          aria-describedby={errors.phone ? 'addr-form-phone-error' : undefined}
-          {...register('phone')}
+        {/* Saved addresses feed checkout directly, so this must produce the
+            same E.164 value `AddressStep` does — otherwise choosing a saved
+            address at checkout would quietly reintroduce the local-format
+            number this control exists to replace. */}
+        <Controller
+          control={control}
+          name="phone"
+          render={({ field }) => (
+            <PhoneField
+              id="addr-form-phone"
+              value={field.value ?? ''}
+              onChange={field.onChange}
+              onBlur={field.onBlur}
+              aria-invalid={!!errors.phone}
+              aria-describedby={errors.phone ? 'addr-form-phone-error' : undefined}
+            />
+          )}
         />
         {errors.phone ? (
           <p id="addr-form-phone-error" className="text-sm text-destructive">
