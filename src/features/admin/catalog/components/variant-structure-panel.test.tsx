@@ -178,3 +178,86 @@ describe('VariantStructurePanel', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(/something went wrong/i)
   })
 })
+
+/**
+ * Regression cover for the failure the store owner actually hit: a product
+ * with options and no variants renders every size struck through and refuses
+ * "Add to bag", while the admin looks saved. Generated rows start with a blank
+ * SKU, so the save that fixes it was also the save that failed — and the panel
+ * reported "Something went wrong. Please try again."
+ */
+describe('VariantStructurePanel — explaining failures', () => {
+  const OPTIONS_NO_VARIANTS: AdminProductDetail = { ...BASE_PRODUCT, variants: [] }
+
+  it('warns up front when a product has options but no variants', () => {
+    render(<VariantStructurePanel product={OPTIONS_NO_VARIANTS} />)
+
+    expect(screen.getByText(/options but no variants/i)).toBeInTheDocument()
+    expect(screen.getByText(/cannot buy it/i)).toBeInTheDocument()
+  })
+
+  it('does not show that warning once variants exist', () => {
+    render(<VariantStructurePanel product={BASE_PRODUCT} />)
+
+    expect(screen.queryByText(/options but no variants/i)).not.toBeInTheDocument()
+  })
+
+  it('names the rows missing a SKU instead of calling the server', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<VariantStructurePanel product={OPTIONS_NO_VARIANTS} />)
+
+    await user.click(screen.getByRole('button', { name: /generate variants/i }))
+    await user.click(screen.getByRole('button', { name: /save variants/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toMatch(/every variant needs its own sku/i)
+    // The row is identified by its options, so it can be found on screen.
+    expect(alert.textContent).toMatch(/Size: Small/i)
+    expect(updateProductVariantsActionMock).not.toHaveBeenCalled()
+  })
+
+  it('translates a server field issue into the offending row and field', async () => {
+    const user = userEvent.setup({ delay: null })
+    updateProductVariantsActionMock.mockResolvedValue({
+      ok: false,
+      error: 'invalid-input',
+      issues: [{ code: 'custom', path: ['addVariants', 0, 'sku'], message: 'Too small' }],
+    } as Awaited<ReturnType<typeof updateProductVariantsAction>>)
+
+    render(<VariantStructurePanel product={OPTIONS_NO_VARIANTS} />)
+    await user.click(screen.getByRole('button', { name: /generate variants/i }))
+    await user.type(screen.getByLabelText(/small sku/i), 'MSE-RNG-002-S2')
+    await user.click(screen.getByRole('button', { name: /save variants/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toMatch(/Size: Small — SKU is required/i)
+    expect(alert.textContent).not.toMatch(/something went wrong/i)
+  })
+
+  it('explains a SKU already used by another product', async () => {
+    const user = userEvent.setup({ delay: null })
+    updateProductVariantsActionMock.mockResolvedValue({ ok: false, error: 'conflict-sku' })
+
+    render(<VariantStructurePanel product={OPTIONS_NO_VARIANTS} />)
+    await user.click(screen.getByRole('button', { name: /generate variants/i }))
+    await user.type(screen.getByLabelText(/small sku/i), 'MSE-RNG-002-S')
+    await user.click(screen.getByRole('button', { name: /save variants/i }))
+
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toMatch(/already belongs to a different product/i)
+  })
+
+  // Blank inventory saves as 0 without complaint, which reproduces the exact
+  // symptom the owner started with — options that refuse to be selected — by
+  // a different route and with nothing having gone visibly wrong.
+  it('warns when every saved variant has zero stock', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<VariantStructurePanel product={OPTIONS_NO_VARIANTS} />)
+
+    await user.click(screen.getByRole('button', { name: /generate variants/i }))
+    await user.type(screen.getByLabelText(/small sku/i), 'MSE-RNG-002-S3')
+    await user.click(screen.getByRole('button', { name: /save variants/i }))
+
+    expect(await screen.findByText(/every one has 0 stock/i)).toBeInTheDocument()
+  })
+})
