@@ -14,7 +14,7 @@ export const FAQ_GROUPS: FaqGroup[] = [
       },
       {
         q: 'What payment methods do you accept?',
-        a: "We accept card payments through Paystack. You choose to pay in Naira (₦) or US Dollars ($) at checkout, and that's the currency you're charged in — if you're browsing in any other currency, the price shown is just an estimate. We never see or store your card details.",
+        a: "Payment goes through Paystack. Card is the usual way to pay, and Paystack may also offer bank transfer or other methods at checkout depending on your bank and location. You choose to pay in Naira (₦) or US Dollars ($), and that's the currency you're charged in — if you're browsing in any other currency, the price shown is just an estimate. We never see or store your card details.",
       },
       {
         q: 'Is VAT included in the price shown?',

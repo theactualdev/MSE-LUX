@@ -61,7 +61,7 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
   },
   privacy: {
     title: 'Privacy Policy',
-    lastUpdated: '2026-07-18',
+    lastUpdated: '2026-08-07',
     intro: 'What information we collect when you shop with MSE Lux, and how we use it.',
     sections: [
       {
@@ -88,12 +88,15 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
         heading: 'Cookies & tracking',
         body: [
           "We don't run analytics, advertising, or tracking cookies of our own. The only data collection beyond what's described above is the standard technical logging our hosting provider keeps to operate the site.",
+          'The cookies we do set are the ones the shop needs to work: one that remembers whether you are shopping in Naira or Dollars, which lasts a year and is set either when you use the currency switcher or, on your first visit, from the country your connection appears to be in; one short-lived cookie that lets you see an order you just placed as a guest, which expires after an hour; and, if you sign in, the session cookies that keep you signed in.',
+          'Your bag, wishlist, recently viewed items, and the details of your last order are stored by your browser on your own device rather than in a cookie. They are not sent to us, and clearing your browser data removes them.',
         ],
       },
       {
         heading: 'Data retention & access',
         body: [
           'We keep account information (name, email, phone), saved addresses, cart and wishlist contents, and order records for as long as needed to provide our service and meet reasonable business record-keeping needs. You can ask us to review, update, or delete your information at any time by contacting us.',
+          'One thing to know about deletion: closing your account removes your profile, saved addresses, bag, and wishlist, but it does not erase orders you have already placed. An order keeps the delivery address and email address used at the time, because it is a financial record of a sale we are required to be able to account for. Everything else tying that order to your account is removed.',
         ],
       },
       {
@@ -106,7 +109,7 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
   },
   terms: {
     title: 'Terms of Service',
-    lastUpdated: '2026-07-18',
+    lastUpdated: '2026-08-07',
     intro: 'The basics of shopping with MSE Lux online.',
     sections: [
       {
@@ -124,7 +127,7 @@ export const POLICY_PAGES: Record<PolicySlug, PolicyPage> = {
       {
         heading: 'Payment',
         body: [
-          'Payment is processed by Paystack. We accept card payments, and you are charged in whichever currency you selected at checkout (₦ or $) — we never see or store your card details.',
+          'Payment is processed by Paystack. Card is the usual way to pay, and Paystack may also offer bank transfer or other methods at checkout depending on your bank and location — whichever you use, you are charged in the currency you selected (₦ or $), and we never see or store your card details.',
         ],
       },
       {
