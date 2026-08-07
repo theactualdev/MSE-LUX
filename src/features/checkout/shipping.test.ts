@@ -395,6 +395,27 @@ describe('getShippingRates — quotes in the charge currency, not the address co
     expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ currency: 'USD' })
   })
 
+  // Guest carts live in localStorage, so a device that added items before a
+  // product was deleted still sends those IDs. The lines resolve to nothing,
+  // and the ₦0 package that used to result was rejected by ShipBubble —
+  // silently degrading that DEVICE to flat fallback rates while every other
+  // device worked. The phantom cart must never reach ShipBubble at all.
+  it('returns no options (and never calls ShipBubble) when no cart line resolves to a live product', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+    resolveProductsByIds.mockResolvedValue([])
+
+    const options = await getShippingRates({
+      address: NG_ADDRESS,
+      email: EMAIL,
+      chargeCurrency: 'NGN',
+      guestLines: [{ productId: 'deleted-long-ago', quantity: 1 }],
+    })
+
+    expect(options).toEqual([])
+    expect(validateAddress).not.toHaveBeenCalled()
+    expect(fetchRates).not.toHaveBeenCalled()
+  })
+
   // This test used to assert the exact opposite — that an NGN order to a
   // non-Nigerian address got a flat ₦5,000 and never called ShipBubble. That
   // belief came from the sandbox, which returns destination-blind stub rates.
@@ -573,8 +594,18 @@ describe('getShippingRates — the PUBLIC action can never mint a gift-scoped to
 
   it('never puts a shareRef on a checkout token — a checkout quote belongs to no share', async () => {
     getCurrentUserId.mockResolvedValue(null)
+    // A real, resolvable cart: USD used to short-circuit to a flat option with
+    // no cart at all, but it now takes the live path, and the phantom-cart
+    // guard returns [] when nothing resolves — this test is about the token's
+    // scope, so it needs a token to inspect.
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'addr_scope' })
+    fetchRates.mockResolvedValue({
+      requestToken: 'req_tok_scope',
+      rates: [{ courierId: 'c1', serviceCode: 's1', label: 'Courier', amountMinor: 350_000, currency: 'NGN', deliveryEta: '5-9 days' }],
+    })
 
-    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD', shareRef: 'forged', scope: 'gift' } as never)
+    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD', shareRef: 'forged', scope: 'gift', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] } as never)
 
     expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ scope: 'checkout' })
     expect(verifyQuote(options[0].token, US_ADDRESS)!.shareRef).toBeUndefined()

@@ -466,6 +466,7 @@ export async function buildShippingRates(input: ShippingRatesInput, stamp: Quote
       // per-item estimate for any line whose product hasn't been weighed yet.
       let totalValueMinor = 0
       let totalWeightGrams = WEIGHT_BASE_GRAMS
+      let resolvedLineCount = 0
       for (const line of aggregatedLines) {
         const product = productById.get(line.productId)
         if (!product) continue
@@ -475,6 +476,25 @@ export async function buildShippingRates(input: ShippingRatesInput, stamp: Quote
 
         totalValueMinor += unitNgnMinor * line.quantity
         totalWeightGrams += (product.weightGrams ?? WEIGHT_PER_ITEM_GRAMS) * line.quantity
+        resolvedLineCount += 1
+      }
+
+      // A cart in which NOTHING resolves to a live product is a phantom cart,
+      // and it must not reach ShipBubble. Guest carts live in localStorage, so
+      // a device that added items before a product was deleted from the admin
+      // still sends those IDs (signed-in carts self-clean — CartItem cascades
+      // on product delete). Skipping the dead lines used to leave a ₦0
+      // package, which ShipBubble rejects with "invalid package items" — so
+      // every quote from such a device silently degraded to the flat
+      // fallback, differing by DEVICE, which is exactly how it presented.
+      //
+      // `[]`, not a flat option: `placeOrder` would refuse this cart anyway,
+      // so any quote here prices an order that cannot exist. The client
+      // already treats an empty option list as "shipping is temporarily
+      // unavailable" and keeps the customer on the address step.
+      if (resolvedLineCount === 0) {
+        console.error('getShippingRates: no cart line resolved to a live product — not quoting a phantom package')
+        return []
       }
 
       const packageItems = [

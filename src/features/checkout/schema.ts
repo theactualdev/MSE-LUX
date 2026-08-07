@@ -26,7 +26,29 @@ const REGION_MAX = 100
 const POSTAL_MAX = 20
 
 export const addressSchema = z.object({
-  fullName: z.string().min(1, 'Required').max(NAME_MAX, `${NAME_MAX} characters or fewer`),
+  // A deliberate exception to the "abuse cap, not UX validation" rule above,
+  // forced by the courier: ShipBubble's address validation REJECTS a
+  // single-word name ("Please provide a full name (e.g John Doe), please
+  // remove all numbers and symbols" — verified against the production API).
+  // Letting one through doesn't fail checkout, it silently degrades every
+  // quote to the flat fallback — which internationally UNDERCHARGES the store
+  // by tens of thousands of naira — with nothing telling the customer why.
+  // Rejecting here, with a message, is strictly better than mispricing there.
+  //
+  // Only the two rules the courier actually enforces: two words, no digits.
+  // Hyphens, apostrophes and diacritics stay legal — "Mary-Jane O'Brien" is a
+  // genuine name, and over-restricting names is how checkouts reject real
+  // customers.
+  fullName: z
+    .string()
+    .trim()
+    .min(1, 'Required')
+    .max(NAME_MAX, `${NAME_MAX} characters or fewer`)
+    .refine((value) => !/\d/.test(value), 'Name can’t contain numbers')
+    .refine(
+      (value) => value.split(/\s+/).filter((word) => /\p{L}/u.test(word)).length >= 2,
+      'Enter first and last name — the courier needs a full name for delivery',
+    ),
   // The UI now emits E.164 (`+2348012345678`) via `PhoneField`, but this
   // schema stays FORMAT-AGNOSTIC on purpose: it also validates addresses saved
   // before that control existed, which hold local-format numbers like

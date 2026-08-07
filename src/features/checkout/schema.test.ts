@@ -7,13 +7,13 @@ describe('checkout schemas', () => {
     expect(contactSchema.safeParse({ email: 'nope' }).success).toBe(false)
   })
   it('requires the core address fields', () => {
-    const ok = { fullName: 'Ada', phone: '08012345678', line1: '1 Marina', city: 'Lagos', state: 'Lagos', country: 'Nigeria' }
+    const ok = { fullName: 'Ada Lovelace', phone: '08012345678', line1: '1 Marina', city: 'Lagos', state: 'Lagos', country: 'Nigeria' }
     expect(addressSchema.safeParse(ok).success).toBe(true)
     expect(addressSchema.safeParse({ ...ok, fullName: '' }).success).toBe(false)
   })
 
   it('caps every address field so an authenticated caller cannot store unbounded rows', () => {
-    const ok = { fullName: 'Ada', phone: '08012345678', line1: '1 Marina', city: 'Lagos', state: 'Lagos', country: 'Nigeria' }
+    const ok = { fullName: 'Ada Lovelace', phone: '08012345678', line1: '1 Marina', city: 'Lagos', state: 'Lagos', country: 'Nigeria' }
     expect(addressSchema.safeParse(ok).success).toBe(true)
 
     expect(addressSchema.safeParse({ ...ok, fullName: 'A'.repeat(101) }).success).toBe(false)
@@ -30,7 +30,38 @@ describe('checkout schemas', () => {
   // reject a genuine formatted international number with an extension —
   // "+44 (0) 20 7946 0958" is exactly 20 characters, the old cap.
   it('accepts a formatted international phone number with an extension', () => {
-    const ok = { fullName: 'Ada', phone: '08012345678', line1: '1 Marina', city: 'Lagos', state: 'Lagos', country: 'Nigeria' }
+    const ok = { fullName: 'Ada Lovelace', phone: '08012345678', line1: '1 Marina', city: 'Lagos', state: 'Lagos', country: 'Nigeria' }
     expect(addressSchema.safeParse({ ...ok, phone: '+44 (0) 20 7946 0958 x123' }).success).toBe(true)
+  })
+})
+
+/**
+ * The full-name rules exist because ShipBubble's address validation refuses a
+ * single-word name (verified live: 422 "Please provide a full name"), and a
+ * refused validation silently degrades every quote to the flat fallback —
+ * which internationally undercharges the store. Rejecting at the form, with a
+ * message, beats mispricing three steps later.
+ */
+describe('addressSchema.fullName — courier requirements', () => {
+  const ok = { fullName: 'Ada Lovelace', phone: '08012345678', line1: '1 Marina', city: 'Lagos', state: 'Lagos', country: 'Nigeria' }
+
+  it('rejects a single-word name, since the courier will', () => {
+    expect(addressSchema.safeParse({ ...ok, fullName: 'Test' }).success).toBe(false)
+  })
+
+  it('rejects digits in the name', () => {
+    expect(addressSchema.safeParse({ ...ok, fullName: 'Ada L0velace' }).success).toBe(false)
+  })
+
+  // Over-restricting names is how checkouts reject real customers — only the
+  // two rules the courier enforces, nothing more.
+  it('accepts hyphens, apostrophes and diacritics', () => {
+    expect(addressSchema.safeParse({ ...ok, fullName: "Mary-Jane O'Brien" }).success).toBe(true)
+    expect(addressSchema.safeParse({ ...ok, fullName: 'Adaobi Chukwuemeka-Ngozi' }).success).toBe(true)
+    expect(addressSchema.safeParse({ ...ok, fullName: 'José Álvarez' }).success).toBe(true)
+  })
+
+  it('does not count stray punctuation as a second word', () => {
+    expect(addressSchema.safeParse({ ...ok, fullName: 'Ada -' }).success).toBe(false)
   })
 })
