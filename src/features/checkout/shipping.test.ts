@@ -50,6 +50,15 @@ vi.mock('@/features/checkout/lib/shipping-config', () => ({
   SHIPBUBBLE_CATEGORY_ID: 0,
 }))
 
+// FX is stubbed at a round 1000 NGN/USD so the expected amounts below are
+// readable, and so nothing here performs a real network call to the rate feed.
+// The conversion itself (margin, rounding, backstop) is covered in
+// `shipping-fx.test.ts`.
+vi.mock('@/features/checkout/lib/shipping-fx', () => ({
+  getUsdNgnRate: async () => ({ rate: 1000, source: 'live' as const }),
+  usdMinorFromNgnMinor: (ngnMinor: number) => Math.ceil((ngnMinor / 100 / 1000) * 1.05 * 100),
+}))
+
 const checkRateLimit = vi.fn()
 vi.mock('@/lib/rate-limit', () => ({
   checkRateLimit: (...args: unknown[]) => checkRateLimit(...args),
@@ -334,34 +343,54 @@ describe('getShippingRates — quotes in the charge currency, not the address co
   // flow. Live ShipBubble ₦ rates are ONLY used when charging NGN to a
   // Nigerian address; every other combination is a flat rate in `chargeCurrency`.
 
-  it('USD charge + non-NG address → flat USD option, never calls ShipBubble', async () => {
+  // Previously this asserted a flat $25 and that ShipBubble was never called.
+  // USD now takes the same live path as NGN, with the naira amount converted;
+  // only the CHARGE CURRENCY differs, not whether couriers are quoted.
+  it('USD charge + non-NG address → live rates, converted to USD', async () => {
     getCurrentUserId.mockResolvedValue(null)
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'addr_us_1' })
+    fetchRates.mockResolvedValue({
+      requestToken: 'req_tok_usd',
+      rates: [{ courierId: 'topship', serviceCode: 'aramex', label: 'Topship (Aramex)', amountMinor: 350_000, currency: 'NGN', deliveryEta: '5-9 days' }],
+    })
 
     const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'USD', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
 
-    expect(validateAddress).not.toHaveBeenCalled()
-    expect(fetchRates).not.toHaveBeenCalled()
-    expect(resolveProductsByIds).not.toHaveBeenCalled()
-    expect(cartItem.findMany).not.toHaveBeenCalled()
+    expect(validateAddress).toHaveBeenCalled()
+    expect(fetchRates).toHaveBeenCalled()
 
+    // ₦3,500 at 1000/$ is $3.50; +5% margin is $3.675, rounded up to $3.68.
     expect(options).toEqual([
-      expect.objectContaining({ id: 'international', label: 'International shipping', amountMinor: 250_000, currency: 'USD', deliveryEta: '7–14 days' }),
+      expect.objectContaining({ label: 'Topship (Aramex)', amountMinor: 368, currency: 'USD' }),
     ])
 
+    // The token must carry the CONVERTED amount — `placeOrder` charges what
+    // the token says, so a token still holding the naira figure would bill a
+    // dollar customer ₦3,500 worth of dollars.
     const payload = verifyQuote(options[0].token, US_ADDRESS)
-    expect(payload).toMatchObject({ label: 'International shipping', amountMinor: 250_000, currency: 'USD' })
+    expect(payload).toMatchObject({ label: 'Topship (Aramex)', amountMinor: 368, currency: 'USD' })
   })
 
-  it('USD charge + NG address → flat USD option, never calls ShipBubble (its ₦ rates can’t be charged in USD)', async () => {
+  // A dollar-paying customer shipping WITHIN Nigeria used to be quoted the
+  // international flat, which was never right — it is a domestic parcel that
+  // happens to be paid for in dollars. It now gets the real domestic couriers,
+  // converted.
+  it('USD charge + NG address → live domestic rates, converted to USD', async () => {
     getCurrentUserId.mockResolvedValue(null)
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'addr_ng_1' })
+    fetchRates.mockResolvedValue({
+      requestToken: 'req_tok_ng_usd',
+      rates: [{ courierId: 'fez', serviceCode: 'std', label: 'Fez delivery', amountMinor: 331_400, currency: 'NGN', deliveryEta: '1-4 days' }],
+    })
 
     const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'USD', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
 
-    expect(validateAddress).not.toHaveBeenCalled()
-    expect(fetchRates).not.toHaveBeenCalled()
-
+    expect(fetchRates).toHaveBeenCalled()
+    // ₦3,314 at 1000/$ is $3.314; +5% is $3.4797, rounded up to $3.48.
     expect(options).toEqual([
-      expect.objectContaining({ id: 'international', amountMinor: 250_000, currency: 'USD' }),
+      expect.objectContaining({ label: 'Fez delivery', amountMinor: 348, currency: 'USD' }),
     ])
     expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ currency: 'USD' })
   })
@@ -1011,6 +1040,13 @@ describe('getShippingRates — charge-currency divergence is logged, not overrid
     headersMock.mockResolvedValue(headerStore())
     const consoleWarnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
 
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'addr_geo' })
+    fetchRates.mockResolvedValue({
+      requestToken: 'req_tok_geo',
+      rates: [{ courierId: 'c1', serviceCode: 's1', label: 'Courier', amountMinor: 350_000, currency: 'NGN', deliveryEta: '5-9 days' }],
+    })
+
     const options = await getShippingRates({
       address: US_ADDRESS,
       email: EMAIL,
@@ -1018,9 +1054,9 @@ describe('getShippingRates — charge-currency divergence is logged, not overrid
       guestLines: [{ productId: PRODUCT_ID, quantity: 1 }],
     })
 
-    expect(options).toEqual([
-      expect.objectContaining({ id: 'international', label: 'International shipping', amountMinor: 250_000, currency: 'USD' }),
-    ])
+    // The client's chosen currency is honoured; the amount is the converted
+    // live rate rather than a flat one.
+    expect(options).toEqual([expect.objectContaining({ currency: 'USD', amountMinor: 368 })])
     expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ currency: 'USD' })
     expect(consoleWarnSpy).not.toHaveBeenCalled()
 

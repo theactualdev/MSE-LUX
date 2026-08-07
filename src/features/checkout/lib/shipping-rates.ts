@@ -5,6 +5,7 @@ import { getCurrentUserId } from '@/features/auth/claims'
 import { resolveProductsByIds } from '@/features/catalog/server/resolve-products'
 import { validateAddress, fetchRates } from '@/features/checkout/lib/shipbubble'
 import { signQuote, addressHash, newQuoteSalt } from '@/features/checkout/lib/shipping-quote'
+import { getUsdNgnRate, usdMinorFromNgnMinor } from '@/features/checkout/lib/shipping-fx'
 import { serverChargeCurrency } from '@/features/currency/lib/charge-currency-server'
 import { checkRateLimit } from '@/lib/rate-limit'
 import {
@@ -27,11 +28,10 @@ import type { ShippingOption } from '@/features/checkout/shipping-types'
  * `getShippingRates` (`../shipping.ts`, the ordinary checkout Server Action)
  * and `getGiftShippingRates` (`gifting/checkout-actions.ts`). It returns
  * selectable, server-signed shipping options — live ShipBubble courier rates
- * whenever the charge currency is NGN (ANY destination: ShipBubble quotes
- * international routes from Lagos too, verified against the production API),
- * a flat rate when charging USD (live ₦ rates can't be charged in USD without
- * an FX source fit to charge on, and this app has none), and a flat fallback
- * whenever the ShipBubble path can't complete. Every option's
+ * for BOTH currencies and ANY destination — ShipBubble quotes international
+ * routes from Lagos too (verified against the production API), and a USD
+ * charge converts those naira amounts through `shipping-fx.ts` — plus a flat
+ * fallback whenever the ShipBubble path can't complete. Every option's
  * currency equals `input.chargeCurrency` — ALWAYS the client's own
  * format-validated value, never the address's country and, since Phase 9c
  * Task 4, never the server geo signal either (see the currency-resolution
@@ -119,9 +119,9 @@ export interface ShippingRatesInput {
    * is still read below, but only to log a divergence — see that comment for
    * why overriding from geo was reverted). So `placeOrder`'s
    * `quote.currency !== input.chargeCurrency` guard always passes for a
-   * legit flow: live ShipBubble ₦ rates are used whenever the charge currency
-   * is NGN, at any destination, and a USD charge always gets a flat rate
-   * already denominated in `chargeCurrency`.
+   * legit flow: live ShipBubble rates are used for either currency at any
+   * destination, converted to USD when that is the charge currency, and every
+   * fallback is likewise denominated in `chargeCurrency`.
    */
   chargeCurrency: 'NGN' | 'USD'
   guestLines?: GuestOrderLine[]
@@ -434,21 +434,13 @@ export async function buildShippingRates(input: ShippingRatesInput, stamp: Quote
     // Topship). Destination genuinely moves the price; the sandbox's
     // destination-blind stub rates are what made it look otherwise.
     //
-    // So the only thing that still forces a flat rate is the CHARGE CURRENCY.
-    // A USD-charged customer cannot be given an NGN quote without an FX
-    // conversion, and this app has no rate source fit to charge on: the FX
-    // module is display-only, hand-backstopped, and carries no NGN rate at all
-    // (NGN is authored, not derived). Converting on it would put FX drift
-    // straight into the shipping margin.
+    // Charge currency no longer forces a flat rate either. A USD customer is
+    // quoted the same live couriers and the NGN amount is converted at
+    // `shipping-fx.ts`'s daily rate plus a margin — see that module for why
+    // the display-FX provider could not be reused (it has no NGN rate at all).
     //
-    // An NGN-charged customer needs no conversion at any destination, which is
-    // why that path can go live now. It is also the path that was worst
-    // served: a flat ₦5,000 against a real ₦78,475 to New York.
-    if (chargeCurrency !== 'NGN') {
-      const flat = FLAT_INTERNATIONAL_USD
-      return [toOption('international', flat.label, flat.amountMinor, flat.currency, hash, salt, stamp, flat.deliveryEta)]
-    }
-
+    // Both currencies therefore take the live path below; only a failure in it
+    // still yields a flat rate.
     try {
       // A blank origin code means the store's ShipBubble pickup address hasn't
       // been configured yet — fail fast into the fallback rather than calling
@@ -520,13 +512,44 @@ export async function buildShippingRates(input: ShippingRatesInput, stamp: Quote
 
       if (rates.length === 0) throw new Error('ShipBubble returned no couriers')
 
-      // This branch only runs when `chargeCurrency === 'NGN'` — any
-      // destination now, domestic or not — so every option is forced to NGN,
-      // the branch invariant, regardless of whatever currency ShipBubble's
-      // response happens to label the rate with. ShipBubble prices in NGN for
-      // international routes too (verified against production: New York and
-      // London both quote in NGN), so no conversion is involved either way.
-      return rates.map((rate) => toOption(`${rate.courierId}:${rate.serviceCode}`, rate.label, rate.amountMinor, 'NGN', hash, salt, stamp, rate.deliveryEta))
+      // ShipBubble prices every route in NGN, international included (verified
+      // against production: New York and London both quote in naira). So an
+      // NGN customer is charged the courier's amount verbatim, and a USD
+      // customer gets it converted here — the ONLY place in this function that
+      // changes an amount, which is why the conversion lives on this one line
+      // rather than being threaded through `toOption`.
+      //
+      // The FX call sits inside the try on purpose: `getUsdNgnRate` never
+      // throws (it degrades to a committed backstop), but if that contract
+      // were ever broken, landing in the catch yields a flat USD rate rather
+      // than an unhandled rejection.
+      // `chargeCurrency` is untrusted and may be absent entirely at this
+      // boundary. Anything that isn't USD is quoted in NGN — the same default
+      // `flatFallbackFor` and `guardFallbackOption` already apply, so a
+      // malformed request cannot get a different currency depending on which
+      // path happened to serve it.
+      const quoteCurrency: 'NGN' | 'USD' = chargeCurrency === 'USD' ? 'USD' : 'NGN'
+      const fx = quoteCurrency === 'USD' ? await getUsdNgnRate() : null
+      if (fx?.source === 'backstop') {
+        // Worth knowing about: the store is charging on a hand-maintained
+        // snapshot rather than today's rate.
+        console.warn('getShippingRates: USD shipping converted on the backstop FX rate, not a live one')
+      }
+
+      // Every option's currency equals `chargeCurrency` — the invariant
+      // `placeOrder`'s own currency guard depends on.
+      return rates.map((rate) =>
+        toOption(
+          `${rate.courierId}:${rate.serviceCode}`,
+          rate.label,
+          fx ? usdMinorFromNgnMinor(rate.amountMinor, fx.rate) : rate.amountMinor,
+          quoteCurrency,
+          hash,
+          salt,
+          stamp,
+          rate.deliveryEta,
+        ),
+      )
     } catch (error) {
       // Never block checkout on a ShipBubble outage / bad config / unvalidatable
       // address / empty courier list — fall back to a flat rate.

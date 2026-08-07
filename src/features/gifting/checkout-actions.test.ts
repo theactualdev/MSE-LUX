@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { signQuote, addressHash, shareRefFor } from '@/features/checkout/lib/shipping-quote'
-import { FLAT_INTERNATIONAL_USD } from '@/features/checkout/lib/shipping-config'
+import { FLAT_FALLBACK_USD } from '@/features/checkout/lib/shipping-config'
 import type { Product } from '@/types/catalog'
 import type { Address } from '@/features/checkout/schema'
 import type { ResolvedShare } from '@/features/gifting/share'
@@ -663,7 +663,12 @@ describe('the happy path still works end to end', () => {
     const options = await getGiftShippingRates(request)
 
     expect(options).toHaveLength(1)
-    expect(options[0]).toMatchObject({ id: 'international', currency: 'USD', amountMinor: FLAT_INTERNATIONAL_USD.amountMinor })
+    // `fallback`, not `international`. A USD charge no longer short-circuits
+    // to the flat international rate before the courier call — it attempts the
+    // live path like NGN does, and this test has no ShipBubble origin code
+    // configured, so it lands in the outage fallback. Same currency, same
+    // amount; only which branch produced it changed.
+    expect(options[0]).toMatchObject({ id: 'fallback', currency: 'USD', amountMinor: FLAT_FALLBACK_USD.amountMinor })
 
     const result = await placeGiftOrder({ ...request, shippingToken: options[0].token })
 
@@ -674,8 +679,8 @@ describe('the happy path still works end to end', () => {
     const data = order.create.mock.calls[0][0].data
     expect(data.shipLine1).toBe(OWNER_ADDRESS.line1)
     expect(data.currency).toBe('USD')
-    expect(data.shippingMinor).toBe(FLAT_INTERNATIONAL_USD.amountMinor)
-    expect(data.shippingLabel).toBe(FLAT_INTERNATIONAL_USD.label)
+    expect(data.shippingMinor).toBe(FLAT_FALLBACK_USD.amountMinor)
+    expect(data.shippingLabel).toBe(FLAT_FALLBACK_USD.label)
   })
 
   it('...but that very token is inert at any OTHER share', async () => {
