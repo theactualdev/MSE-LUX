@@ -366,18 +366,60 @@ describe('getShippingRates — quotes in the charge currency, not the address co
     expect(verifyQuote(options[0].token, NG_ADDRESS)).toMatchObject({ currency: 'USD' })
   })
 
-  it('NGN charge + non-NG address → flat NGN international option, never calls ShipBubble', async () => {
+  // This test used to assert the exact opposite — that an NGN order to a
+  // non-Nigerian address got a flat ₦5,000 and never called ShipBubble. That
+  // belief came from the sandbox, which returns destination-blind stub rates.
+  // Production quotes international routes from Lagos for real: 0.45 kg to New
+  // York returns 7 couriers, cheapest ₦78,475 via Aramex. The flat rate was
+  // undercharging by roughly ₦73,000 on exactly the store's most valuable
+  // orders.
+  it('NGN charge + non-NG address → LIVE ShipBubble rates, in NGN', async () => {
     getCurrentUserId.mockResolvedValue(null)
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockResolvedValue({ addressCode: 'addr_us_1' })
+    fetchRates.mockResolvedValue({
+      requestToken: 'req_tok_intl',
+      rates: [
+        { courierId: 'topship', serviceCode: 'aramex', label: 'Topship (Aramex)', amountMinor: 7_847_475, currency: 'NGN', deliveryEta: '5-9 days' },
+      ],
+    })
 
     const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
 
-    expect(validateAddress).not.toHaveBeenCalled()
-    expect(fetchRates).not.toHaveBeenCalled()
+    expect(validateAddress).toHaveBeenCalled()
+    expect(fetchRates).toHaveBeenCalled()
 
     expect(options).toEqual([
-      expect.objectContaining({ id: 'international', label: 'International shipping', amountMinor: 500_000, currency: 'NGN' }),
+      expect.objectContaining({ label: 'Topship (Aramex)', amountMinor: 7_847_475, currency: 'NGN' }),
     ])
-    expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ amountMinor: 500_000, currency: 'NGN' })
+    expect(verifyQuote(options[0].token, US_ADDRESS)).toMatchObject({ amountMinor: 7_847_475, currency: 'NGN' })
+  })
+
+  // The outage path is where this change could quietly lose money: before it,
+  // every NGN request that reached a fallback was domestic by construction, so
+  // the domestic flat was always right. Now an international NGN order that
+  // fails at ShipBubble must NOT be handed the ₦2,500 domestic rate.
+  it('NGN charge + non-NG address: a ShipBubble failure falls back to the INTERNATIONAL flat, not the domestic one', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockRejectedValue(new Error('ShipBubble down'))
+
+    const options = await getShippingRates({ address: US_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
+
+    expect(options).toHaveLength(1)
+    expect(options[0]).toMatchObject({ amountMinor: 500_000, currency: 'NGN' })
+    expect(options[0].amountMinor).not.toBe(300_000) // the domestic fallback
+    expect(verifyQuote(options[0].token, US_ADDRESS)).not.toBeNull()
+  })
+
+  it('NGN charge + NG address: a ShipBubble failure still falls back to the DOMESTIC flat', async () => {
+    getCurrentUserId.mockResolvedValue(null)
+    resolveProductsByIds.mockResolvedValue([PRODUCT])
+    validateAddress.mockRejectedValue(new Error('ShipBubble down'))
+
+    const options = await getShippingRates({ address: NG_ADDRESS, email: EMAIL, chargeCurrency: 'NGN', guestLines: [{ productId: PRODUCT_ID, quantity: 1 }] })
+
+    expect(options[0]).toMatchObject({ amountMinor: 300_000, currency: 'NGN' })
   })
 
   it('the invariant holds across every branch: every option.currency === chargeCurrency and its token verifies', async () => {
