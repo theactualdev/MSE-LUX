@@ -1,160 +1,22 @@
 import { findCountry } from '@/lib/countries'
+import { SUBDIVISIONS } from '@/lib/subdivisions.generated'
 
 /**
- * First-level administrative subdivisions, keyed by ISO 3166-1 alpha-2.
+ * First-level administrative subdivisions for every country, by ISO 3166-1
+ * alpha-2.
  *
- * DELIBERATELY NOT EXHAUSTIVE. A complete ISO 3166-2 dataset is roughly five
- * thousand entries, and this list is imported by the checkout address form —
- * the page where a Nigerian buyer on mobile data can least afford another
- * payload. What is here covers the store's real destinations; every other
- * country falls back to a free-text box, which is the behaviour the field had
- * for everyone until now, so nobody is worse off.
+ * The map is GENERATED (`npm run subdivisions`) from `country-region-data`,
+ * which stays a devDependency: importing it directly would ship its whole
+ * 633 kB payload — country names, ISO codes, region short codes — into the
+ * checkout bundle. The generated artifact keeps only region NAMES, which is
+ * all the field renders and all ShipBubble receives, at roughly 62 kB for
+ * 4,387 subdivisions across 249 countries.
  *
- * The names are the ones a customer would write and are sent verbatim to
- * ShipBubble as part of `line1, city, state, country`, so they must stay
- * human-readable — not codes.
- *
- * Adding a country is just another entry.
+ * This replaced a hand-written list covering five countries, with everywhere
+ * else falling back to a free-text box. `subdivisionsFor` still returns null
+ * for any country absent from the map, so that fallback remains the behaviour
+ * for anything the data does not cover.
  */
-const SUBDIVISIONS: Record<string, string[]> = {
-  // All 36 states plus the Federal Capital Territory.
-  NG: [
-    'Abia',
-    'Adamawa',
-    'Akwa Ibom',
-    'Anambra',
-    'Bauchi',
-    'Bayelsa',
-    'Benue',
-    'Borno',
-    'Cross River',
-    'Delta',
-    'Ebonyi',
-    'Edo',
-    'Ekiti',
-    'Enugu',
-    'Federal Capital Territory',
-    'Gombe',
-    'Imo',
-    'Jigawa',
-    'Kaduna',
-    'Kano',
-    'Katsina',
-    'Kebbi',
-    'Kogi',
-    'Kwara',
-    'Lagos',
-    'Nasarawa',
-    'Niger',
-    'Ogun',
-    'Ondo',
-    'Osun',
-    'Oyo',
-    'Plateau',
-    'Rivers',
-    'Sokoto',
-    'Taraba',
-    'Yobe',
-    'Zamfara',
-  ],
-  GH: [
-    'Ahafo',
-    'Ashanti',
-    'Bono',
-    'Bono East',
-    'Central',
-    'Eastern',
-    'Greater Accra',
-    'North East',
-    'Northern',
-    'Oti',
-    'Savannah',
-    'Upper East',
-    'Upper West',
-    'Volta',
-    'Western',
-    'Western North',
-  ],
-  ZA: [
-    'Eastern Cape',
-    'Free State',
-    'Gauteng',
-    'KwaZulu-Natal',
-    'Limpopo',
-    'Mpumalanga',
-    'North West',
-    'Northern Cape',
-    'Western Cape',
-  ],
-  US: [
-    'Alabama',
-    'Alaska',
-    'Arizona',
-    'Arkansas',
-    'California',
-    'Colorado',
-    'Connecticut',
-    'Delaware',
-    'District of Columbia',
-    'Florida',
-    'Georgia',
-    'Hawaii',
-    'Idaho',
-    'Illinois',
-    'Indiana',
-    'Iowa',
-    'Kansas',
-    'Kentucky',
-    'Louisiana',
-    'Maine',
-    'Maryland',
-    'Massachusetts',
-    'Michigan',
-    'Minnesota',
-    'Mississippi',
-    'Missouri',
-    'Montana',
-    'Nebraska',
-    'Nevada',
-    'New Hampshire',
-    'New Jersey',
-    'New Mexico',
-    'New York',
-    'North Carolina',
-    'North Dakota',
-    'Ohio',
-    'Oklahoma',
-    'Oregon',
-    'Pennsylvania',
-    'Rhode Island',
-    'South Carolina',
-    'South Dakota',
-    'Tennessee',
-    'Texas',
-    'Utah',
-    'Vermont',
-    'Virginia',
-    'Washington',
-    'West Virginia',
-    'Wisconsin',
-    'Wyoming',
-  ],
-  CA: [
-    'Alberta',
-    'British Columbia',
-    'Manitoba',
-    'New Brunswick',
-    'Newfoundland and Labrador',
-    'Northwest Territories',
-    'Nova Scotia',
-    'Nunavut',
-    'Ontario',
-    'Prince Edward Island',
-    'Quebec',
-    'Saskatchewan',
-    'Yukon',
-  ],
-}
 
 /**
  * The subdivisions to offer for a stored country value, or `null` when that

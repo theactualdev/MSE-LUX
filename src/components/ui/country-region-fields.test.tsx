@@ -39,7 +39,7 @@ describe('RegionField', () => {
     const select = screen.getByLabelText('State') as HTMLSelectElement
     expect(select.tagName).toBe('SELECT')
     expect(select.value).toBe('Lagos')
-    expect([...select.options].map((o) => o.value)).toContain('Federal Capital Territory')
+    expect([...select.options].map((o) => o.value)).toContain('Abuja Federal Capital Territory')
   })
 
   it('labels the field the way the country does', () => {
@@ -51,14 +51,24 @@ describe('RegionField', () => {
     expect(screen.getByLabelText('Region')).toBeInTheDocument()
   })
 
-  // Nobody in an uncovered country should be blocked by a list that cannot
-  // contain their region.
-  it('falls back to a free-text input for a country with no list', () => {
-    render(<RegionField id="s" country="France" value="Île-de-France" onChange={vi.fn()} />)
+  // Every real country now has a list, so the free-text path is only reached
+  // when the country itself cannot be resolved — an address stored before the
+  // country select existed. Those must stay editable, not be blocked by a
+  // dropdown that cannot contain their region.
+  it('falls back to a free-text input when the country cannot be resolved', () => {
+    render(<RegionField id="s" country="Republic of Nowhere" value="Somewhere" onChange={vi.fn()} />)
 
     const field = screen.getByLabelText('State / Region') as HTMLInputElement
     expect(field.tagName).toBe('INPUT')
-    expect(field.value).toBe('Île-de-France')
+    expect(field.value).toBe('Somewhere')
+  })
+
+  it('renders a dropdown for a country that used to be free text', () => {
+    render(<RegionField id="s" country="France" value="" onChange={vi.fn()} />)
+
+    const field = screen.getByLabelText('State / Region') as HTMLSelectElement
+    expect(field.tagName).toBe('SELECT')
+    expect([...field.options].map((o) => o.value)).toContain('Bretagne')
   })
 
   it('keeps an unrecognised stored region selectable rather than dropping it', () => {

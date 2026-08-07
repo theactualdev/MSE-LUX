@@ -7,7 +7,10 @@ describe('subdivisionsFor', () => {
 
     expect(states).toHaveLength(37)
     expect(states).toContain('Lagos')
-    expect(states).toContain('Federal Capital Territory')
+    // The dataset names it "Abuja Federal Capital Territory", not "Federal
+    // Capital Territory" — it is sent verbatim to ShipBubble, so the exact
+    // string is what matters.
+    expect(states).toContain('Abuja Federal Capital Territory')
   })
 
   // `isNigeria` in shipping-rates.ts already treats "nigeria" and "ng" alike,
@@ -20,21 +23,29 @@ describe('subdivisionsFor', () => {
   // null, not [] — an empty array would assert "this country has no
   // subdivisions", which this data never claims. Callers branch on null to
   // decide select vs free-text input.
-  it('returns null for a country with no list, so the field stays free text', () => {
-    expect(subdivisionsFor('France')).toBeNull()
+  //
+  // Every country in the dataset now has subdivisions, so the only way to
+  // reach null is a value that resolves to no country at all — a blank field,
+  // or a free-text country stored before the select existed.
+  it('returns null when the country cannot be resolved, so the field stays free text', () => {
     expect(subdivisionsFor('')).toBeNull()
     expect(subdivisionsFor('Not A Country')).toBeNull()
+    expect(subdivisionsFor('Republic of Nowhere')).toBeNull()
   })
 
-  it('covers the other markets it claims to', () => {
+  it('now covers every country, not just the original five', () => {
     expect(subdivisionsFor('United States')).toContain('New York')
     expect(subdivisionsFor('Canada')).toContain('Ontario')
     expect(subdivisionsFor('Ghana')).toContain('Greater Accra')
     expect(subdivisionsFor('South Africa')).toContain('Gauteng')
+    // Previously free text — the point of the change.
+    expect(subdivisionsFor('France')).toContain('Bretagne')
+    expect(subdivisionsFor('Japan')?.length).toBeGreaterThan(0)
+    expect(subdivisionsFor('Brazil')?.length).toBeGreaterThan(0)
   })
 
   it('lists no duplicates and no blank entries', () => {
-    for (const country of ['Nigeria', 'United States', 'Canada', 'Ghana', 'South Africa']) {
+    for (const country of ['Nigeria', 'United States', 'Canada', 'Ghana', 'South Africa', 'France', 'India']) {
       const list = subdivisionsFor(country) ?? []
       expect(new Set(list).size, `${country} has duplicates`).toBe(list.length)
       expect(list.every((name) => name.trim() !== ''), `${country} has a blank entry`).toBe(true)
@@ -49,7 +60,10 @@ describe('subdivisionLabel', () => {
     expect(subdivisionLabel('Ghana')).toBe('Region')
   })
 
-  it('falls back to a neutral label for countries with no list', () => {
+  // Only the five named countries get a specific term; everywhere else uses
+  // the neutral one rather than guessing at 249 local conventions.
+  it('falls back to a neutral label elsewhere', () => {
     expect(subdivisionLabel('France')).toBe('State / Region')
+    expect(subdivisionLabel('Japan')).toBe('State / Region')
   })
 })
