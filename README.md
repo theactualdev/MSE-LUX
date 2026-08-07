@@ -65,6 +65,7 @@ that geocodes to the wrong street yields a valid code and silently wrong prices.
 | `npm run db:seed` | Seed catalog taxonomy (and demo products — see below) |
 | `npm run db:studio` | Prisma Studio |
 | `npm run brand:assets` | Regenerate favicon, apple-icon, logo and OG card from `assets/brand/logo-source.jpeg` |
+| `npm run subdivisions` | Regenerate `src/lib/subdivisions.generated.ts` (the State/Province dropdown data) from `country-region-data` |
 
 ## Conventions worth knowing before you change anything
 
