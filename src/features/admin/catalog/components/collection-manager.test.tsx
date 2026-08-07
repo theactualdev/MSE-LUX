@@ -25,8 +25,9 @@ const updateCollectionActionMock = vi.mocked(updateCollectionAction)
 const deleteCollectionActionMock = vi.mocked(deleteCollectionAction)
 
 const COLLECTIONS: AdminCollectionListItem[] = [
-  { id: 'col-1', name: 'Summer', slug: 'summer', description: 'Summer picks', productCount: 4 },
-  { id: 'col-2', name: 'Winter', slug: 'winter', description: null, productCount: 0 },
+  { id: 'col-1', name: 'Summer', slug: 'summer', description: 'Summer picks', image: 'https://img/summer.jpg', productCount: 4 },
+  // No image — the column is nullable and the storefront renders no tile art for it.
+  { id: 'col-2', name: 'Winter', slug: 'winter', description: null, image: null, productCount: 0 },
 ]
 
 describe('CollectionManager', () => {
@@ -75,6 +76,8 @@ describe('CollectionManager', () => {
         name: 'Spring',
         slug: 'spring',
         description: 'Fresh picks',
+        // Untouched in this flow — an empty tile image submits as null.
+        image: null,
       })
     })
     await vi.waitFor(() => {
@@ -97,6 +100,7 @@ describe('CollectionManager', () => {
         name: 'Spring',
         slug: 'spring',
         description: null,
+        image: null,
       })
     })
   })
@@ -123,6 +127,7 @@ describe('CollectionManager', () => {
         name: 'Summer Sale',
         slug: 'summer',
         description: 'Summer picks',
+        image: 'https://img/summer.jpg',
       })
     })
     await vi.waitFor(() => {
@@ -214,5 +219,57 @@ describe('CollectionManager', () => {
     const alert = await screen.findByRole('alert')
     expect(alert).toHaveTextContent(/name is required/i)
     expect(refreshMock).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * `Collection.image` existed in the schema from the start but no admin ever
+ * exposed it, so collection tiles on the home page were stuck with whatever
+ * the seed wrote and could only be changed directly in the database.
+ */
+describe('CollectionManager — tile image', () => {
+  it('prefills the image when editing a collection that has one', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<CollectionManager collections={COLLECTIONS} />)
+
+    await user.click(screen.getAllByRole('button', { name: /^edit$/i })[0])
+
+    expect(screen.getByLabelText(/tile image url/i)).toHaveValue('https://img/summer.jpg')
+  })
+
+  it('leaves the field empty for a collection with no image', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<CollectionManager collections={COLLECTIONS} />)
+
+    await user.click(screen.getAllByRole('button', { name: /^edit$/i })[1])
+
+    expect(screen.getByLabelText(/tile image url/i)).toHaveValue('')
+  })
+
+  it('sends the image on update', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<CollectionManager collections={COLLECTIONS} />)
+
+    await user.click(screen.getAllByRole('button', { name: /^edit$/i })[1])
+    await user.type(screen.getByLabelText(/tile image url/i), 'https://img/winter.jpg')
+    await user.click(screen.getByRole('button', { name: /save|update|create/i }))
+
+    expect(updateCollectionActionMock).toHaveBeenCalledWith(
+      'col-2',
+      expect.objectContaining({ image: 'https://img/winter.jpg' }),
+    )
+  })
+
+  // null, not '' — the column is nullable and the storefront branches on null
+  // to decide whether to render tile art at all.
+  it('sends null rather than an empty string when the field is cleared', async () => {
+    const user = userEvent.setup({ delay: null })
+    render(<CollectionManager collections={COLLECTIONS} />)
+
+    await user.click(screen.getAllByRole('button', { name: /^edit$/i })[0])
+    await user.clear(screen.getByLabelText(/tile image url/i))
+    await user.click(screen.getByRole('button', { name: /save|update|create/i }))
+
+    expect(updateCollectionActionMock).toHaveBeenCalledWith('col-1', expect.objectContaining({ image: null }))
   })
 })

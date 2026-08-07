@@ -18,6 +18,11 @@ export const collectionSchema = z.object({
   name: z.string().trim().min(1).max(120),
   slug: z.string().trim().regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'kebab-case only'),
   description: z.string().trim().max(500).nullable(),
+  // The `Collection.image` column has existed since the schema was written,
+  // but no admin ever exposed it — so collection tiles on the home page were
+  // stuck with whatever the seed put there and could only be changed in the
+  // database. Same shape as the category image field.
+  image: z.string().trim().max(500).nullable(),
 })
 
 export type CreateCollectionInput = z.infer<typeof collectionSchema>
@@ -54,6 +59,7 @@ export async function createCollection(input: unknown): Promise<CatalogWriteResu
         name: data.name,
         slug: data.slug,
         description: data.description,
+        image: data.image,
       },
     })
 
@@ -86,6 +92,7 @@ export async function updateCollection(id: string, input: unknown): Promise<Cata
         name: data.name,
         slug: data.slug,
         description: data.description,
+        image: data.image,
       },
     })
 

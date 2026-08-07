@@ -52,6 +52,7 @@ function baseCurrentRow(overrides: Partial<Record<string, unknown>> = {}) {
     slug: 'bestsellers',
     name: 'Best Sellers',
     description: 'Our most popular items.',
+    image: 'https://img/bestsellers.jpg',
     ...overrides,
   }
 }
@@ -61,6 +62,10 @@ function baseInput(overrides: Partial<Record<string, unknown>> = {}) {
     slug: 'bestsellers',
     name: 'Best Sellers',
     description: 'Our most popular items.',
+    // Required-but-nullable, like `description` — an update is a full
+    // replacement, so callers always state the image rather than omitting it
+    // and leaving "unchanged" ambiguous.
+    image: 'https://img/bestsellers.jpg',
     ...overrides,
   }
 }
@@ -85,6 +90,7 @@ describe('createCollection', () => {
         name: input.name,
         slug: input.slug,
         description: input.description,
+        image: input.image,
       },
     })
 
@@ -139,6 +145,7 @@ describe('updateCollection', () => {
         name: input.name,
         slug: input.slug,
         description: input.description,
+        image: input.image,
       },
     })
 

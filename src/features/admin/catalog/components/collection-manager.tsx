@@ -20,6 +20,7 @@ interface FormFieldErrors {
   name?: string
   slug?: string
   description?: string
+  image?: string
 }
 
 /**
@@ -44,6 +45,7 @@ export function CollectionManager({ collections }: CollectionManagerProps) {
   const [name, setName] = useState('')
   const [slug, setSlug] = useState('')
   const [description, setDescription] = useState('')
+  const [image, setImage] = useState('')
   const [fieldErrors, setFieldErrors] = useState<FormFieldErrors>({})
   const [formError, setFormError] = useState<string | undefined>(undefined)
 
@@ -55,6 +57,7 @@ export function CollectionManager({ collections }: CollectionManagerProps) {
     setName('')
     setSlug('')
     setDescription('')
+    setImage('')
     setFieldErrors({})
     setFormError(undefined)
     setFormOpen(true)
@@ -65,6 +68,7 @@ export function CollectionManager({ collections }: CollectionManagerProps) {
     setName(collection.name)
     setSlug(collection.slug)
     setDescription(collection.description ?? '')
+    setImage(collection.image ?? '')
     setFieldErrors({})
     setFormError(undefined)
     setFormOpen(true)
@@ -75,10 +79,15 @@ export function CollectionManager({ collections }: CollectionManagerProps) {
     setFormError(undefined)
 
     const trimmedDescription = description.trim()
+    const trimmedImage = image.trim()
     const payload = {
       name: name.trim(),
       slug: slug.trim(),
       description: trimmedDescription ? trimmedDescription : null,
+      // Empty means "no image", not an empty string — the column is nullable
+      // and the storefront branches on null to decide whether to render a
+      // tile image at all.
+      image: trimmedImage ? trimmedImage : null,
     }
 
     startTransition(async () => {
@@ -99,7 +108,8 @@ export function CollectionManager({ collections }: CollectionManagerProps) {
         const issueMap: FormFieldErrors = {}
         for (const issue of result.issues) {
           const path = issue.path.map(String).join('.')
-          if (path === 'name' || path === 'slug' || path === 'description') issueMap[path] = issue.message
+          if (path === 'name' || path === 'slug' || path === 'description' || path === 'image')
+            issueMap[path] = issue.message
         }
         if (Object.keys(issueMap).length > 0) {
           setFieldErrors(issueMap)
@@ -174,7 +184,9 @@ export function CollectionManager({ collections }: CollectionManagerProps) {
           <DialogHeader>
             <DialogTitle>{editingId ? 'Edit collection' : 'New collection'}</DialogTitle>
             <DialogDescription>
-              {editingId ? "Update this collection's name, slug, or description." : 'Create a new collection to group products under.'}
+              {editingId
+                ? "Update this collection's name, slug, description, or tile image."
+                : 'Create a new collection to group products under.'}
             </DialogDescription>
           </DialogHeader>
 
@@ -211,6 +223,22 @@ export function CollectionManager({ collections }: CollectionManagerProps) {
                   {fieldErrors.description}
                 </p>
               ) : null}
+            </div>
+
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="cm-image">Tile image URL</Label>
+              <Input
+                id="cm-image"
+                value={image}
+                onChange={(e) => setImage(e.target.value)}
+                disabled={pending}
+                aria-invalid={!!fieldErrors.image}
+                placeholder="https://..."
+              />
+              <p className="text-xs text-muted-foreground">
+                Shown on the collection card on the home page and the collections index. Leave blank for no image.
+              </p>
+              {fieldErrors.image ? <p className="text-sm text-destructive">{fieldErrors.image}</p> : null}
             </div>
           </div>
 

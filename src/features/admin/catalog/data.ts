@@ -264,6 +264,7 @@ export interface AdminCollectionListItem {
   name: string
   slug: string
   description: string | null
+  image: string | null
   productCount: number
 }
 
@@ -281,6 +282,7 @@ export async function listCollectionsWithCounts(): Promise<AdminCollectionListIt
     name: row.name,
     slug: row.slug,
     description: row.description,
+    image: row.image,
     productCount: row._count.products,
   }))
 }
