@@ -124,7 +124,8 @@ export async function getBookingRates(orderNumber: string): Promise<BookingRates
         name: 'MSE Lux order',
         description: 'Jewelry order',
         unitWeightGrams: unitWeight,
-        unit_amount: order.subtotalMinor,
+        // Minor units; `fetchRates` converts to naira at the boundary.
+        unitAmountMinor: order.subtotalMinor,
         quantity: 1,
       },
     ]

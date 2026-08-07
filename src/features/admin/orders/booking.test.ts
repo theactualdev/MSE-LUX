@@ -127,7 +127,7 @@ describe('getBookingRates', () => {
           description: 'Jewelry order',
           // unitWeightGrams = base(300) + weighed line: 250*2 + unweighed line (null product): 150*3 = 1250
           unitWeightGrams: 300 + 250 * 2 + 150 * 3,
-          unit_amount: 500_000,
+          unitAmountMinor: 500_000,
           quantity: 1,
         },
       ],

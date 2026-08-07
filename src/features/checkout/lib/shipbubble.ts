@@ -50,7 +50,14 @@ export interface PackageItem {
   name: string
   description?: string
   unitWeightGrams: number
-  unit_amount: number
+  /**
+   * Declared value in NGN MINOR units (kobo). ShipBubble's `unit_amount` is
+   * naira, so `fetchRates` divides at the boundary — the same shape as
+   * `unitWeightGrams`, and named this way for the same reason: the app works
+   * in minor units everywhere, and an unqualified `unit_amount` is exactly
+   * how 100x got sent in the first place.
+   */
+  unitAmountMinor: number
   quantity: number
 }
 
@@ -152,10 +159,20 @@ export async function fetchRates(input: {
       reciever_address_code: input.receiverAddressCode,
       pickup_date: input.pickupDate,
       category_id: SHIPBUBBLE_CATEGORY_ID,
-      // ShipBubble's `unit_weight` is KILOGRAMS. Callers work in grams.
-      package_items: input.packageItems.map(({ unitWeightGrams, ...rest }) => ({
+      // Two unit conversions, both at this boundary. ShipBubble's
+      // `unit_weight` is KILOGRAMS and its `unit_amount` is NAIRA; callers
+      // work in grams and kobo throughout.
+      //
+      // The declared-value one was found live: sending kobo made a ₦60,000
+      // bracelet declare as ₦6,000,000, and international couriers price
+      // insurance on declared value — UPS quoted ₦147,969 instead of ₦85,431,
+      // a 73% overcharge on the customer. It never showed domestically
+      // because Nigerian rates ignore declared value entirely, which is
+      // exactly why it survived the original units audit.
+      package_items: input.packageItems.map(({ unitWeightGrams, unitAmountMinor, ...rest }) => ({
         ...rest,
         unit_weight: unitWeightGrams / 1000,
+        unit_amount: unitAmountMinor / 100,
       })),
       package_dimension: input.packageDimension,
     }),

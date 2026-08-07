@@ -147,7 +147,7 @@ describe('fetchRates', () => {
   const baseInput = {
     senderAddressCode: 'sender-1',
     receiverAddressCode: 'receiver-1',
-    packageItems: [{ name: 'Ring', description: 'Gold ring', unitWeightGrams: 450, unit_amount: 50_000, quantity: 1 }],
+    packageItems: [{ name: 'Ring', description: 'Gold ring', unitWeightGrams: 450, unitAmountMinor: 50_000, quantity: 1 }],
     packageDimension: { length: 20, width: 15, height: 8 },
     pickupDate: '2026-07-26',
   }
@@ -212,14 +212,20 @@ describe('fetchRates', () => {
       Authorization: `Bearer ${API_KEY}`,
       'Content-Type': 'application/json',
     })
-    // ShipBubble is sent KILOGRAMS (`unit_weight`), never the caller's grams,
-    // and `unitWeightGrams` must not leak into the request body.
+    // ShipBubble is sent KILOGRAMS (`unit_weight`) and NAIRA (`unit_amount`),
+    // never the caller's grams and kobo — and neither app-side field may leak
+    // into the request body.
+    //
+    // The declared value matters as much as the weight: sending kobo made a
+    // ₦60,000 bracelet declare as ₦6,000,000, and international couriers
+    // price insurance on it — a live 73% overcharge that domestic rates hid,
+    // because Nigerian pricing ignores declared value entirely.
     expect(JSON.parse(init.body)).toEqual({
       sender_address_code: 'sender-1',
       reciever_address_code: 'receiver-1',
       pickup_date: '2026-07-26',
       category_id: 0,
-      package_items: [{ name: 'Ring', description: 'Gold ring', unit_weight: 0.45, unit_amount: 50_000, quantity: 1 }],
+      package_items: [{ name: 'Ring', description: 'Gold ring', unit_weight: 0.45, unit_amount: 500, quantity: 1 }],
       package_dimension: baseInput.packageDimension,
     })
   })

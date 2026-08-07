@@ -482,7 +482,7 @@ export async function buildShippingRates(input: ShippingRatesInput, stamp: Quote
           name: 'MSE Lux order',
           description: 'Jewelry order',
           unitWeightGrams: totalWeightGrams,
-          unit_amount: totalValueMinor,
+          unitAmountMinor: totalValueMinor,
           quantity: 1,
         },
       ]
