@@ -108,6 +108,12 @@ export const RATE_LIMITS = {
   // enumeration. CGNAT-aware like the rest — a household behind one carrier IP
   // trying a code from an email must never be throttled.
   discountCode: { limit: 20, windowSeconds: 60 },
+  // The site-gate launch password (`enterStore`) is a PASSWORD-GUESSING
+  // surface — the only bucket here defending an actual shared credential, so
+  // it stays the tightest write bucket. CGNAT-aware like the rest: a handful
+  // of testers behind one Nigerian carrier IP mistyping is ordinary; the
+  // window is short so a brief collision self-heals in a minute.
+  gate: { limit: 10, windowSeconds: 60 },
 } as const
 
 export type RateLimitKind = keyof typeof RATE_LIMITS

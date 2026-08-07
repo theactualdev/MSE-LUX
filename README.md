@@ -35,6 +35,7 @@ Copy the real values into `.env` — the app validates them at startup
 | `RESEND_API_KEY` / `EMAIL_FROM` | Transactional email |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Rate limiting (fails open) |
 | `CRON_SECRET` | Authenticates the order-reaper cron route |
+| `SITE_PASSWORD` | **Pre-launch site gate.** When set, every storefront route requires this password. Unset = the site is public — removing it and redeploying *is* the launch switch |
 
 > `NEXT_PUBLIC_*` values are inlined at **build time**. Changing one in Vercel
 > has no effect until the next deploy.
@@ -50,6 +51,23 @@ curl -sS -X POST https://api.shipbubble.com/v1/shipping/address/validate -H "Aut
 
 Check the returned `formatted_address` before trusting it — a plausible address
 that geocodes to the wrong street yields a valid code and silently wrong prices.
+
+### Site gate (pre-launch)
+
+While `SITE_PASSWORD` is set, `src/proxy.ts` redirects every request to `/gate`
+until the visitor enters it. Enforcement is server-side and **deny-by-default**,
+so routes added later are covered without being registered anywhere.
+
+Exempt, each for a stated reason in `features/gate/gate.ts`: `/admin` (its own
+`requireRole` auth — the storefront password must never grant admin access),
+the Paystack webhook and cron routes (server-to-server callers that hold no
+cookie and authenticate themselves), `/auth/callback` (OAuth mid-login), and
+`robots.txt`. The sitemap is deliberately **not** exempt — it enumerates
+product slugs.
+
+The session cookie is an HMAC of its own expiry, keyed with the password, so
+**changing `SITE_PASSWORD` revokes every existing session**. To open the store,
+delete the variable and redeploy.
 
 ## Commands
 
@@ -101,13 +119,14 @@ any dropped file in isolation.
 ## Layout
 
 ```
-src/app/(storefront)   customer-facing routes  ─┐ two root layouts
-src/app/(admin)        admin, role-gated       ─┘
+src/app/(storefront)   customer-facing routes  ─┐
+src/app/(admin)        admin, role-gated        ├ three root layouts
+src/app/(gate)         pre-launch password gate ─┘
 src/features/*         feature modules (catalog, cart, checkout, orders, admin, …)
 src/components/ui      primitives      src/components/brand  brand chrome
 src/lib                db, env, seo, nav, utils
 prisma/                schema, migrations, seed
-scripts/               brand asset generation
+scripts/               generators (brand assets, subdivisions)
 docs/                  specs, plans and phase notes (gitignored)
 ```
 

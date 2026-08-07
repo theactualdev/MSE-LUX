@@ -235,6 +235,9 @@ describe('RATE_LIMITS', () => {
       newsletter: { limit: 20, windowSeconds: 300 },
       wishlistShare: { limit: 60, windowSeconds: 60 },
       discountCode: { limit: 20, windowSeconds: 60 },
+      // The launch-password gate — the one bucket defending a shared
+      // credential, so it stays the tightest write bucket.
+      gate: { limit: 10, windowSeconds: 60 },
     })
   })
 })
