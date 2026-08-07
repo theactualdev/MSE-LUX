@@ -29,7 +29,7 @@ Copy the real values into `.env` — the app validates them at startup
 | `NEXT_PUBLIC_BRAND_NAME` | Brand name shown in chrome |
 | `PAYSTACK_SECRET_KEY` / `NEXT_PUBLIC_PAYSTACK_PUBLIC_KEY` | Payments + webhook verification |
 | `SHIPBUBBLE_API_KEY` | Live courier rates and label booking |
-| `SHIPBUBBLE_ORIGIN_ADDRESS_CODE` | The store's validated pickup address |
+| `SHIPBUBBLE_ORIGIN_ADDRESS_CODE` | The store's validated pickup address. **Issued per ShipBubble account** — a sandbox code is rejected by a production key, so re-validate the origin whenever the API key changes environment (see below) |
 | `SHIPBUBBLE_CATEGORY_ID` | ShipBubble package category |
 | `SHIPBUBBLE_QUOTE_SECRET` | HMAC key signing shipping quote tokens |
 | `RESEND_API_KEY` / `EMAIL_FROM` | Transactional email |
@@ -38,6 +38,18 @@ Copy the real values into `.env` — the app validates them at startup
 
 > `NEXT_PUBLIC_*` values are inlined at **build time**. Changing one in Vercel
 > has no effect until the next deploy.
+
+**Swapping the ShipBubble key between sandbox and production** invalidates the
+origin address code along with it — every quote then fails with `Invalid sender
+address code` and checkout silently serves flat rates instead. Re-validate and
+put the returned `address_code` in `SHIPBUBBLE_ORIGIN_ADDRESS_CODE`:
+
+```bash
+curl -sS -X POST https://api.shipbubble.com/v1/shipping/address/validate -H "Authorization: Bearer $SHIPBUBBLE_API_KEY" -H "Content-Type: application/json" -d '{"name":"MSE Lux","email":"info@mselux.co","phone":"+2348132225318","address":"1 Koleade Street, Council Market, Lagos, Nigeria"}'
+```
+
+Check the returned `formatted_address` before trusting it — a plausible address
+that geocodes to the wrong street yields a valid code and silently wrong prices.
 
 ## Commands
 
